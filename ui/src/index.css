@@ -1,0 +1,135 @@
+/**
+ * What this does:
+ *      @tailwind directives - Import Tailwind's CSS
+ *      Dark gradient background with animations
+ *      Custom component classes (.card, .btn, .input) using @apply
+ *      Advanced keyframe animations for floating, glowing, scanning effects
+ *      Glassmorphism and backdrop blur effects
+ */
+
+@import './animations.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    font-weight: 400;
+
+    color-scheme: dark;
+    color: rgba(255, 255, 255, 0.87);
+
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Smooth scrolling & 120Hz support */
+  *,
+  *::before,
+  *::after {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Lock html/body/#root to exact viewport size so the document itself never
+     scrolls.  This prevents iOS standalone-PWA pull-to-refresh from firing
+     and keeps the sticky header stable. */
+  html {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #0f172a;
+    touch-action: manipulation;
+    overscroll-behavior: none;
+    /* Safe-area insets are now handled by the app container so body stays
+       exactly viewport-sized (no extra padding that makes it scrollable). */
+  }
+
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* GPU-accelerated scroll containers — avoid translateZ and will-change on mobile
+     as they can cause tiles/cards to disappear during scroll repaints */
+  @media (min-width: 769px) {
+    [class*="overflow-y-auto"],
+    [class*="overflow-x-auto"],
+    [class*="overflow-auto"] {
+      will-change: scroll-position;
+      transform: translateZ(0);
+      -webkit-backface-visibility: hidden;
+      backface-visibility: hidden;
+    }
+  }
+
+  /* Custom Scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(30, 41, 59) rgb(15, 23, 42);
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  @media (max-width: 768px) {
+    *::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+  }
+
+  *::-webkit-scrollbar-track {
+    background: rgb(15, 23, 42);
+    border-radius: 5px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgb(51, 65, 85), rgb(30, 41, 59));
+    border-radius: 5px;
+    border: 2px solid rgb(15, 23, 42);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgb(14, 165, 233), rgb(59, 130, 246));
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-slate-800/40 backdrop-blur-xl rounded-xl border border-slate-700/50 shadow-2xl;
+    @apply hover:border-primary-500/50 transition-all duration-300;
+    @apply hover:shadow-primary-500/20 hover:shadow-xl;
+    @apply hover:-translate-y-1;
+  }
+  
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900;
+    @apply transform hover:scale-105 active:scale-95;
+  }
+  
+  .btn-primary {
+    @apply btn bg-gradient-to-r from-primary-600 to-blue-600 hover:from-primary-500 hover:to-blue-500 text-white focus:ring-primary-500;
+    @apply shadow-lg shadow-primary-500/50;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-slate-700 hover:bg-slate-600 text-white focus:ring-slate-500;
+  }
+  
+  .input {
+    @apply w-full px-4 py-2 bg-slate-800/80 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200;
+  }
+}

@@ -1,0 +1,17 @@
+services:
+  usenet-ultimate:
+    build: .
+    image: usenet-ultimate:latest
+    container_name: usenet-ultimate
+    ports:
+      - "1337:1337"
+    volumes:
+      - ./config:/app/config
+    environment:
+      - PORT=1337
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped

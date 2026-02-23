@@ -1,0 +1,86 @@
+[
+  {
+    "name": "abNZB",
+    "url": "https://abnzb.com/api",
+    "website": "https://abnzb.com/profile",
+    "logo": "/api/favicon?url=https://abnzb.com/favicon.ico"
+  },
+  {
+    "name": "altHUB",
+    "url": "https://api.althub.co.za/api",
+    "website": "https://althub.co.za/profile",
+    "logo": "/api/favicon?url=https://althub.co.za/templates/Dark/images/icons/favicon.png"
+  },
+  {
+    "name": "Digital Carnage",
+    "url": "https://digitalcarnage.info/api",
+    "website": "https://digitalcarnage.info/profile",
+    "logo": "/api/favicon?url=https://digitalcarnage.info/favicon.ico"
+  },
+  {
+    "name": "DrunkenSlug",
+    "url": "https://api.drunkenslug.com/api",
+    "website": "https://drunkenslug.com/profile",
+    "logo": "/api/favicon?url=https://drunkenslug.com/favicon.ico"
+  },
+  {
+    "name": "Miatrix",
+    "url": "https://www.miatrix.com/api",
+    "website": "https://www.miatrix.com/profile",
+    "logo": "/api/favicon?url=https://www.miatrix.com/favicon.ico"
+  },
+  {
+    "name": "NinjaCentral",
+    "url": "https://ninjacentral.co.za/api",
+    "website": "https://ninjacentral.co.za/profile",
+    "logo": "/api/favicon?url=https://ninjacentral.co.za/favicon.ico"
+  },
+  {
+    "name": "NZBFinder",
+    "url": "https://nzbfinder.ws/api",
+    "website": "https://nzbfinder.ws/profile",
+    "logo": "/api/favicon?url=https://nzbfinder.ws/favicon.ico"
+  },
+  {
+    "name": "NZBGeek",
+    "url": "https://api.nzbgeek.info/api",
+    "website": "https://nzbgeek.info/dashboard.php?myaccount",
+    "logo": "/api/favicon?url=https://nzbgeek.info/favicon.ico"
+  },
+  {
+    "name": "NZBPlanet",
+    "url": "https://nzbplanet.net/api",
+    "website": "https://nzbplanet.net/profile",
+    "logo": "/api/favicon?url=https://nzbplanet.net/views/images/favicon.ico"
+  },
+  {
+    "name": "SceneNZBs",
+    "url": "https://scenenzbs.com/api",
+    "website": "https://scenenzbs.com/profile",
+    "logo": "/api/favicon?url=https://scenenzbs.com/favicon.ico"
+  },
+  {
+    "name": "SquareEyed",
+    "url": "https://squaredeyed.info/api",
+    "website": "https://squaredeyed.org/profile",
+    "logo": "/api/favicon?url=https://squareeyed.org/templates/square/assets/images/se.png"
+  },
+  {
+    "name": "Tabula Rasa",
+    "url": "https://www.tabula-rasa.pw/api/v1/",
+    "website": "https://www.tabula-rasa.pw/profile",
+    "logo": "/api/favicon?url=https://www.tabula-rasa.pw/favicon.ico"
+  },
+  {
+    "name": "Usenet-Crawler",
+    "url": "https://www.usenet-crawler.com/api",
+    "website": "https://www.usenet-crawler.com/profile",
+    "logo": "/api/favicon?url=https://www.usenet-crawler.com/templates/dark/images/favicon.ico"
+  },
+  {
+    "name": "Custom",
+    "url": "",
+    "website": "",
+    "logo": ""
+  }
+]
