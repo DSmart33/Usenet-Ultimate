@@ -147,7 +147,7 @@ export const DEFAULT_FILTERS = {
   encodePriority: ['AV1', 'HEVC', 'AVC', 'Unknown'] as string[],
   visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'IMAX', 'HDR10', 'HDR', '10bit', 'AI', 'SDR', 'Unknown'] as string[],
   audioTagPriority: ['Atmos', 'DTS:X', 'DTS-HD MA', 'TrueHD', 'DTS-HD', 'DD+', 'DD'] as string[],
-  languagePriority: ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Japanese', 'Chinese', 'Russian', 'Arabic', 'Portuguese', 'Spanish', 'French', 'German', 'Italian', 'Korean', 'Hindi', 'Bengali', 'Punjabi', 'Marathi', 'Gujarati', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Thai', 'Vietnamese', 'Indonesian', 'Turkish', 'Hebrew', 'Persian', 'Ukrainian', 'Greek', 'Lithuanian', 'Latvian', 'Estonian', 'Polish', 'Czech', 'Slovak', 'Hungarian', 'Romanian', 'Bulgarian', 'Serbian', 'Croatian', 'Slovenian', 'Dutch', 'Danish', 'Finnish', 'Swedish', 'Norwegian', 'Malay', 'Latino'] as string[],
+  languagePriority: ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'] as string[],
   editionPriority: ['Extended', 'Superfan', "Director's Cut", 'Unrated', 'Uncut', 'Theatrical', 'Special Edition', "Collector's Edition", 'Remastered', 'IMAX Edition', 'Standard'] as string[],
   preferNonStandardEdition: false
 };
