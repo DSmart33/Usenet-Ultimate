@@ -587,10 +587,14 @@ function App() {
           setProwlarrUrl={ac.setProwlarrUrl}
           prowlarrApiKey={ac.prowlarrApiKey}
           setProwlarrApiKey={ac.setProwlarrApiKey}
+          showProwlarrKey={ac.showProwlarrKey}
+          setShowProwlarrKey={ac.setShowProwlarrKey}
           nzbhydraUrl={ac.nzbhydraUrl}
           setNzbhydraUrl={ac.setNzbhydraUrl}
           nzbhydraApiKey={ac.nzbhydraApiKey}
           setNzbhydraApiKey={ac.setNzbhydraApiKey}
+          showNzbhydraKey={ac.showNzbhydraKey}
+          setShowNzbhydraKey={ac.setShowNzbhydraKey}
           syncedIndexers={ac.syncedIndexers}
           setSyncedIndexers={ac.setSyncedIndexers}
           syncStatus={ac.syncStatus}
@@ -609,7 +613,6 @@ function App() {
           getAvailableMovieMethods={getAvailableMovieMethods}
           getAvailableTvMethods={getAvailableTvMethods}
           renderMethodLabel={renderMethodLabel}
-          showAddIndexer={ac.showAddIndexer}
           setShowAddIndexer={ac.setShowAddIndexer}
           expandedIndexer={ac.expandedIndexer}
           setExpandedIndexer={ac.setExpandedIndexer}

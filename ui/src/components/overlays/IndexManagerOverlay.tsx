@@ -99,12 +99,16 @@ interface IndexManagerOverlayProps {
   setProwlarrUrl: React.Dispatch<React.SetStateAction<string>>;
   prowlarrApiKey: string;
   setProwlarrApiKey: React.Dispatch<React.SetStateAction<string>>;
+  showProwlarrKey: boolean;
+  setShowProwlarrKey: React.Dispatch<React.SetStateAction<boolean>>;
 
   // NZBHydra
   nzbhydraUrl: string;
   setNzbhydraUrl: React.Dispatch<React.SetStateAction<string>>;
   nzbhydraApiKey: string;
   setNzbhydraApiKey: React.Dispatch<React.SetStateAction<string>>;
+  showNzbhydraKey: boolean;
+  setShowNzbhydraKey: React.Dispatch<React.SetStateAction<boolean>>;
 
   // Sync state
   syncedIndexers: SyncedIndexer[];
@@ -131,7 +135,6 @@ interface IndexManagerOverlayProps {
   renderMethodLabel: (m: { value: string; label: string }) => React.ReactNode;
 
   // Newznab indexer management
-  showAddIndexer: boolean;
   setShowAddIndexer: React.Dispatch<React.SetStateAction<boolean>>;
   expandedIndexer: string | null;
   setExpandedIndexer: React.Dispatch<React.SetStateAction<string | null>>;
@@ -211,10 +214,14 @@ export function IndexManagerOverlay({
   setProwlarrUrl,
   prowlarrApiKey,
   setProwlarrApiKey,
+  showProwlarrKey,
+  setShowProwlarrKey,
   nzbhydraUrl,
   setNzbhydraUrl,
   nzbhydraApiKey,
   setNzbhydraApiKey,
+  showNzbhydraKey,
+  setShowNzbhydraKey,
   syncedIndexers,
   setSyncedIndexers,
   syncStatus,
@@ -233,7 +240,6 @@ export function IndexManagerOverlay({
   getAvailableMovieMethods,
   getAvailableTvMethods,
   renderMethodLabel,
-  showAddIndexer: _showAddIndexer,
   setShowAddIndexer,
   expandedIndexer,
   setExpandedIndexer,
@@ -806,7 +812,18 @@ export function IndexManagerOverlay({
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">API Key</label>
-                    <input type="password" value={prowlarrApiKey} onChange={(e) => { setProwlarrApiKey(e.target.value); resetSyncState(); }} placeholder="Your Prowlarr API key" className="input" />
+                    <div className="relative">
+                      <input type={showProwlarrKey ? 'text' : 'password'} value={prowlarrApiKey} onChange={(e) => { setProwlarrApiKey(e.target.value); resetSyncState(); }} placeholder="Your Prowlarr API key" className="input pr-9" />
+                      {prowlarrApiKey && (
+                        <button
+                          type="button"
+                          onClick={() => setShowProwlarrKey(v => !v)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                        >
+                          {showProwlarrKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Test + Sync buttons */}
@@ -1062,7 +1079,18 @@ export function IndexManagerOverlay({
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">API Key</label>
-                    <input type="password" value={nzbhydraApiKey} onChange={(e) => { setNzbhydraApiKey(e.target.value); resetSyncState(); }} placeholder="Your NZBHydra2 API key" className="input" />
+                    <div className="relative">
+                      <input type={showNzbhydraKey ? 'text' : 'password'} value={nzbhydraApiKey} onChange={(e) => { setNzbhydraApiKey(e.target.value); resetSyncState(); }} placeholder="Your NZBHydra2 API key" className="input pr-9" />
+                      {nzbhydraApiKey && (
+                        <button
+                          type="button"
+                          onClick={() => setShowNzbhydraKey(v => !v)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                        >
+                          {showNzbhydraKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Test + Sync buttons */}
