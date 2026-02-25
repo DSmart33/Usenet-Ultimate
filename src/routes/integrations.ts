@@ -31,8 +31,8 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
 
   router.post('/prowlarr/test', async (req, res) => {
     try {
-      const url = req.body.url || config.prowlarrUrl;
-      const apiKey = req.body.apiKey || config.prowlarrApiKey;
+      const url = req.body.url ?? config.prowlarrUrl;
+      const apiKey = req.body.apiKey ?? config.prowlarrApiKey;
       if (!url || !apiKey) return res.status(400).json({ success: false, message: 'Prowlarr URL and API key are required' });
 
       const response = await axios.get(`${url}/api/v1/indexer`, {
@@ -50,8 +50,8 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
 
   router.post('/prowlarr/sync', async (req, res) => {
     try {
-      const url = req.body?.url || config.prowlarrUrl;
-      const apiKey = req.body?.apiKey || config.prowlarrApiKey;
+      const url = req.body?.url ?? config.prowlarrUrl;
+      const apiKey = req.body?.apiKey ?? config.prowlarrApiKey;
       if (!url || !apiKey) return res.status(400).json({ error: 'Prowlarr not configured' });
 
       const response = await axios.get(`${url}/api/v1/indexer`, {
@@ -132,8 +132,8 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
 
   router.post('/nzbhydra/test', async (req, res) => {
     try {
-      const url = req.body.url || config.nzbhydraUrl;
-      const apiKey = req.body.apiKey || config.nzbhydraApiKey;
+      const url = req.body.url ?? config.nzbhydraUrl;
+      const apiKey = req.body.apiKey ?? config.nzbhydraApiKey;
       if (!url || !apiKey) return res.status(400).json({ success: false, message: 'NZBHydra URL and API key are required' });
 
       // Test with a caps request (standard Newznab)
@@ -154,8 +154,8 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
 
   router.post('/nzbhydra/sync', async (req, res) => {
     try {
-      const url = req.body?.url || config.nzbhydraUrl;
-      const apiKey = req.body?.apiKey || config.nzbhydraApiKey;
+      const url = req.body?.url ?? config.nzbhydraUrl;
+      const apiKey = req.body?.apiKey ?? config.nzbhydraApiKey;
       if (!url || !apiKey) return res.status(400).json({ error: 'NZBHydra not configured' });
 
       // NZBHydra2 exposes indexer info via its internal API
@@ -269,7 +269,7 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
 
   router.post('/zyclops/test', async (req, res) => {
     try {
-      const endpoint = req.body.endpoint || config.zyclopsEndpoint || 'https://zyclops.elfhosted.com';
+      const endpoint = req.body.endpoint ?? config.zyclopsEndpoint ?? 'https://zyclops.elfhosted.com';
       const testUrl = `${endpoint.replace(/\/$/, '')}/api`;
       console.log(`\u{1F916} Testing Zyclops connection: ${testUrl}`);
 
@@ -298,8 +298,8 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
 
   router.post('/easynews/test', async (req, res) => {
     try {
-      const username = req.body.username || config.easynewsUsername;
-      const password = req.body.password || config.easynewsPassword;
+      const username = req.body.username ?? config.easynewsUsername;
+      const password = req.body.password ?? config.easynewsPassword;
       if (!username || !password) {
         return res.status(400).json({ success: false, message: 'EasyNews username and password are required' });
       }
