@@ -618,7 +618,9 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setFilters(filterConfig);
       setMovieFilters(data.movieFilters || null);
       // Default TV filters: edition sort at #1 and enabled
-      if (!data.tvFilters) {
+      // Only create defaults on first-time setup (undefined), not when
+      // the user has explicitly chosen "use global" (null)
+      if (data.tvFilters === undefined) {
         const tvDefaults = JSON.parse(JSON.stringify(filterConfig));
         const edIdx = tvDefaults.sortOrder.indexOf('edition');
         if (edIdx > 0) {
