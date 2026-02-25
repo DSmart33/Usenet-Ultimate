@@ -5,17 +5,14 @@
 import { useState } from 'react';
 import { Download, Copy, ExternalLink, XCircle } from 'lucide-react';
 import clsx from 'clsx';
-import type { Config } from '../types';
 
 interface InstallTabProps {
-  config: Config;
   manifestKey: string;
+  hasIndexers: boolean;
 }
 
-export function InstallTab({ config, manifestKey }: InstallTabProps) {
+export function InstallTab({ manifestKey, hasIndexers }: InstallTabProps) {
   const [copied, setCopied] = useState(false);
-
-  const hasIndexers = config.indexers.length > 0;
 
   const manifestUrl = manifestKey
     ? `${window.location.origin}/${manifestKey}/manifest.json`

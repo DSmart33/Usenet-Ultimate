@@ -376,7 +376,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // Auto-save: synced indexers (Prowlarr/NZBHydra per-indexer settings)
   useEffect(() => {
     if (!initialLoadDone.current) return;
-    if (syncedIndexers.length === 0) return;
     const timer = setTimeout(() => saveSettings({ syncedIndexers }), 500);
     return () => clearTimeout(timer);
   }, [syncedIndexers, saveSettings]);

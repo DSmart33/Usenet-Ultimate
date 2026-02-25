@@ -452,7 +452,11 @@ function App() {
   }
 
   // ── Computed values ───────────────────────────────────────────────────
-  const hasIndexers = ac.config && ac.config.indexers.length > 0;
+  const hasIndexers = ac.config && (
+    ac.config.indexers.length > 0 ||
+    ac.syncedIndexers.length > 0 ||
+    ac.easynewsEnabled
+  );
   const enabledIndexersCount = ac.config ? ac.config.indexers.filter(i => i.enabled).length : 0;
 
   // ── Main render ───────────────────────────────────────────────────────
@@ -919,8 +923,8 @@ function App() {
         {/* Tab Content - Install */}
         {ac.activeTab === 'install' && ac.config && (
           <InstallTab
-            config={ac.config}
             manifestKey={auth.manifestKey}
+            hasIndexers={!!hasIndexers}
           />
         )}
       </div>
