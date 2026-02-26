@@ -107,8 +107,8 @@ export async function fetchIndexerCaps(
     const zyclopsEndpoint = config.zyclopsEndpoint || 'https://zyclops.elfhosted.com';
     effectiveUrl = `${zyclopsEndpoint.replace(/\/$/, '')}/api`;
     extraParams = { target: url };
-    if (zyclops.backbone) extraParams.backbone = zyclops.backbone;
-    else if (zyclops.providerHost) extraParams.provider_host = zyclops.providerHost;
+    if (zyclops.backbone?.length) extraParams.backbone = zyclops.backbone.join(',');
+    if (zyclops.providerHosts) extraParams.provider_host = zyclops.providerHosts;
     console.log(`🤖 Fetching caps via Zyclops for ${indexerName || 'unknown'}: ${url} → ${effectiveUrl}`);
   }
 

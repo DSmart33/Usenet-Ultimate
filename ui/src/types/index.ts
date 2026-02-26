@@ -8,8 +8,8 @@ export interface IndexerCaps {
 
 export interface ZyclopsIndexerConfig {
   enabled: boolean;
-  backbone?: string;
-  providerHost?: string;
+  backbone?: string[];
+  providerHosts?: string;
   showUnknown?: boolean;
   singleIp?: boolean;
 }

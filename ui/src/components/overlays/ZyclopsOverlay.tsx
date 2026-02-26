@@ -193,19 +193,54 @@ export function ZyclopsOverlay({
                         {/* Per-indexer settings (visible when enabled) */}
                         {isEnabled && (
                           <div className="space-y-2 pt-2 border-t border-slate-700/30">
-                            {/* Backbone Selection */}
+                            {/* Backbone Selection (multi-select) */}
                             <div>
-                              <label className="block text-xs font-medium text-slate-400 mb-1">Backbone / Provider</label>
-                              <select
-                                value={zyclopsConfig.backbone || (zyclopsConfig.providerHost ? '__custom__' : ZYCLOPS_BACKBONES[0])}
+                              <label className="block text-xs font-medium text-slate-400 mb-1">Backbones</label>
+                              <div className="space-y-1">
+                                {ZYCLOPS_BACKBONES.map(b => {
+                                  const selected = zyclopsConfig.backbone || [];
+                                  const isChecked = selected.includes(b);
+                                  return (
+                                    <label key={b} className="flex items-center gap-1.5 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          const newBackbones = e.target.checked
+                                            ? [...selected, b]
+                                            : selected.filter(x => x !== b);
+                                          const newConfig: ZyclopsIndexerConfig = {
+                                            ...zyclopsConfig,
+                                            backbone: newBackbones,
+                                          };
+                                          apiFetch(`/api/indexers/${encodeURIComponent(indexer.name)}`, {
+                                            method: 'PUT',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ zyclops: newConfig }),
+                                          }).then(() => {
+                                            setConfig(prev => prev ? { ...prev, indexers: prev.indexers.map(i => i.name === indexer.name ? { ...i, zyclops: newConfig } : i) } : prev);
+                                          });
+                                        }}
+                                        className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-700 text-violet-500 focus:ring-violet-500 focus:ring-offset-slate-800"
+                                      />
+                                      <span className="text-[11px] text-slate-300">{b}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Provider Hosts */}
+                            <div>
+                              <label className="block text-xs font-medium text-slate-400 mb-1">Provider hosts</label>
+                              <input
+                                type="text"
+                                value={zyclopsConfig.providerHosts || ''}
                                 onChange={(e) => {
-                                  const val = e.target.value;
-                                  let newConfig: ZyclopsIndexerConfig;
-                                  if (val === '__custom__') {
-                                    newConfig = { ...zyclopsConfig, backbone: undefined, providerHost: zyclopsConfig.providerHost || '' };
-                                  } else {
-                                    newConfig = { ...zyclopsConfig, backbone: val, providerHost: undefined };
-                                  }
+                                  const newConfig: ZyclopsIndexerConfig = {
+                                    ...zyclopsConfig,
+                                    providerHosts: e.target.value || undefined,
+                                  };
                                   apiFetch(`/api/indexers/${encodeURIComponent(indexer.name)}`, {
                                     method: 'PUT',
                                     headers: { 'Content-Type': 'application/json' },
@@ -214,44 +249,19 @@ export function ZyclopsOverlay({
                                     setConfig(prev => prev ? { ...prev, indexers: prev.indexers.map(i => i.name === indexer.name ? { ...i, zyclops: newConfig } : i) } : prev);
                                   });
                                 }}
+                                placeholder="e.g. news.eweka.nl, news.example.com"
                                 className="input text-xs"
-                              >
-                                {ZYCLOPS_BACKBONES.map(b => (
-                                  <option key={b} value={b}>{b}</option>
-                                ))}
-                                <option value="__custom__">Custom provider host...</option>
-                              </select>
+                              />
+                              <p className="text-[10px] text-slate-500 mt-1">Takes priority over backbone selections</p>
                             </div>
-
-                            {/* Custom Provider Host (when "Custom" selected) */}
-                            {!zyclopsConfig.backbone && zyclopsConfig.providerHost !== undefined && (
-                              <div>
-                                <label className="block text-xs font-medium text-slate-400 mb-1">Provider Host</label>
-                                <input
-                                  type="text"
-                                  value={zyclopsConfig.providerHost || ''}
-                                  onChange={(e) => {
-                                    const newConfig = { ...zyclopsConfig, providerHost: e.target.value };
-                                    apiFetch(`/api/indexers/${encodeURIComponent(indexer.name)}`, {
-                                      method: 'PUT',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ zyclops: newConfig }),
-                                    }).then(() => {
-                                      setConfig(prev => prev ? { ...prev, indexers: prev.indexers.map(i => i.name === indexer.name ? { ...i, zyclops: newConfig } : i) } : prev);
-                                    });
-                                  }}
-                                  placeholder="e.g. news.example.com"
-                                  className="input text-xs"
-                                />
-                              </div>
-                            )}
 
                             {/* Show Unknown & Single IP toggles */}
                             <div className="flex gap-4">
-                              <label className="flex items-center gap-1.5 cursor-pointer">
+                              <label className={`flex items-center gap-1.5 ${(zyclopsConfig.singleIp ?? true) ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
                                 <input
                                   type="checkbox"
                                   checked={zyclopsConfig.showUnknown === true}
+                                  disabled={zyclopsConfig.singleIp ?? true}
                                   onChange={(e) => {
                                     const newConfig = { ...zyclopsConfig, showUnknown: e.target.checked };
                                     apiFetch(`/api/indexers/${encodeURIComponent(indexer.name)}`, {
@@ -277,7 +287,8 @@ export function ZyclopsOverlay({
                                       setSingleIpConfirmDialog({ show: true, indexerName: indexer.name });
                                       return;
                                     }
-                                    const newConfig = { ...zyclopsConfig, singleIp: true };
+                                    // Re-enabling singleIp — also clear showUnknown (mutually exclusive)
+                                    const newConfig = { ...zyclopsConfig, singleIp: true, showUnknown: false };
                                     apiFetch(`/api/indexers/${encodeURIComponent(indexer.name)}`, {
                                       method: 'PUT',
                                       headers: { 'Content-Type': 'application/json' },
@@ -343,7 +354,12 @@ export function ZyclopsOverlay({
                     const indexerName = zyclopsConfirmDialog.indexerName;
                     const indexer = config?.indexers.find(i => i.name === indexerName);
                     if (indexer) {
-                      const newConfig: ZyclopsIndexerConfig = { ...(indexer.zyclops || {}), enabled: true };
+                      const existing: Partial<ZyclopsIndexerConfig> = indexer.zyclops || {};
+                      const newConfig: ZyclopsIndexerConfig = {
+                        ...existing,
+                        enabled: true,
+                        backbone: existing.backbone ?? [],
+                      };
                       apiFetch(`/api/indexers/${encodeURIComponent(indexerName)}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },

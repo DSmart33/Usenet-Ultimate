@@ -40,23 +40,21 @@ export class UsenetSearcher {
       target: this.indexer.url,
     };
 
-    if (zyclops.backbone) {
-      extraParams.backbone = zyclops.backbone;
-    } else if (zyclops.providerHost) {
-      extraParams.provider_host = zyclops.providerHost;
-    } else {
-      // Fallback: Zyclops requires at least one backbone — default to first known backbone
-      extraParams.backbone = 'usenetexpress';
+    if (zyclops.backbone?.length) {
+      extraParams.backbone = zyclops.backbone.join(',');
+    }
+    if (zyclops.providerHosts) {
+      extraParams.provider_host = zyclops.providerHosts;
     }
 
-    if (zyclops.showUnknown !== undefined) {
-      extraParams.show_unknown = zyclops.showUnknown ? '1' : '0';
+    if (zyclops.showUnknown === true) {
+      extraParams.show_unknown = 'true';
     }
-    if (zyclops.singleIp !== undefined) {
-      extraParams.single_ip = zyclops.singleIp ? '1' : '0';
+    if (zyclops.singleIp === false) {
+      extraParams.single_ip = 'false';
     }
 
-    console.log(`🤖 Zyclops routing ${this.indexer.name}: ${this.indexer.url} → ${zyclopsUrl} (backbone: ${extraParams.backbone || 'n/a'}, provider_host: ${extraParams.provider_host || 'n/a'}, show_unknown: ${extraParams.show_unknown ?? 'default'}, single_ip: ${extraParams.single_ip ?? 'default'})`);
+    console.log(`🤖 Zyclops routing ${this.indexer.name}: ${this.indexer.url} → ${zyclopsUrl}`, extraParams);
 
     return { url: zyclopsUrl, extraParams, isZyclops: true };
   }

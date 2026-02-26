@@ -44,7 +44,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
       }
 
       if (zyclops?.enabled) {
-        console.log(`\u{1F916} Adding indexer ${name} with Zyclops enabled (backbone: ${zyclops.backbone || zyclops.providerHost || 'usenetexpress'})`);
+        console.log(`\u{1F916} Adding indexer ${name} with Zyclops enabled (backbone: ${zyclops.backbone?.join(',') || 'none'}, provider_host: ${zyclops.providerHosts || 'none'})`);
       }
       const indexer = addIndexer({ name, url, apiKey, website, logo, movieSearchMethod, tvSearchMethod, caps, zyclops });
       res.status(201).json(indexer);
@@ -77,11 +77,11 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
         const wasEnabled = getIndexers().find(i => i.name === name)?.zyclops?.enabled;
         const willBeEnabled = updates.zyclops?.enabled;
         if (willBeEnabled && !wasEnabled) {
-          console.log(`\u{1F916} Zyclops enabled for ${name} (backbone: ${updates.zyclops.backbone || updates.zyclops.providerHost || 'usenetexpress'})`);
+          console.log(`\u{1F916} Zyclops enabled for ${name} (backbone: ${updates.zyclops.backbone?.join(',') || 'none'}, provider_host: ${updates.zyclops.providerHosts || 'none'})`);
         } else if (!willBeEnabled && wasEnabled) {
           console.log(`\u{1F916} Zyclops disabled for ${name}`);
         } else if (willBeEnabled) {
-          console.log(`\u{1F916} Zyclops config updated for ${name}: backbone=${updates.zyclops.backbone || updates.zyclops.providerHost || 'usenetexpress'}, show_unknown=${updates.zyclops.showUnknown ?? 'default'}, single_ip=${updates.zyclops.singleIp ?? 'default'}`);
+          console.log(`\u{1F916} Zyclops config updated for ${name}: backbone=${updates.zyclops.backbone?.join(',') || 'none'}, provider_host=${updates.zyclops.providerHosts || 'none'}, show_unknown=${updates.zyclops.showUnknown ?? 'default'}, single_ip=${updates.zyclops.singleIp ?? 'default'}`);
         }
       }
 
@@ -124,11 +124,12 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
           limit: '50',
           target: indexer.url,
         });
-        if (indexer.zyclops.backbone) zyclopsParams.set('backbone', indexer.zyclops.backbone);
-        else if (indexer.zyclops.providerHost) zyclopsParams.set('provider_host', indexer.zyclops.providerHost);
-        if (indexer.zyclops.showUnknown !== undefined) zyclopsParams.set('show_unknown', indexer.zyclops.showUnknown ? '1' : '0');
-        if (indexer.zyclops.singleIp !== undefined) zyclopsParams.set('single_ip', indexer.zyclops.singleIp ? '1' : '0');
-        searchUrl = `${zyclopsBase}/api?${zyclopsParams.toString()}`;
+        if (indexer.zyclops.backbone?.length) zyclopsParams.set('backbone', indexer.zyclops.backbone.join(','));
+        if (indexer.zyclops.providerHosts) zyclopsParams.set('provider_host', indexer.zyclops.providerHosts);
+        if (indexer.zyclops.showUnknown === true) zyclopsParams.set('show_unknown', 'true');
+        if (indexer.zyclops.singleIp === false) zyclopsParams.set('single_ip', 'false');
+        // Replace %2C back to commas — URLSearchParams encodes them but Zyclops expects raw commas
+        searchUrl = `${zyclopsBase}/api?${zyclopsParams.toString().replace(/%2C/gi, ',')}`;
       } else {
         searchUrl = `${indexer.url}?t=search&apikey=${indexer.apiKey}&q=${encodeURIComponent(query)}&limit=50`;
       }
