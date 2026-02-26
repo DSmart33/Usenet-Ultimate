@@ -124,6 +124,8 @@ export interface Config {
   prowlarrApiKey?: string;
   nzbhydraUrl?: string;
   nzbhydraApiKey?: string;
+  nzbhydraUsername?: string;
+  nzbhydraPassword?: string;
   nzbdavUrl?: string;
   nzbdavApiKey?: string;
   nzbdavWebdavUrl?: string;

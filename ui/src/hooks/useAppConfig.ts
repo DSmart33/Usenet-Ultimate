@@ -106,12 +106,15 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
 
   const [showProwlarrKey, setShowProwlarrKey] = useState(false);
   const [showNzbhydraKey, setShowNzbhydraKey] = useState(false);
+  const [showNzbhydraPassword, setShowNzbhydraPassword] = useState(false);
 
   // ─── Prowlarr / NZBHydra ───────────────────────────────────────────
   const [prowlarrUrl, setProwlarrUrl] = useState('http://localhost:9696');
   const [prowlarrApiKey, setProwlarrApiKey] = useState('');
   const [nzbhydraUrl, setNzbhydraUrl] = useState('http://localhost:5076');
   const [nzbhydraApiKey, setNzbhydraApiKey] = useState('');
+  const [nzbhydraUsername, setNzbhydraUsername] = useState('');
+  const [nzbhydraPassword, setNzbhydraPassword] = useState('');
 
   // ─── NZBDav ─────────────────────────────────────────────────────────
   const [nzbdavUrl, setNzbdavUrl] = useState('http://localhost:3000');
@@ -372,9 +375,9 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // Auto-save: nzbhydra settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
-    const timer = setTimeout(() => saveSettings({ indexManager, nzbhydraUrl, nzbhydraApiKey }), 500);
+    const timer = setTimeout(() => saveSettings({ indexManager, nzbhydraUrl, nzbhydraApiKey, nzbhydraUsername, nzbhydraPassword }), 500);
     return () => clearTimeout(timer);
-  }, [indexManager, nzbhydraUrl, nzbhydraApiKey, saveSettings]);
+  }, [indexManager, nzbhydraUrl, nzbhydraApiKey, nzbhydraUsername, nzbhydraPassword, saveSettings]);
 
   // Auto-save: synced indexers (Prowlarr/NZBHydra per-indexer settings)
   useEffect(() => {
@@ -656,6 +659,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setProwlarrApiKey(data.prowlarrApiKey || '');
       setNzbhydraUrl(data.nzbhydraUrl || 'http://localhost:5076');
       setNzbhydraApiKey(data.nzbhydraApiKey || '');
+      setNzbhydraUsername(data.nzbhydraUsername || '');
+      setNzbhydraPassword(data.nzbhydraPassword || '');
       setNzbdavUrl(data.nzbdavUrl || 'http://localhost:3000');
       setNzbdavApiKey(data.nzbdavApiKey || '');
       setNzbdavWebdavUrl(data.nzbdavWebdavUrl || 'http://localhost:3000');
@@ -1075,12 +1080,15 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     showTvdbKey, setShowTvdbKey,
     showProwlarrKey, setShowProwlarrKey,
     showNzbhydraKey, setShowNzbhydraKey,
+    showNzbhydraPassword, setShowNzbhydraPassword,
 
     // Prowlarr / NZBHydra
     prowlarrUrl, setProwlarrUrl,
     prowlarrApiKey, setProwlarrApiKey,
     nzbhydraUrl, setNzbhydraUrl,
     nzbhydraApiKey, setNzbhydraApiKey,
+    nzbhydraUsername, setNzbhydraUsername,
+    nzbhydraPassword, setNzbhydraPassword,
 
     // NZBDav
     nzbdavUrl, setNzbdavUrl,

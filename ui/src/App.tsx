@@ -595,6 +595,12 @@ function App() {
           setNzbhydraApiKey={ac.setNzbhydraApiKey}
           showNzbhydraKey={ac.showNzbhydraKey}
           setShowNzbhydraKey={ac.setShowNzbhydraKey}
+          nzbhydraUsername={ac.nzbhydraUsername}
+          setNzbhydraUsername={ac.setNzbhydraUsername}
+          nzbhydraPassword={ac.nzbhydraPassword}
+          setNzbhydraPassword={ac.setNzbhydraPassword}
+          showNzbhydraPassword={ac.showNzbhydraPassword}
+          setShowNzbhydraPassword={ac.setShowNzbhydraPassword}
           syncedIndexers={ac.syncedIndexers}
           setSyncedIndexers={ac.setSyncedIndexers}
           syncStatus={ac.syncStatus}

@@ -109,6 +109,12 @@ interface IndexManagerOverlayProps {
   setNzbhydraApiKey: React.Dispatch<React.SetStateAction<string>>;
   showNzbhydraKey: boolean;
   setShowNzbhydraKey: React.Dispatch<React.SetStateAction<boolean>>;
+  nzbhydraUsername: string;
+  setNzbhydraUsername: React.Dispatch<React.SetStateAction<string>>;
+  nzbhydraPassword: string;
+  setNzbhydraPassword: React.Dispatch<React.SetStateAction<string>>;
+  showNzbhydraPassword: boolean;
+  setShowNzbhydraPassword: React.Dispatch<React.SetStateAction<boolean>>;
 
   // Sync state
   syncedIndexers: SyncedIndexer[];
@@ -222,6 +228,12 @@ export function IndexManagerOverlay({
   setNzbhydraApiKey,
   showNzbhydraKey,
   setShowNzbhydraKey,
+  nzbhydraUsername,
+  setNzbhydraUsername,
+  nzbhydraPassword,
+  setNzbhydraPassword,
+  showNzbhydraPassword,
+  setShowNzbhydraPassword,
   syncedIndexers,
   setSyncedIndexers,
   syncStatus,
@@ -314,7 +326,7 @@ export function IndexManagerOverlay({
                         const resp = await apiFetch('/api/nzbhydra/sync', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ url: nzbhydraUrl, apiKey: nzbhydraApiKey }),
+                          body: JSON.stringify({ url: nzbhydraUrl, apiKey: nzbhydraApiKey, username: nzbhydraUsername, password: nzbhydraPassword }),
                         });
                         const data = await resp.json();
                         if (!resp.ok || data.error) throw new Error(data.error || data.message || `Server error (${resp.status})`);
@@ -1093,6 +1105,28 @@ export function IndexManagerOverlay({
                     </div>
                   </div>
 
+                  {/* Optional credentials for auth-protected instances */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Username <span className="text-slate-500 font-normal">(optional)</span></label>
+                    <input type="text" value={nzbhydraUsername} onChange={(e) => { setNzbhydraUsername(e.target.value); resetSyncState(); }} placeholder="NZBHydra2 username" className="input" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Password <span className="text-slate-500 font-normal">(optional)</span></label>
+                    <div className="relative">
+                      <input type={showNzbhydraPassword ? 'text' : 'password'} value={nzbhydraPassword} onChange={(e) => { setNzbhydraPassword(e.target.value); resetSyncState(); }} placeholder="NZBHydra2 password" className="input pr-9" />
+                      {nzbhydraPassword && (
+                        <button
+                          type="button"
+                          onClick={() => setShowNzbhydraPassword(v => !v)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                        >
+                          {showNzbhydraPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">Required only if NZBHydra2 has auth enabled</p>
+                  </div>
+
                   {/* Test + Sync buttons */}
                   <div className="flex gap-2">
                     <button
@@ -1105,7 +1139,7 @@ export function IndexManagerOverlay({
                           const resp = await apiFetch('/api/nzbhydra/test', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url: nzbhydraUrl, apiKey: nzbhydraApiKey }),
+                            body: JSON.stringify({ url: nzbhydraUrl, apiKey: nzbhydraApiKey, username: nzbhydraUsername, password: nzbhydraPassword }),
                           });
                           const data = await resp.json();
                           if (!resp.ok) throw new Error(data.message || data.error || `Server error (${resp.status})`);
@@ -1134,7 +1168,7 @@ export function IndexManagerOverlay({
                           const resp = await apiFetch('/api/nzbhydra/sync', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url: nzbhydraUrl, apiKey: nzbhydraApiKey }),
+                            body: JSON.stringify({ url: nzbhydraUrl, apiKey: nzbhydraApiKey, username: nzbhydraUsername, password: nzbhydraPassword }),
                           });
                           const data = await resp.json();
                           if (!resp.ok || data.error) throw new Error(data.error || data.message || `Server error (${resp.status})`);
