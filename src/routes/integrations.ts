@@ -135,20 +135,49 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
     try {
       const url = req.body.url ?? config.nzbhydraUrl;
       const apiKey = req.body.apiKey ?? config.nzbhydraApiKey;
+      const username = req.body.username ?? config.nzbhydraUsername ?? '';
+      const password = req.body.password ?? config.nzbhydraPassword ?? '';
       if (!url || !apiKey) return res.status(400).json({ success: false, message: 'NZBHydra URL and API key are required' });
+
+      // Build auth headers (Basic Auth for auth-protected instances)
+      const authHeaders: Record<string, string> = {};
+      if (username && password) {
+        authHeaders['Authorization'] = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+      }
 
       // Test with a caps request (standard Newznab)
       const response = await axios.get(`${url}/api`, {
         params: { t: 'caps', apikey: apiKey },
+        headers: authHeaders,
         timeout: 10000,
       });
-      if (response.data && (response.data.includes('<caps') || response.data.includes('<server'))) {
+      if (!response.data || (!response.data.includes('<caps') && !response.data.includes('<server'))) {
+        return res.json({ success: false, message: 'Invalid API key' });
+      }
+
+      // Also verify internal API access (gated when auth is enabled)
+      try {
+        await axios.get(`${url}/internalapi/indexerstatuses`, {
+          headers: authHeaders,
+          timeout: 10000,
+        });
         res.json({ success: true, message: 'Connected to NZBHydra2 successfully!' });
-      } else {
-        res.json({ success: false, message: 'Invalid API key' });
+      } catch (err: any) {
+        const status = err.response?.status;
+        if (status === 401 || status === 403) {
+          // Internal API requires auth — credentials missing or wrong
+          if (username && password) {
+            res.json({ success: false, message: 'API key valid but credentials rejected — check username/password' });
+          } else {
+            res.json({ success: false, message: 'API key valid but auth is enabled — add username and password' });
+          }
+        } else {
+          // Internal API unavailable (old version, timeout, etc.) — caps passed, so connection is good
+          res.json({ success: true, message: 'Connected to NZBHydra2 successfully!' });
+        }
       }
     } catch (error: any) {
-      const msg = error.response?.status === 401 ? 'Invalid API key' : error.message;
+      const msg = error.response?.status === 401 ? 'Invalid API key or credentials' : error.message;
       res.status(500).json({ success: false, message: msg });
     }
   });
@@ -157,13 +186,22 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
     try {
       const url = req.body?.url ?? config.nzbhydraUrl;
       const apiKey = req.body?.apiKey ?? config.nzbhydraApiKey;
+      const username = req.body?.username ?? config.nzbhydraUsername ?? '';
+      const password = req.body?.password ?? config.nzbhydraPassword ?? '';
       if (!url || !apiKey) return res.status(400).json({ error: 'NZBHydra not configured' });
+
+      // Build auth headers (Basic Auth for auth-protected instances)
+      const authHeaders: Record<string, string> = {};
+      if (username && password) {
+        authHeaders['Authorization'] = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+      }
 
       // Validate credentials via Newznab caps (also used for capability parsing below)
       let capsData: string;
       try {
         const capsResp = await axios.get(`${url}/api`, {
           params: { t: 'caps', apikey: apiKey },
+          headers: authHeaders,
           timeout: 10000,
         });
         capsData = capsResp.data;
@@ -171,7 +209,7 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
           return res.status(400).json({ error: 'Invalid API key' });
         }
       } catch (authErr: any) {
-        const msg = authErr.response?.status === 401 ? 'Invalid API key' : authErr.message;
+        const msg = authErr.response?.status === 401 ? 'Invalid API key or credentials' : authErr.message;
         return res.status(500).json({ error: msg });
       }
 
@@ -181,7 +219,7 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
       try {
         // Attempt the internal API (NZBHydra2 v5+)
         const statusResp = await axios.get(`${url}/internalapi/indexerstatuses`, {
-          headers: { 'Cookie': `nzbhydra2-auth=${apiKey}` },
+          headers: authHeaders,
           timeout: 10000,
         });
         if (Array.isArray(statusResp.data)) {
@@ -191,11 +229,7 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
         }
       } catch {
         // Fall back: caps already validated above, use it for indexer info
-        if (capsData) {
-          indexerList = [{ name: 'NZBHydra (All)', enabled: true }];
-        } else {
-          return res.status(500).json({ error: 'Could not retrieve indexer list from NZBHydra2' });
-        }
+        indexerList = [{ name: 'NZBHydra (All)', enabled: true }];
       }
 
       if (indexerList.length === 0) {
