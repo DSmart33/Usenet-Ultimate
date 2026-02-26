@@ -668,7 +668,11 @@ async function proxyNzbdavStream(
 // Failure Video
 // ============================================================================
 
-const FAILURE_VIDEO_PATH = path.resolve('ui/public/nzb_failure_video.mp4');
+const FAILURE_VIDEO_PATH = path.resolve(
+  fs.existsSync(path.resolve('ui/dist/nzb_failure_video.mp4'))
+    ? 'ui/dist/nzb_failure_video.mp4'
+    : 'ui/public/nzb_failure_video.mp4'
+);
 
 /**
  * Serve the failure video (a 3-hour static "Stream Unavailable" screen).
