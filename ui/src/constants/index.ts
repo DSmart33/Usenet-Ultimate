@@ -4,8 +4,9 @@
 import type { StreamDisplayConfig, MockStreamData } from '../types';
 
 export const ZYCLOPS_BACKBONES = [
-  'usenetexpress', 'abavia', 'eweka-internet-services', 'base-ip',
-  'netnews', 'uzo-reto', 'omicron', 'giganews'
+  'abavia', 'base-ip', 'elbracht', 'eweka-internet-services',
+  'giganews', 'its-hosted', 'netnews', 'omicron',
+  'usenetexpress', 'uzo-reto'
 ] as const;
 
 export const MAX_TITLE_ROWS = 8;

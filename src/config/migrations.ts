@@ -9,6 +9,7 @@
  *  - Legacy search settings → searchConfig
  *  - Global search methods → per-indexer
  *  - Single-string search methods → arrays
+ *  - Single-string zyclops backbone → array
  *  - Pagination defaults migration
  */
 
@@ -137,6 +138,17 @@ if (configData.syncedIndexers?.some((i: any) => i.movieSearchMethod && !Array.is
   }
   saveConfigFile(configData);
   console.log(`✅ Migrated single-string synced indexer search methods to arrays`);
+}
+
+// Migrate single-string zyclops backbone to array
+if (configData.indexers.some(i => i.zyclops?.backbone && !Array.isArray(i.zyclops.backbone))) {
+  for (const indexer of configData.indexers) {
+    if (indexer.zyclops?.backbone && !Array.isArray(indexer.zyclops.backbone)) {
+      (indexer.zyclops as any).backbone = [indexer.zyclops.backbone];
+    }
+  }
+  saveConfigFile(configData);
+  console.log(`✅ Migrated single-string zyclops backbone to array for ${configData.indexers.length} indexer(s)`);
 }
 
 // Migrate pagination: old default was true (pagination !== false), new default is false.

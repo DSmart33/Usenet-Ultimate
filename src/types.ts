@@ -59,16 +59,17 @@ export interface IndexerCaps {
 // Zyclops health-check proxy configuration (per-indexer, Newznab mode only)
 export interface ZyclopsIndexerConfig {
   enabled: boolean;                    // Whether to route this indexer through Zyclops
-  backbone?: string;                   // Usenet backbone identifier (e.g. 'usenetexpress', 'eweka-internet-services')
-  providerHost?: string;               // Alternative to backbone: provider hostname (e.g. 'news.eweka.nl')
+  backbone?: string[];                 // Usenet backbone identifiers — sent as comma-separated list to Zyclops
+  providerHosts?: string;              // NNTP provider hostnames (comma-separated) — takes priority over backbone
   showUnknown?: boolean;               // Show results with unknown health status (default false)
   singleIp?: boolean;                  // Single IP mode — only Zyclops IP touches upstream (default true)
 }
 
 // Valid Zyclops backbone identifiers
 export const ZYCLOPS_BACKBONES = [
-  'usenetexpress', 'abavia', 'eweka-internet-services', 'base-ip',
-  'netnews', 'uzo-reto', 'omicron', 'giganews'
+  'abavia', 'base-ip', 'elbracht', 'eweka-internet-services',
+  'giganews', 'its-hosted', 'netnews', 'omicron',
+  'usenetexpress', 'uzo-reto'
 ] as const;
 
 // Search configuration - global API keys and settings shared across all indexers

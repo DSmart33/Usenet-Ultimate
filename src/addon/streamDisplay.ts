@@ -30,22 +30,23 @@ export function buildStreamDisplay(
   data: StreamDisplayData,
   displayConfig?: StreamDisplayConfig
 ): { name: string; title: string } {
-  // If no custom config, use legacy hardcoded format
+  // If no custom config, use legacy hardcoded format (matches default StreamDisplayConfig)
   if (!displayConfig) {
-    const streamName = `${data.resolutionDisplay}\n${data.quality}\n${data.statusBadge}`;
-    const titleLine = data.isSeasonPack ? `📦 ${data.cleanTitle}` : `▸ ${data.cleanTitle}`;
-    const sizeCodecSpecs = [`  💾 ${data.displaySize}`];
-    if (data.encode !== 'Unknown') sizeCodecSpecs.push(`⚙️ ${data.encode}`);
-    const sizeCodecLine = sizeCodecSpecs.join('  ');
+    const streamName = `${data.statusBadge}\n${data.resolutionDisplay}\n${data.quality}`;
+    const titleLine = data.isSeasonPack ? `📦 ${data.cleanTitle}` : `🎬 ${data.cleanTitle}`;
     const editionLangSpecs: string[] = [];
     if (data.edition && data.edition !== 'Standard') editionLangSpecs.push(`🏷️ ${data.edition}`);
     if (data.language && data.language !== 'Unknown') editionLangSpecs.push(`🗣️ ${data.language}`);
     const editionLangLine = editionLangSpecs.length > 0 ? `  ${editionLangSpecs.join('  ')}` : null;
+    const sizeCodecSpecs: string[] = [];
+    if (data.encode !== 'Unknown') sizeCodecSpecs.push(`⚙️ ${data.encode}`);
+    sizeCodecSpecs.push(`💾 ${data.displaySize}`);
+    const sizeCodecLine = `  ${sizeCodecSpecs.join('  ')}`;
     const tagSpecs: string[] = [];
     if (data.visualTag !== 'Unknown') tagSpecs.push(`🎨 ${data.visualTag}`);
     if (data.audioTag !== 'Unknown') tagSpecs.push(`🔊 ${data.audioTag}`);
     const tagLine = tagSpecs.length > 0 ? `  ${tagSpecs.join('  ')}` : null;
-    const metaLine = `  ${data.releaseGroup} ⚬ ${data.indexer}`;
+    const metaLine = `  🏴‍☠️ ${data.releaseGroup}  🗂️ ${data.indexer}`;
     const streamTitle = [titleLine, editionLangLine, sizeCodecLine, tagLine, metaLine, data.providersLine || null]
       .filter(Boolean).join('\n');
     return { name: streamName, title: streamTitle };
