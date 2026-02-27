@@ -29,11 +29,14 @@ export function updateSettings(settings: {
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
   nzbdavFallbackEnabled?: boolean;
+  nzbdavLibraryCheckEnabled?: boolean;
   nzbdavMaxFallbacks?: number;
   nzbdavJobTimeoutSeconds?: number;
   nzbdavMoviesTimeoutSeconds?: number;
   nzbdavTvTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
+  nzbdavStreamBufferMB?: number;
+  nzbdavProxyEnabled?: boolean;
   proxyMode?: 'disabled' | 'http';
   proxyUrl?: string;
   proxyIndexers?: Record<string, boolean>;
@@ -139,6 +142,9 @@ export function updateSettings(settings: {
   if (settings.nzbdavFallbackEnabled !== undefined) {
     configData.nzbdavFallbackEnabled = settings.nzbdavFallbackEnabled;
   }
+  if (settings.nzbdavLibraryCheckEnabled !== undefined) {
+    configData.nzbdavLibraryCheckEnabled = settings.nzbdavLibraryCheckEnabled;
+  }
   if (settings.nzbdavMaxFallbacks !== undefined) {
     configData.nzbdavMaxFallbacks = settings.nzbdavMaxFallbacks;
   }
@@ -153,6 +159,12 @@ export function updateSettings(settings: {
   }
   if (settings.nzbdavFallbackOrder !== undefined) {
     configData.nzbdavFallbackOrder = settings.nzbdavFallbackOrder;
+  }
+  if (settings.nzbdavStreamBufferMB !== undefined) {
+    configData.nzbdavStreamBufferMB = settings.nzbdavStreamBufferMB;
+  }
+  if (settings.nzbdavProxyEnabled !== undefined) {
+    configData.nzbdavProxyEnabled = settings.nzbdavProxyEnabled;
   }
   if (settings.proxyMode !== undefined) {
     configData.proxyMode = settings.proxyMode;

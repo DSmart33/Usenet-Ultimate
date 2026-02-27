@@ -88,6 +88,11 @@ export const config: Config = {
     // Migration: old configs used maxFallbacks=0 for disabled (no nzbdavFallbackEnabled field)
     return configData.nzbdavMaxFallbacks !== 0;
   },
+  get nzbdavLibraryCheckEnabled() {
+    const env = envBool('NZBDAV_LIBRARY_CHECK');
+    if (env !== undefined) return env;
+    return configData.nzbdavLibraryCheckEnabled !== false;
+  },
   get nzbdavMaxFallbacks() {
     return envInt('NZBDAV_MAX_FALLBACKS') ?? configData.nzbdavMaxFallbacks ?? 0;
   },
@@ -104,6 +109,16 @@ export const config: Config = {
   },
   get nzbdavFallbackOrder() {
     return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'selected';
+  },
+  get nzbdavStreamBufferMB() {
+    const envMB = envInt('NZBDAV_STREAM_BUFFER_MB') ?? envInt('STREAM_BUFFER_MB');
+    if (envMB != null && envMB > 0) return Math.max(8, envMB);
+    return Math.max(8, configData.nzbdavStreamBufferMB ?? 128);
+  },
+  get nzbdavProxyEnabled() {
+    const env = envBool('NZBDAV_PROXY_ENABLED');
+    if (env !== undefined) return env;
+    return configData.nzbdavProxyEnabled === true;
   },
   get proxyMode() {
     return envEnum('PROXY_MODE', ['disabled', 'http']) || configData.proxyMode || 'disabled';
