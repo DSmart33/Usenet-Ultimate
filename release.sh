@@ -200,8 +200,8 @@ echo ""
 
 if [ "$DRY_RUN" = true ]; then
   step "Dry Run — here's what would happen"
-  dry "Update package.json:      v${CURRENT_VERSION} → v${NEW_VERSION}"
-  dry "Update ui/package.json:   v${CURRENT_VERSION} → v${NEW_VERSION}"
+  dry "Update package.json + lock:      v${CURRENT_VERSION} → v${NEW_VERSION}"
+  dry "Update ui/package.json + lock:   v${CURRENT_VERSION} → v${NEW_VERSION}"
   [ "$DO_CLEAN" = true ] && dry "Run scripts/docker-clean.sh"
   if [ "$DO_DOCKER" = true ] && [ "$DO_PUSH" = true ]; then
     dry "Build multi-arch Docker:  ${GHCR_IMAGE}:v${NEW_VERSION} (amd64 + arm64)"
@@ -227,6 +227,12 @@ ok "Updated package.json"
 
 set_version "ui/package.json" "$NEW_VERSION"
 ok "Updated ui/package.json"
+
+# Sync lock files (npm updates only the root version entry, not every dependency)
+info "Syncing lock files..."
+npm install --package-lock-only --ignore-scripts 2>/dev/null
+(cd ui && npm install --package-lock-only --ignore-scripts 2>/dev/null)
+ok "Synced package-lock.json files"
 
 # ── Step 2: Docker cleanup (optional) ──────────────────────────────────────
 if [ "$DO_CLEAN" = true ]; then
@@ -280,7 +286,7 @@ fi
 # ── Step 4: Git commit + tag ───────────────────────────────────────────────
 step "Creating git commit and tag"
 
-git add package.json ui/package.json
+git add package.json package-lock.json ui/package.json ui/package-lock.json
 git commit -m "release: v${NEW_VERSION}"
 ok "Committed version bump"
 
