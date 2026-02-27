@@ -1,0 +1,46 @@
+/**
+ * NZBDav Shared Utilities
+ * Common helpers used across the NZBDav module.
+ */
+
+/**
+ * Encode a raw WebDAV file path for use in URLs.
+ * Splits on '/', filters out empty segments and traversal components,
+ * and encodes each segment individually.
+ */
+export function encodeWebdavPath(rawPath: string): string {
+  return '/' + rawPath
+    .split('/')
+    .filter(s => s && s !== '.' && s !== '..')
+    .map(s => encodeURIComponent(s))
+    .join('/');
+}
+
+/**
+ * Create an Error with the `isNzbdavFailure` flag set.
+ * The stream cache uses this flag to distinguish permanent failures
+ * (cached as 'failed') from transient errors (deleted, allowing retry).
+ */
+// ── Delivery log ──────────────────────────────────────────────────────
+// Tracks last logged delivery mode per video path to avoid repeating
+// the same log line on every range request during active playback.
+// Lives here (rather than streamHandler) to avoid a circular dependency
+// between streamCache and streamHandler.
+
+const lastDeliveryLog = new Map<string, { mode: 'proxy' | 'direct'; at: number }>();
+
+/** Get the delivery log map (used by streamHandler for dedup + TTL eviction) */
+export function getDeliveryLog(): Map<string, { mode: 'proxy' | 'direct'; at: number }> {
+  return lastDeliveryLog;
+}
+
+/** Clear all delivery log entries (called from clearStreamCache) */
+export function clearDeliveryLog(): void {
+  lastDeliveryLog.clear();
+}
+
+export function nzbdavError(message: string): Error & { isNzbdavFailure: boolean } {
+  const err = new Error(message) as Error & { isNzbdavFailure: boolean };
+  err.isNzbdavFailure = true;
+  return err;
+}

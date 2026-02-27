@@ -8,6 +8,7 @@ import { getLatestVersions } from '../versionFetcher.js';
 import { proxyFetch, logProxyExitIp, verifyProxyCircuit } from '../proxy.js';
 import { getCachedNzbContent } from '../health/nzbContentCache.js';
 import type { NZBDavConfig, HistorySlot } from './types.js';
+import { nzbdavError } from './utils.js';
 
 /**
  * Resolve the category folder based on content type
@@ -58,15 +59,14 @@ export async function submitNzb(
     } catch (err) {
       clearTimeout(timeout);
       if ((err as Error).name === 'AbortError') {
-        throw new Error(`NZB download timed out after ${Math.round(downloadTimeoutMs / 1000)}s`);
+        throw nzbdavError(`NZB download timed out after ${Math.round(downloadTimeoutMs / 1000)}s`);
       }
-      throw new Error(`NZB download failed: ${(err as Error).message}`);
+      throw nzbdavError(`NZB download failed: ${(err as Error).message}`);
     }
     clearTimeout(timeout);
 
     if (!nzbResponse.ok) {
-      const error = new Error(`Failed to download NZB: ${nzbResponse.status} ${nzbResponse.statusText}`);
-      throw error;
+      throw nzbdavError(`Failed to download NZB: ${nzbResponse.status} ${nzbResponse.statusText}`);
     }
 
     nzbContent = await nzbResponse.text();
@@ -79,9 +79,9 @@ export async function submitNzb(
     if (nzbContent.includes('<error')) {
       const errorMatch = nzbContent.match(/description="([^"]+)"/);
       const errorMsg = errorMatch ? errorMatch[1] : 'Unknown indexer error';
-      throw new Error(`Indexer returned error: ${errorMsg}`);
+      throw nzbdavError(`Indexer returned error: ${errorMsg}`);
     }
-    throw new Error(`Invalid NZB content received (${nzbContent.length} bytes)`);
+    throw nzbdavError(`Invalid NZB content received (${nzbContent.length} bytes)`);
   }
 
   // Submit to NZBDav
@@ -112,27 +112,26 @@ export async function submitNzb(
   } catch (err) {
     clearTimeout(submitTimeout);
     if ((err as Error).name === 'AbortError') {
-      throw new Error(`NZBDav submission timed out after ${Math.round(submitTimeoutMs / 1000)}s`);
+      throw nzbdavError(`NZBDav submission timed out after ${Math.round(submitTimeoutMs / 1000)}s`);
     }
-    throw new Error(`NZBDav submission failed: ${(err as Error).message}`);
+    throw nzbdavError(`NZBDav submission failed: ${(err as Error).message}`);
   }
   clearTimeout(submitTimeout);
 
   console.log(`  \u{1F4E4} NZBDav response status: ${nzbdavResponse.status}`);
 
   const responseText = await nzbdavResponse.text();
-  console.log(`  \u{1F4E4} NZBDav response body: ${responseText.substring(0, 500)}`);
+  if (!nzbdavResponse.ok) console.log(`  \u{1F4E4} NZBDav response body: ${responseText.substring(0, 500)}`);
 
   if (!nzbdavResponse.ok) {
-    const error = new Error(`NZBDav rejected NZB: ${nzbdavResponse.status} - ${responseText}`);
-    throw error;
+    throw nzbdavError(`NZBDav rejected NZB: ${nzbdavResponse.status} - ${responseText}`);
   }
 
   let result: { nzo_ids?: string[]; status?: boolean; error?: string };
   try {
     result = JSON.parse(responseText);
   } catch {
-    throw new Error(`NZBDav returned invalid JSON: ${responseText}`);
+    throw nzbdavError(`NZBDav returned invalid JSON: ${responseText}`);
   }
 
   console.log(`  \u{1F4E4} Parsed response:`, JSON.stringify(result));
@@ -140,7 +139,7 @@ export async function submitNzb(
   const nzoId = result.nzo_ids?.[0];
 
   if (!nzoId) {
-    throw new Error(`No NZO ID returned from NZBDav. Response: ${JSON.stringify(result)}`);
+    throw nzbdavError(`No NZO ID returned from NZBDav. Response: ${JSON.stringify(result)}`);
   }
 
   console.log(`  \u2705 NZB submitted, nzo_id: ${nzoId}`);
@@ -225,9 +224,7 @@ export async function waitForJobCompletion(
           console.log(`  \u274C Job failed: ${failMessage}`);
           cancelJob(nzoId, config, 'job failed').catch(() => {});
 
-          const error = new Error(`NZBDav download failed: ${failMessage}`) as Error & { isNzbdavFailure: boolean };
-          error.isNzbdavFailure = true;
-          throw error;
+          throw nzbdavError(`NZBDav download failed: ${failMessage}`);
         }
 
         // Job exists but still processing
@@ -247,7 +244,5 @@ export async function waitForJobCompletion(
   }
 
   cancelJob(nzoId, config, 'budget exceeded').catch(() => {});
-  const error = new Error(`Timeout waiting for NZBDav job after ${timeoutMs / 1000}s`) as Error & { isNzbdavFailure: boolean };
-  error.isNzbdavFailure = true;
-  throw error;
+  throw nzbdavError(`Timeout waiting for NZBDav job after ${timeoutMs / 1000}s`);
 }

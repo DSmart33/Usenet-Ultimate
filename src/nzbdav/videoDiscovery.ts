@@ -9,6 +9,7 @@ import { createClient, FileStat } from 'webdav';
 import { getWebdavClient } from './webdavClient.js';
 import { resolveCategory } from './nzbdavApi.js';
 import { WEBDAV_REQUEST_TIMEOUT_MS, type NZBDavConfig, type StreamData } from './types.js';
+import { encodeWebdavPath, nzbdavError } from './utils.js';
 
 /**
  * Find video file in WebDAV directory
@@ -158,9 +159,7 @@ export async function waitForVideoFile(
     await new Promise(r => setTimeout(r, pollIntervalMs));
   }
 
-  const error = new Error('Video file not found after job completed') as Error & { isNzbdavFailure: boolean };
-  error.isNzbdavFailure = true;
-  throw error;
+  throw nzbdavError('Video file not found after job completed');
 }
 
 /**
@@ -184,7 +183,31 @@ export async function checkNzbLibrary(
     const video = await findVideoFile(client, dirPath, 0, episodePattern, episodesInSeason);
     if (video) {
       const sizeMB = Math.round(video.size / 1024 / 1024);
-      console.log(`\u{1F4DA} Library HIT - skipping indexer grab: ${video.path} (${sizeMB}MB)`);
+
+      // Probe: verify the file is actually servable (not corrupted/gone)
+      const webdavBase = (config.webdavUrl || config.url).replace(/\/+$/, '');
+      const probeUrl = `${webdavBase}${encodeWebdavPath(video.path)}`;
+      const probeHeaders: Record<string, string> = { 'Range': 'bytes=0-0' };
+      if (config.webdavUser && config.webdavPassword) {
+        probeHeaders['Authorization'] = 'Basic ' + Buffer.from(`${config.webdavUser}:${config.webdavPassword}`).toString('base64');
+      }
+      try {
+        const probeResp = await fetch(probeUrl, { headers: probeHeaders, signal: AbortSignal.timeout(10_000) });
+        await probeResp.body?.cancel().catch(() => {});
+        if (probeResp.status === 404 || probeResp.status === 410) {
+          console.log(`📚 Library HIT but file not servable (${probeResp.status}) — treating as miss`);
+          return null;
+        }
+        if (probeResp.status !== 200 && probeResp.status !== 206) {
+          console.warn(`📚 Library probe returned ${probeResp.status} — treating as miss`);
+          return null;
+        }
+      } catch (probeErr) {
+        console.warn(`📚 Library probe failed (${(probeErr as Error).message}) — treating as miss`);
+        return null;
+      }
+
+      console.log(`📚 Library HIT - skipping indexer grab: ${video.path} (${sizeMB}MB)`);
       return {
         nzoId: 'library',
         videoPath: video.path,
