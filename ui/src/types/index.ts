@@ -133,8 +133,12 @@ export interface Config {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
+  nzbdavFallbackEnabled?: boolean;
   nzbdavMaxFallbacks?: number;
-  nzbdavStreamBufferMB?: number;
+  nzbdavJobTimeoutSeconds?: number;
+  nzbdavMoviesTimeoutSeconds?: number;
+  nzbdavTvTimeoutSeconds?: number;
+  nzbdavFallbackOrder?: 'selected' | 'top';
   easynewsEnabled?: boolean;
   easynewsUsername?: string;
   easynewsPassword?: string;
@@ -157,7 +161,7 @@ export interface IndexerPreset {
 export type Tab = 'dashboard' | 'install';
 
 
-export type OverlayType = 'indexManager' | 'streaming' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | 'zyclops' | null;
+export type OverlayType = 'indexManager' | 'streaming' | 'fallback' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | 'zyclops' | null;
 
 export interface LogEntry {
   timestamp: string;
