@@ -24,6 +24,7 @@ import { ProxyOverlay } from './components/overlays/ProxyOverlay';
 import { CacheTTLOverlay } from './components/overlays/CacheTTLOverlay';
 import { UserAgentOverlay } from './components/overlays/UserAgentOverlay';
 import { StreamingOverlay } from './components/overlays/StreamingOverlay';
+import { FallbackOverlay } from './components/overlays/FallbackOverlay';
 import { AutoPlayOverlay } from './components/overlays/AutoPlayOverlay';
 import { StatsOverlay } from './components/overlays/StatsOverlay';
 import FiltersOverlay from './components/overlays/FiltersOverlay';
@@ -658,15 +659,29 @@ function App() {
           setNzbdavMoviesCategory={ac.setNzbdavMoviesCategory}
           nzbdavTvCategory={ac.nzbdavTvCategory}
           setNzbdavTvCategory={ac.setNzbdavTvCategory}
-          nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
-          setNzbdavMaxFallbacks={ac.setNzbdavMaxFallbacks}
-          nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
-          setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
           nzbdavConnectionStatus={ac.nzbdavConnectionStatus}
           nzbdavTestNzbStatus={ac.nzbdavTestNzbStatus}
           nzbdavTestNzbMessage={ac.nzbdavTestNzbMessage}
           checkNzbdavConnection={ac.checkNzbdavConnection}
           sendNzbdavTestNzb={ac.sendNzbdavTestNzb}
+        />
+      )}
+
+      {/* NZB Fallback Overlay */}
+      {ac.activeOverlay === 'fallback' && (
+        <FallbackOverlay
+          onClose={() => ac.setActiveOverlay(null)}
+          nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
+          setNzbdavFallbackEnabled={ac.setNzbdavFallbackEnabled}
+          nzbdavMoviesTimeoutSeconds={ac.nzbdavMoviesTimeoutSeconds}
+          setNzbdavMoviesTimeoutSeconds={ac.setNzbdavMoviesTimeoutSeconds}
+          nzbdavTvTimeoutSeconds={ac.nzbdavTvTimeoutSeconds}
+          setNzbdavTvTimeoutSeconds={ac.setNzbdavTvTimeoutSeconds}
+          nzbdavFallbackOrder={ac.nzbdavFallbackOrder}
+          setNzbdavFallbackOrder={ac.setNzbdavFallbackOrder}
+          nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
+          setNzbdavMaxFallbacks={ac.setNzbdavMaxFallbacks}
+          cacheTTL={ac.cacheTTL}
         />
       )}
 
@@ -909,6 +924,9 @@ function App() {
             enabledIndexersCount={enabledIndexersCount}
             syncedIndexers={ac.syncedIndexers}
             nzbdavConnectionStatus={ac.nzbdavConnectionStatus}
+            nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
+            nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
+            streamingMode={ac.streamingMode}
             proxyMode={ac.proxyMode}
             proxyStatus={ac.proxyStatus}
             userAgents={ac.userAgents}

@@ -5,9 +5,13 @@
  */
 
 import type { FallbackCandidate, FallbackGroup } from './types.js';
+import { config as globalConfig } from '../config/index.js';
 
 const fallbackGroups = new Map<string, FallbackGroup>();
-const FALLBACK_GROUP_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function getFallbackGroupTTLMs(): number {
+  return (globalConfig.cacheTTL || 43200) * 1000;
+}
 
 export function createFallbackGroup(
   id: string,
@@ -19,7 +23,7 @@ export function createFallbackGroup(
   // Clean up expired groups opportunistically
   const now = Date.now();
   for (const [key, group] of fallbackGroups.entries()) {
-    if (now - group.createdAt > FALLBACK_GROUP_TTL_MS) {
+    if (now - group.createdAt > getFallbackGroupTTLMs()) {
       fallbackGroups.delete(key);
     }
   }
@@ -35,7 +39,7 @@ export function createFallbackGroup(
 
 export function getFallbackGroup(id: string): FallbackGroup | undefined {
   const group = fallbackGroups.get(id);
-  if (group && Date.now() - group.createdAt > FALLBACK_GROUP_TTL_MS) {
+  if (group && Date.now() - group.createdAt > getFallbackGroupTTLMs()) {
     fallbackGroups.delete(id);
     return undefined;
   }

@@ -6,10 +6,14 @@
  */
 
 import type { CacheEntry, StreamData, NZBDavConfig } from './types.js';
+import { config as globalConfig } from '../config/index.js';
 
 const streamCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const FAILED_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes for failures (allow retry)
+
+function getFailedCacheTTLMs(): number {
+  return (globalConfig.cacheTTL || 43200) * 1000;
+}
 
 /** Injected stream preparation function (set by streamHandler to break circular dep) */
 type PrepareFn = (nzbUrl: string, title: string, config: NZBDavConfig, episodePattern?: string, contentType?: string, episodesInSeason?: number) => Promise<StreamData>;
@@ -55,9 +59,16 @@ export async function getOrCreateStream(
         // during active playback and flood the console. The proxy log covers it.
         return existing.data!;
 
-      case 'pending':
+      case 'pending': {
+        // Safety net: if the entry has expired since cleanup ran, evict and retry
+        if (existing.expiresAt <= Date.now()) {
+          console.log(`\u23F3 Pending entry expired — evicting stale cache: ${title}`);
+          streamCache.delete(cacheKey);
+          break; // Fall through to create new preparation
+        }
         console.log(`\u23F3 Cache hit (pending): ${title}`);
         return existing.promise!;
+      }
 
       case 'failed':
         console.log(`\u274C Cache hit (failed): ${title} - ${existing.error?.message}`);
@@ -72,11 +83,14 @@ export async function getOrCreateStream(
 
   const promise = prepareFn(nzbUrl, title, config, episodePattern, contentType, episodesInSeason);
 
-  // Set as pending immediately
+  // Set as pending with a short TTL — if the promise hangs, the entry
+  // expires and subsequent requests can retry instead of hanging forever.
+  const maxTimeout = Math.max(globalConfig.nzbdavMoviesTimeoutSeconds ?? 30, globalConfig.nzbdavTvTimeoutSeconds ?? 15);
+  const pendingTTLMs = (maxTimeout + 30) * 1000;
   streamCache.set(cacheKey, {
     status: 'pending',
     promise,
-    expiresAt: Date.now() + CACHE_TTL_MS,
+    expiresAt: Date.now() + pendingTTLMs,
   });
 
   // Handle completion
@@ -92,7 +106,7 @@ export async function getOrCreateStream(
       streamCache.set(cacheKey, {
         status: 'failed',
         error,
-        expiresAt: Date.now() + FAILED_CACHE_TTL_MS,
+        expiresAt: Date.now() + getFailedCacheTTLMs(),
       });
     } else {
       // Allow retry for transient errors
@@ -119,11 +133,20 @@ export function clearStreamCache(): void {
 }
 
 /**
- * Check if a stream is already cached (pending, ready, or failed)
+ * Check if a stream is already cached (pending, ready, or failed).
+ * Uses only the base key (nzbUrl + title) as a coarse check — any episode
+ * of the same NZB being cached will match. This is intentional for grab
+ * tracking dedup: we don't want to count the same NZB grab multiple times
+ * even if different episodes are requested.
  */
 export function isStreamCached(nzbUrl: string, title: string): boolean {
-  const cacheKey = getCacheKey(nzbUrl, title);
-  return streamCache.has(cacheKey);
+  const baseKey = getCacheKey(nzbUrl, title);
+  const now = Date.now();
+  // Check both the base key and any episode-suffixed keys, skipping expired entries
+  for (const [key, entry] of streamCache.entries()) {
+    if ((key === baseKey || key.startsWith(baseKey + ':')) && entry.expiresAt > now) return true;
+  }
+  return false;
 }
 
 /**

@@ -1,5 +1,5 @@
 // What this does:
-//   Streaming configuration overlay with NZBDav connection settings, categories, and fallback options
+//   Streaming configuration overlay with NZBDav connection settings and categories
 
 import { Play, X, Activity } from 'lucide-react';
 import clsx from 'clsx';
@@ -25,10 +25,6 @@ interface StreamingOverlayProps {
   setNzbdavMoviesCategory: React.Dispatch<React.SetStateAction<string>>;
   nzbdavTvCategory: string;
   setNzbdavTvCategory: React.Dispatch<React.SetStateAction<string>>;
-  nzbdavMaxFallbacks: number;
-  setNzbdavMaxFallbacks: React.Dispatch<React.SetStateAction<number>>;
-  nzbdavStreamBufferMB: number;
-  setNzbdavStreamBufferMB: React.Dispatch<React.SetStateAction<number>>;
   nzbdavConnectionStatus: 'connected' | 'disconnected' | 'unconfigured' | 'checking' | null;
   nzbdavTestNzbStatus: 'idle' | 'sending' | 'success' | 'error';
   nzbdavTestNzbMessage: string;
@@ -56,10 +52,6 @@ export function StreamingOverlay({
   setNzbdavMoviesCategory,
   nzbdavTvCategory,
   setNzbdavTvCategory,
-  nzbdavMaxFallbacks,
-  setNzbdavMaxFallbacks,
-  nzbdavStreamBufferMB,
-  setNzbdavStreamBufferMB,
   nzbdavConnectionStatus,
   nzbdavTestNzbStatus,
   nzbdavTestNzbMessage,
@@ -145,59 +137,6 @@ export function StreamingOverlay({
                     <input type="text" value={nzbdavTvCategory} onChange={(e) => setNzbdavTvCategory(e.target.value)} placeholder="Usenet-Ultimate-TV" className="input" />
                   </div>
                 </div>
-              </div>
-              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium text-slate-300">Stream Buffer Size</div>
-                  <button
-                    onClick={() => setNzbdavStreamBufferMB(64)}
-                    className="text-xs text-primary-400 hover:text-primary-300"
-                  >
-                    Reset to Default
-                  </button>
-                </div>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    min={4}
-                    max={512}
-                    step={4}
-                    value={nzbdavStreamBufferMB}
-                    onChange={(e) => setNzbdavStreamBufferMB(parseInt(e.target.value, 10))}
-                    className="flex-1 accent-amber-500"
-                  />
-                  <span className="text-sm text-slate-300 w-16 text-right">{nzbdavStreamBufferMB} MB</span>
-                </div>
-                <p className="text-xs text-slate-500">
-                  How much video data to buffer in memory ahead of playback. Larger values provide more cushion against network hiccups but use more RAM.
-                </p>
-              </div>
-              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium text-slate-300">Max Fallback Attempts</div>
-                  <button
-                    onClick={() => setNzbdavMaxFallbacks(9)}
-                    className="text-xs text-primary-400 hover:text-primary-300"
-                  >
-                    Reset to Default
-                  </button>
-                </div>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    min={0}
-                    max={20}
-                    value={nzbdavMaxFallbacks}
-                    onChange={(e) => setNzbdavMaxFallbacks(parseInt(e.target.value, 10))}
-                    className="flex-1 accent-amber-500"
-                  />
-                  <span className="text-sm text-slate-300 w-8 text-right">{nzbdavMaxFallbacks}</span>
-                </div>
-                <p className="text-xs text-slate-500">
-                  {nzbdavMaxFallbacks === 0
-                    ? 'Disabled — plays failure video immediately on error'
-                    : `Tries up to ${nzbdavMaxFallbacks} alternative NZB${nzbdavMaxFallbacks > 1 ? 's' : ''} before showing failure video`}
-                </p>
               </div>
               <div className={clsx(
                 "flex items-center justify-between p-4 rounded-lg border",

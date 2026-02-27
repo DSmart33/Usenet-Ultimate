@@ -99,19 +99,15 @@ IMDB IDs are resolved to TMDB, TVDB, and TVMaze IDs with a 24-hour cache. Altern
 
 **NZBDav Streaming**
 
-NZBs are submitted to your NZBDav instance, which downloads and assembles the content. The addon then streams the video over WebDAV directly into Stremio. The entire pipeline supports HTTP range requests, so seeking works natively.
-
-**Transparent Upstream Reconnect**
-
-If the WebDAV connection drops mid-stream (network hiccup, server restart, etc.), the addon transparently reconnects without interrupting playback. It uses exponential backoff (1s base, 8s cap) with up to 30 reconnect attempts, resuming from the exact byte offset using Range headers. The client never knows the connection dropped.
-
-**Stream Buffer**
-
-A configurable stream buffer (default 64MB, adjustable via `STREAM_BUFFER_MB`) sits between the upstream WebDAV source and the Stremio player. This absorbs network jitter and reduces micro-stalls on high-bitrate content like 4K REMUX files. Backpressure handling prevents memory bloat — if the player pauses, the buffer stops filling.
+NZBs are submitted to your NZBDav instance, which downloads and assembles the content. The addon discovers the video file via WebDAV, then issues a 302 redirect directly to the WebDAV URL. Stremio streams from NZBDav without proxying through the addon, keeping the server lightweight while supporting full range requests and seeking.
 
 **Automatic Fallback on Failure**
 
-When a stream fails (dead NZB, incomplete download, corrupted content), the addon automatically tries the next healthy candidate from a pre-computed fallback group. By defaul, up to 10 fallback candidates are stored per stream request with a 30-minute TTL. You don't need to go back to the stream list — the next option loads transparently.
+When a stream fails (dead NZB, incomplete download, corrupted content), the addon automatically tries the next healthy candidate from a pre-computed fallback group. Fallback is enabled by default with unlimited candidates and a configurable TTL that matches your search cache. Two fallback ordering modes are available: start from the NZB you clicked ("selected", default) or always start from the top-ranked result ("top"). A self-redirect mechanism resets Stremio's 60-second timeout between fallback attempts, allowing up to 5 minutes of total retry time across multiple candidates.
+
+**Separate Movie & TV Wait Times**
+
+Movies and TV episodes have independent timeout budgets controlling how long the addon waits for a stream to become ready before moving to the next fallback. Defaults are 30 seconds for movies and 15 seconds for TV. Each step in the pipeline (NZB submission, job polling, video discovery) shares a single time budget so the total wait is predictable.
 
 **3-Hour Failure Video (Anti-Skip Protection)**
 
@@ -121,9 +117,9 @@ When every fallback candidate is exhausted and no stream is available, the addon
 
 EasyNews accounts can stream content directly from EasyNews CDN servers, proxied through the addon for seamless Stremio integration.
 
-**BDMV/Disc Structure Resolution**
+**BDMV/Disc Structure Handling**
 
-Blu-ray disc rips (`BDMV` folder structures) are fully supported. The addon parses `.mpls` (Movie PlayList) binary files to extract clip references and timestamps (in 45kHz ticks), identifies episode-length content (5+ minutes), and resolves the correct `.m2ts` stream file. Multi-disc sets are handled by detecting disc patterns (`S04D01`, `Disc1`, etc.), parsing playlists from each disc independently, and building a cumulative episode map. TMDB calibration trims duration outliers when the expected episode count is known.
+Blu-ray disc rips (`.m2ts` files from `BDMV` folder structures) are currently excluded from video discovery. Most players cannot reliably stream `.m2ts` files over WebDAV, so BDMV releases are automatically skipped in favor of non-BDMV alternatives (e.g., MKV remuxes) via the fallback system. The BDMV parsing infrastructure (MPLS binary parser, multi-disc episode mapping) is preserved in the codebase for future re-enablement.
 
 ---
 
@@ -306,13 +302,13 @@ The addon periodically fetches the latest versions of Prowlarr, SABnzbd, Chrome,
 | Technology | Why I Chose It |
 |---|---|
 | **TypeScript** | Full-stack type safety across 14,000+ lines of backend code. Catches entire categories of bugs at compile time — especially important for complex data pipelines where NZB metadata flows through parsing, filtering, health checking, and stream building. |
-| **Node.js 20** | Native TLS/TCP socket support for NNTP connections without external dependencies. The event loop handles hundreds of concurrent indexer searches and NNTP health checks efficiently. Stream piping with backpressure is built into the runtime. |
-| **Express** | The Stremio addon SDK is built on Express. Using Express as the base server means the addon SDK, REST API, WebDAV proxy, and static file serving all share a single HTTP server with unified middleware. |
+| **Node.js 20** | Native TLS/TCP socket support for NNTP connections without external dependencies. The event loop handles hundreds of concurrent indexer searches and NNTP health checks efficiently. |
+| **Express** | The Stremio addon SDK is built on Express. Using Express as the base server means the addon SDK, REST API, and static file serving all share a single HTTP server with unified middleware. |
 | **React + Tailwind CSS** | Component-based UI for a settings dashboard with many interactive overlays (drag-and-drop, emoji pickers, live previews). Tailwind keeps styling co-located with components and eliminates CSS bloat. |
 | **Vite** | Sub-second HMR during UI development. PWA plugin support out of the box. Tree-shaking produces a small production bundle. |
 | **stremio-addon-sdk** | Official SDK ensures compatibility with the Stremio protocol. Handles manifest generation, stream/catalog routing, and transport negotiation. |
 | **xml2js** | Newznab APIs return XML RSS feeds with custom `newznab:attr` extensions. xml2js provides reliable XML→JSON parsing with namespace support. |
-| **axios** | HTTP client with built-in proxy agent support, request/response interceptors, and streaming. Used for indexer API calls, NZB downloads, and NZBDav communication. |
+| **axios** | HTTP client with built-in proxy agent support and request/response interceptors. Used for indexer API calls and NZB downloads. |
 | **node-cache** | Lightweight in-memory cache with TTL support for search results and ID resolution. No external cache server needed — everything runs in a single process. |
 | **bcryptjs + jsonwebtoken** | Industry-standard password hashing and stateless authentication. Pure JavaScript implementations with no native compilation required — critical for Alpine Docker builds. |
 | **webdav** | First-class WebDAV client for NZBDav file operations including directory listing, file streaming, and range request support. |
@@ -454,12 +450,27 @@ These are migrated into `config/config.json` on first startup. After that, manag
 | `EASYNEWS_USERNAME` | — | Easynews account username |
 | `EASYNEWS_PASSWORD` | — | Easynews account password |
 
-#### Streaming & Proxy
+#### Streaming
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `STREAMING_MODE` | `nzbdav` | Streaming mode: `nzbdav` or `stremio` |
-| `STREAM_BUFFER_MB` | `64` | Stream buffer size in MB. Reduces micro-stalls on high-bitrate content |
+
+#### NZB Fallback
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NZBDAV_FALLBACK_ENABLED` | `true` | Enable automatic fallback to alternative NZBs on failure |
+| `NZBDAV_FALLBACK_ORDER` | `selected` | Candidate ordering: `selected` (start from clicked NZB) or `top` (start from highest-ranked) |
+| `NZBDAV_MAX_FALLBACKS` | `0` | Max fallback attempts. `0` = unlimited (try all search results), `1-20` = limit |
+| `NZBDAV_MOVIES_TIMEOUT` | `30` | Seconds to wait for a movie stream before trying the next fallback (5-600) |
+| `NZBDAV_TV_TIMEOUT` | `15` | Seconds to wait for a TV episode stream before trying the next fallback (5-600) |
+| `NZBDAV_JOB_TIMEOUT` | `120` | Legacy: sets both movie and TV timeouts if the specific ones aren't configured (clamped to 5-600) |
+
+#### Proxy
+
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `PROXY_MODE` | `disabled` | Proxy mode: `disabled` or `http` |
 | `PROXY_URL` | — | HTTP proxy URL |
 
@@ -690,30 +701,31 @@ Not every indexer needs to go through the proxy. In the web UI, each indexer has
 ║  │  ┌────────────┐  ┌────────────┐  ┌────────────┐                  │  ║
 ║  │  │ Stream     │  │ Binge Group│  │ Fallback   │                  │  ║
 ║  │  │ Display    │  │ Builder    │  │ Manager    │                  │  ║
-║  │  │ (custom    │  │ (auto-play │  │ (10 cands, │                  │  ║
-║  │  │  format)   │  │  matching) │  │  30min TTL)│                  │  ║
+║  │  │ (custom    │  │ (auto-play │  │ (unlimited │                  │  ║
+║  │  │  format)   │  │  matching) │  │  cands)    │                  │  ║
 ║  │  └────────────┘  └────────────┘  └────────────┘                  │  ║
 ║  └──────────────────────┬────────────────────────────────────────────┘  ║
 ║                         │                                               ║
 ║                         ▼                                               ║
 ║  ┌───────────────────────────────────────────────────────────────────┐  ║
-║  │              Stream Handler (NZBDav proxy route)                   │  ║
+║  │              Stream Handler (NZBDav 302 redirect)                  │  ║
 ║  │                                                                   │  ║
 ║  │  ┌────────────┐  ┌────────────┐  ┌────────────┐                  │  ║
-║  │  │ NZBDav API │  │ WebDAV     │  │ BDMV       │                  │  ║
-║  │  │ (submit    │  │ Client     │  │ Resolver   │                  │  ║
-║  │  │  NZB, poll │  │ (range req,│  │ (MPLS,     │                  │  ║
-║  │  │  status)   │  │  reconnect,│  │  multi-    │                  │  ║
-║  │  └────────────┘  │  buffer)   │  │  disc)     │                  │  ║
-║  │                  └────────────┘  └────────────┘                  │  ║
+║  │  │ NZBDav API │  │ WebDAV     │  │ Fallback   │                  │  ║
+║  │  │ (submit    │  │ Discovery  │  │ Handler    │                  │  ║
+║  │  │  NZB, poll │  │ (find      │  │ (auto-     │                  │  ║
+║  │  │  status)   │  │  video)    │  │  retry,    │                  │  ║
+║  │  └────────────┘  └────────────┘  │  self-redir)│                 │  ║
+║  │                                  └────────────┘                  │  ║
 ║  │  ┌────────────┐  ┌────────────┐                                  │  ║
-║  │  │ Fallback   │  │ Failure    │                                  │  ║
-║  │  │ Handler    │  │ Video      │                                  │  ║
-║  │  │ (auto-     │  │ (3hr MP4,  │                                  │  ║
-║  │  │  retry)    │  │  anti-skip)│                                  │  ║
-║  │  └────────────┘  └────────────┘                                  │  ║
+║  │  │ Stream     │  │ Failure    │                                  │  ║
+║  │  │ Cache      │  │ Video      │                                  │  ║
+║  │  │ (pending,  │  │ (3hr MP4,  │                                  │  ║
+║  │  │  ready,    │  │  anti-skip)│                                  │  ║
+║  │  │  failed)   │  └────────────┘                                  │  ║
+║  │  └────────────┘                                                  │  ║
 ║  └──────────────────────┬───────────▲────────────────────────────────┘  ║
-║                submit NZB│          │video data (WebDAV)                ║
+║                submit NZB│          │302 redirect (WebDAV URL)          ║
 ╚═════════════════════════╪══════════╪════════════════════════════════════╝
                           ▼           │
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -729,7 +741,7 @@ Not every indexer needs to go through the proxy. In the web UI, each indexer has
 3. **Result Processor** parses metadata, applies title matching, deduplicates across indexers, and sorts by user-defined priority chains
 4. **Health Check Coordinator** downloads NZBs, inspects archive headers, checks segment availability via NNTP, and caches results
 5. **Stream Builder** formats verified results for Stremio display, assigns binge groups, and registers fallback candidates
-6. **Stream Handler** submits the chosen NZB to NZBDav, discovers the video file (including BDMV resolution), and proxies the WebDAV stream to Stremio with buffering, reconnect, and fallback support
+6. **Stream Handler** submits the chosen NZB to NZBDav, discovers the video file via WebDAV, and redirects Stremio directly to the WebDAV URL. If the stream fails, the fallback handler automatically tries the next candidate with self-redirect to reset Stremio's timeout
 
 ### File Storage
 

@@ -28,8 +28,12 @@ export function updateSettings(settings: {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
+  nzbdavFallbackEnabled?: boolean;
   nzbdavMaxFallbacks?: number;
-  nzbdavStreamBufferMB?: number;
+  nzbdavJobTimeoutSeconds?: number;
+  nzbdavMoviesTimeoutSeconds?: number;
+  nzbdavTvTimeoutSeconds?: number;
+  nzbdavFallbackOrder?: 'selected' | 'top';
   proxyMode?: 'disabled' | 'http';
   proxyUrl?: string;
   proxyIndexers?: Record<string, boolean>;
@@ -132,11 +136,23 @@ export function updateSettings(settings: {
   if (settings.nzbdavTvCategory !== undefined) {
     configData.nzbdavTvCategory = settings.nzbdavTvCategory;
   }
+  if (settings.nzbdavFallbackEnabled !== undefined) {
+    configData.nzbdavFallbackEnabled = settings.nzbdavFallbackEnabled;
+  }
   if (settings.nzbdavMaxFallbacks !== undefined) {
     configData.nzbdavMaxFallbacks = settings.nzbdavMaxFallbacks;
   }
-  if (settings.nzbdavStreamBufferMB !== undefined) {
-    configData.nzbdavStreamBufferMB = settings.nzbdavStreamBufferMB;
+  if (settings.nzbdavJobTimeoutSeconds !== undefined) {
+    configData.nzbdavJobTimeoutSeconds = settings.nzbdavJobTimeoutSeconds;
+  }
+  if (settings.nzbdavMoviesTimeoutSeconds !== undefined) {
+    configData.nzbdavMoviesTimeoutSeconds = settings.nzbdavMoviesTimeoutSeconds;
+  }
+  if (settings.nzbdavTvTimeoutSeconds !== undefined) {
+    configData.nzbdavTvTimeoutSeconds = settings.nzbdavTvTimeoutSeconds;
+  }
+  if (settings.nzbdavFallbackOrder !== undefined) {
+    configData.nzbdavFallbackOrder = settings.nzbdavFallbackOrder;
   }
   if (settings.proxyMode !== undefined) {
     configData.proxyMode = settings.proxyMode;

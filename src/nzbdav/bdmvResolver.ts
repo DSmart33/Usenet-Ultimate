@@ -7,6 +7,7 @@
 
 import { createClient, FileStat } from 'webdav';
 import { parseMpls, buildEpisodeMap, resolveEpisode, type BdmvEpisodeMap } from '../parsers/bdmvParser.js';
+import { WEBDAV_REQUEST_TIMEOUT_MS } from './types.js';
 
 // Cache parsed BDMV episode maps to avoid re-downloading/parsing MPLS files on every poll
 const bdmvMapCache = new Map<string, { map: BdmvEpisodeMap; timestamp: number }>();
@@ -44,7 +45,9 @@ export async function resolveBdmvEpisode(
       const playlistDir = `${bdmvPath}/PLAYLIST`;
       let playlistItems: FileStat[];
       try {
-        playlistItems = await client.getDirectoryContents(playlistDir) as FileStat[];
+        playlistItems = await client.getDirectoryContents(playlistDir, {
+          signal: AbortSignal.timeout(WEBDAV_REQUEST_TIMEOUT_MS),
+        }) as FileStat[];
       } catch {
         console.warn(`  [bdmv] No PLAYLIST directory found in ${bdmvPath}`);
         return null;
@@ -63,7 +66,9 @@ export async function resolveBdmvEpisode(
       const playlists = [];
       for (const mplsFile of mplsFiles) {
         try {
-          const data = await client.getFileContents(mplsFile.filename) as Buffer;
+          const data = await client.getFileContents(mplsFile.filename, {
+            signal: AbortSignal.timeout(WEBDAV_REQUEST_TIMEOUT_MS),
+          }) as Buffer;
           const parsed = parseMpls(data, mplsFile.filename.split('/').pop() || '');
           if (parsed) playlists.push(parsed);
         } catch (err) {
@@ -111,7 +116,9 @@ export async function resolveBdmvEpisode(
     const streamDir = `${bdmvPath}/STREAM`;
     let streamItems: FileStat[];
     try {
-      streamItems = await client.getDirectoryContents(streamDir) as FileStat[];
+      streamItems = await client.getDirectoryContents(streamDir, {
+        signal: AbortSignal.timeout(WEBDAV_REQUEST_TIMEOUT_MS),
+      }) as FileStat[];
     } catch {
       console.warn(`  [bdmv] No STREAM directory found in ${bdmvPath}`);
       return null;
@@ -178,7 +185,9 @@ export async function resolveMultiDiscBdmvEpisode(
         const playlistDir = `${bdmvPath}/PLAYLIST`;
         let playlistItems: FileStat[];
         try {
-          playlistItems = await client.getDirectoryContents(playlistDir) as FileStat[];
+          playlistItems = await client.getDirectoryContents(playlistDir, {
+            signal: AbortSignal.timeout(WEBDAV_REQUEST_TIMEOUT_MS),
+          }) as FileStat[];
         } catch {
           continue; // No PLAYLIST dir -- not a valid BDMV disc
         }
@@ -191,7 +200,9 @@ export async function resolveMultiDiscBdmvEpisode(
         const playlists = [];
         for (const mplsFile of mplsFiles) {
           try {
-            const data = await client.getFileContents(mplsFile.filename) as Buffer;
+            const data = await client.getFileContents(mplsFile.filename, {
+              signal: AbortSignal.timeout(WEBDAV_REQUEST_TIMEOUT_MS),
+            }) as Buffer;
             const parsed = parseMpls(data, mplsFile.filename.split('/').pop() || '');
             if (parsed) playlists.push(parsed);
           } catch {}
@@ -293,7 +304,9 @@ export async function resolveMultiDiscBdmvEpisode(
   // Find the .m2ts file in the target disc's STREAM directory
   const streamDir = `${targetDisc.bdmvPath}/STREAM`;
   try {
-    const streamItems = await client.getDirectoryContents(streamDir) as FileStat[];
+    const streamItems = await client.getDirectoryContents(streamDir, {
+      signal: AbortSignal.timeout(WEBDAV_REQUEST_TIMEOUT_MS),
+    }) as FileStat[];
     const targetFilename = `${episode.primaryClip}.m2ts`.toLowerCase();
     const targetFile = streamItems.find(
       f => f.type === 'file' && (f.filename.split('/').pop() || '').toLowerCase() === targetFilename

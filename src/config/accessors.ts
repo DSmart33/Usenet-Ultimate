@@ -81,11 +81,29 @@ export const config: Config = {
   get nzbdavTvCategory() {
     return configData.nzbdavTvCategory;
   },
-  get nzbdavMaxFallbacks() {
-    return configData.nzbdavMaxFallbacks;
+  get nzbdavFallbackEnabled() {
+    const env = envBool('NZBDAV_FALLBACK_ENABLED');
+    if (env !== undefined) return env;
+    if (configData.nzbdavFallbackEnabled !== undefined) return configData.nzbdavFallbackEnabled;
+    // Migration: old configs used maxFallbacks=0 for disabled (no nzbdavFallbackEnabled field)
+    return configData.nzbdavMaxFallbacks !== 0;
   },
-  get nzbdavStreamBufferMB() {
-    return configData.nzbdavStreamBufferMB;
+  get nzbdavMaxFallbacks() {
+    return envInt('NZBDAV_MAX_FALLBACKS') ?? configData.nzbdavMaxFallbacks ?? 0;
+  },
+  get nzbdavJobTimeoutSeconds() {
+    return envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds ?? 120;
+  },
+  get nzbdavMoviesTimeoutSeconds() {
+    const raw = envInt('NZBDAV_MOVIES_TIMEOUT') ?? configData.nzbdavMoviesTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 30;
+    return Math.max(5, Math.min(600, raw));
+  },
+  get nzbdavTvTimeoutSeconds() {
+    const raw = envInt('NZBDAV_TV_TIMEOUT') ?? configData.nzbdavTvTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 15;
+    return Math.max(5, Math.min(600, raw));
+  },
+  get nzbdavFallbackOrder() {
+    return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'selected';
   },
   get proxyMode() {
     return envEnum('PROXY_MODE', ['disabled', 'http']) || configData.proxyMode || 'disabled';

@@ -153,4 +153,4 @@ export const DEFAULT_FILTERS = {
   preferNonStandardEdition: false
 };
 
-export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'healthChecks', 'autoPlay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
+export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'fallback', 'healthChecks', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];

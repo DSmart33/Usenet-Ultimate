@@ -123,8 +123,12 @@ export interface Config {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
-  nzbdavMaxFallbacks?: number;  // Max fallback NZBs to try on failure (0=disabled, default 9)
-  nzbdavStreamBufferMB?: number; // Stream buffer size in MB (default 64)
+  nzbdavFallbackEnabled?: boolean; // Master toggle for fallback feature (default true)
+  nzbdavMaxFallbacks?: number;  // 0 = try all results (default), 1-20 = limit
+  nzbdavJobTimeoutSeconds?: number;            // Legacy — use nzbdavMoviesTimeoutSeconds / nzbdavTvTimeoutSeconds
+  nzbdavMoviesTimeoutSeconds?: number;         // Max seconds to wait for movie streams (default 30)
+  nzbdavTvTimeoutSeconds?: number;             // Max seconds to wait for TV streams (default 15)
+  nzbdavFallbackOrder?: 'selected' | 'top';   // Start from clicked NZB or top of quality-sorted list
   easynewsEnabled?: boolean;
   easynewsUsername?: string;
   easynewsPassword?: string;

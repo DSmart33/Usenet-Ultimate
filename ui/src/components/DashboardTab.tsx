@@ -17,6 +17,7 @@ import {
   Bot,
   Trophy,
   Heart,
+  RotateCcw,
   GripVertical,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -44,6 +45,9 @@ export interface DashboardTabProps {
   enabledIndexersCount: number;
   syncedIndexers: SyncedIndexer[];
   nzbdavConnectionStatus: 'connected' | 'disconnected' | 'unconfigured' | 'checking' | null;
+  nzbdavFallbackEnabled: boolean;
+  nzbdavMaxFallbacks: number;
+  streamingMode: 'nzbdav' | 'stremio';
   proxyMode: 'disabled' | 'http';
   proxyStatus: 'connected' | 'disconnected' | 'checking' | null;
   userAgents: {
@@ -79,6 +83,9 @@ export function DashboardTab({
   enabledIndexersCount,
   syncedIndexers,
   nzbdavConnectionStatus,
+  nzbdavFallbackEnabled,
+  nzbdavMaxFallbacks,
+  streamingMode,
   proxyMode,
   proxyStatus,
   userAgents,
@@ -241,6 +248,46 @@ export function DashboardTab({
                         <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">Click to configure &rarr;</span>
                       )}
                     </div>
+                  </div>
+                ),
+                fallback: (
+                  <div
+                    key="fallback"
+                    draggable
+                    onDragStart={() => handleCardDragStart('fallback')}
+                    onDragOver={(e) => handleCardDragOver(e, 'fallback')}
+                    onDrop={(e) => handleCardDrop(e, 'fallback')}
+                    onDragEnd={handleCardDragEnd}
+                    className={clsx(
+                      "card p-4 cursor-move group hover:!border-amber-400/50 hover:!shadow-amber-400/30 transition-all",
+                      isDragging && "opacity-50 scale-95",
+                      isOver && "ring-2 ring-amber-400 scale-105",
+                      streamingMode !== 'nzbdav' && "opacity-50 pointer-events-none"
+                    )}
+                    onClick={() => {
+                      if (!draggedCard && streamingMode === 'nzbdav') setActiveOverlay('fallback');
+                    }}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <GripVertical className="w-4 h-4 text-slate-600" />
+                      <RotateCcw className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
+                      <span className="text-slate-400 text-sm">NZB Fallback</span>
+                    </div>
+                    <div className="text-3xl font-bold group-hover:text-amber-400 transition-colors">
+                      {nzbdavFallbackEnabled ? 'Enabled' : 'Disabled'}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">
+                        {!nzbdavFallbackEnabled
+                          ? 'Click to configure \u2192'
+                          : nzbdavMaxFallbacks === 0
+                            ? 'All fallbacks enabled'
+                            : `Up to ${nzbdavMaxFallbacks} fallback${nzbdavMaxFallbacks > 1 ? 's' : ''}`}
+                      </span>
+                    </div>
+                    {streamingMode !== 'nzbdav' && (
+                      <span className="text-xs text-slate-600 mt-1">NZB Fallback is only available in NZBDav streaming mode</span>
+                    )}
                   </div>
                 ),
                 proxy: (

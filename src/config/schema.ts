@@ -35,8 +35,12 @@ export interface ConfigData {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
+  nzbdavFallbackEnabled?: boolean;
   nzbdavMaxFallbacks?: number;
-  nzbdavStreamBufferMB?: number;
+  nzbdavJobTimeoutSeconds?: number;
+  nzbdavMoviesTimeoutSeconds?: number;
+  nzbdavTvTimeoutSeconds?: number;
+  nzbdavFallbackOrder?: 'selected' | 'top';
   easynewsEnabled?: boolean;
   easynewsUsername?: string;
   easynewsPassword?: string;
@@ -152,13 +156,15 @@ if (!fs.existsSync(CONFIG_FILE)) {
 const ENV_OVERRIDES: readonly string[] = [
   'STREAMING_MODE', 'INDEX_MANAGER',
   'NZBDAV_URL', 'NZBDAV_API_KEY', 'NZBDAV_WEBDAV_URL', 'NZBDAV_WEBDAV_USER', 'NZBDAV_WEBDAV_PASS',
+  'NZBDAV_FALLBACK_ENABLED', 'NZBDAV_MAX_FALLBACKS', 'NZBDAV_FALLBACK_ORDER',
+  'NZBDAV_JOB_TIMEOUT', 'NZBDAV_MOVIES_TIMEOUT', 'NZBDAV_TV_TIMEOUT',
   'PROWLARR_URL', 'PROWLARR_API_KEY',
   'NZBHYDRA_URL', 'NZBHYDRA_API_KEY', 'NZBHYDRA_USERNAME', 'NZBHYDRA_PASSWORD',
   'EASYNEWS_ENABLED', 'EASYNEWS_USERNAME', 'EASYNEWS_PASSWORD',
   'PROXY_MODE', 'PROXY_URL',
   'HEALTH_CHECK_ENABLED', 'HEALTH_CHECK_NNTP_HOST', 'HEALTH_CHECK_NNTP_PORT',
   'HEALTH_CHECK_NNTP_TLS', 'HEALTH_CHECK_NNTP_USER', 'HEALTH_CHECK_NNTP_PASS',
-  'STREAM_BUFFER_MB', 'ZYCLOPS_ENDPOINT',
+  'ZYCLOPS_ENDPOINT',
 ] as const;
 const active = ENV_OVERRIDES.filter(name => process.env[name] !== undefined && process.env[name] !== '');
 if (active.length > 0) {

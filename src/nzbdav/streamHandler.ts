@@ -1,18 +1,14 @@
 /**
  * Stream Handler
- * Main stream preparation pipeline and HTTP streaming proxy.
- * Handles NZB submission -> job polling -> video discovery -> HTTP proxy with
- * backpressure, range requests, and automatic fallback on failure.
+ * Main stream preparation pipeline with 302 redirect to WebDAV.
+ * Handles NZB submission -> job polling -> video discovery -> redirect,
+ * with automatic fallback on failure and self-redirect to reset Stremio's timer.
  */
 
 import { Request, Response as ExpressResponse } from 'express';
 import { config as globalConfig } from '../config/index.js';
-import { getLatestVersions } from '../versionFetcher.js';
-import { pipeline, PassThrough, Readable } from 'stream';
+import { pipeline } from 'stream';
 import { promisify } from 'util';
-import axios from 'axios';
-import http from 'http';
-import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
@@ -31,37 +27,22 @@ setPrepareFn(
 );
 
 // ============================================================================
-// HTTP Streaming Constants
-// ============================================================================
-
-const NZBDAV_STREAM_TIMEOUT_MS = 240000; // 4 minutes
-
-// Upstream reconnect settings: when the NZBDav WebDAV connection drops mid-stream,
-// transparently reconnect from the last byte sent instead of forcing the client to retry.
-const UPSTREAM_MAX_RECONNECTS = Number(process.env.STREAM_MAX_RECONNECTS) || 30;
-const UPSTREAM_RECONNECT_BASE_DELAY_MS = 1000;   // 1s initial delay
-const UPSTREAM_RECONNECT_MAX_DELAY_MS = 8000;     // 8s cap
-const UPSTREAM_RECONNECT_TIMEOUT_MS = 30000;       // 30s timeout for reconnect requests
-
-// Keep-alive agents so successive range requests from the video player reuse
-// existing TCP/TLS connections instead of paying the full handshake cost each time.
-const keepAliveHttpAgent = new http.Agent({ keepAlive: true });
-const keepAliveHttpsAgent = new https.Agent({ keepAlive: true });
-
-// ============================================================================
 // Streaming Log Throttle
 // ============================================================================
-// Video players (especially Stremio's internal player) make dozens of rapid
-// HTTP range requests per second during normal playback. Logging every single
-// one floods the console with noise. Instead, track request counts per stream
-// and emit a compact summary every STREAM_LOG_INTERVAL_MS.
+// During fallback processing, the same stream title may trigger multiple
+// self-redirects and fallback attempts. Track request counts per stream
+// and emit a compact summary every STREAM_LOG_INTERVAL_MS to avoid
+// flooding the console with repetitive log lines.
 
-const STREAM_LOG_INTERVAL_MS = 30_000; // 30 seconds
+const STREAM_LOG_INTERVAL_MS = 30_000;   // 30 seconds
+const STREAM_LOG_STATE_TTL_MS = 3_600_000; // 1 hour — evict stale entries to prevent unbounded growth
+const STREMIO_TIMEOUT_MS = 60_000;       // Stremio's built-in HTTP timeout
+const STREMIO_SAFETY_MARGIN_MS = 5_000;  // Safety buffer when deciding whether to self-redirect
+const MAX_SELF_REDIRECTS = 5;            // Max self-redirects (~5 × 60s = 5 min of total trying)
 
 interface StreamLogState {
   requests: number;
   disconnects: number;
-  upstreamReconnects: number;
   lastLogAt: number;
   /** True once the first request for this title has been logged in full */
   seenFirst: boolean;
@@ -78,7 +59,7 @@ function shouldLogStreamRequest(title: string, event: 'request' | 'disconnect'):
   let state = streamLogState.get(title);
 
   if (!state) {
-    state = { requests: 0, disconnects: 0, upstreamReconnects: 0, lastLogAt: now, seenFirst: false };
+    state = { requests: 0, disconnects: 0, lastLogAt: now, seenFirst: false };
     streamLogState.set(title, state);
   }
 
@@ -98,47 +79,20 @@ function shouldLogStreamRequest(title: string, event: 'request' | 'disconnect'):
   if (now - state.lastLogAt >= STREAM_LOG_INTERVAL_MS) {
     const reqs = state.requests;
     const discs = state.disconnects;
-    const upReconns = state.upstreamReconnects;
     state.requests = 0;
     state.disconnects = 0;
-    state.upstreamReconnects = 0;
     state.lastLogAt = now;
-    if (reqs > 0 || discs > 0 || upReconns > 0) {
-      const parts = [`${reqs} range request${reqs !== 1 ? 's' : ''}`, `${discs} reconnect${discs !== 1 ? 's' : ''}`];
-      if (upReconns > 0) parts.push(`${upReconns} upstream reconnect${upReconns !== 1 ? 's' : ''}`);
-      console.log(`  \u{1F4CA} Streaming ${title}: ${parts.join(', ')} in last ${STREAM_LOG_INTERVAL_MS / 1000}s`);
+    if (reqs > 0 || discs > 0) {
+      console.log(`  \u{1F4CA} Streaming ${title}: ${reqs} request${reqs !== 1 ? 's' : ''}, ${discs} disconnect${discs !== 1 ? 's' : ''} in last ${STREAM_LOG_INTERVAL_MS / 1000}s`);
+    }
+    // Evict stale entries to prevent unbounded map growth
+    for (const [key, s] of streamLogState) {
+      if (now - s.lastLogAt > STREAM_LOG_STATE_TTL_MS) streamLogState.delete(key);
     }
     return false;
   }
 
   return false;
-}
-
-/**
- * Resolve the stream buffer size in bytes.
- * Priority: STREAM_BUFFER_MB env var > config UI setting > 64 MB default.
- */
-function getStreamBufferBytes(): number {
-  const envMB = Number(process.env.STREAM_BUFFER_MB);
-  if (Number.isFinite(envMB) && envMB > 0) return envMB * 1024 * 1024;
-  const configMB = globalConfig.nzbdavStreamBufferMB;
-  if (configMB != null && configMB > 0) return configMB * 1024 * 1024;
-  return 64 * 1024 * 1024; // 64MB default
-}
-
-const MIME_TYPES: Record<string, string> = {
-  'mkv': 'video/x-matroska',
-  'mp4': 'video/mp4',
-  'avi': 'video/x-msvideo',
-  'm4v': 'video/mp4',
-  'mov': 'video/quicktime',
-  'ts': 'video/mp2t',
-  'm2ts': 'video/mp2t',
-};
-
-function inferMimeType(filePath: string): string {
-  const ext = filePath.split('.').pop()?.toLowerCase() || '';
-  return MIME_TYPES[ext] || 'video/mp4';
 }
 
 /**
@@ -154,8 +108,14 @@ function isClientDisconnect(error: unknown): boolean {
     || code === 'ERR_CANCELED'
     || code === 'ECONNRESET'
     || message === 'aborted'
-    || message.includes('aborted')
-    || axios.isCancel(error);
+    || message.includes('aborted');
+}
+
+/** Get the per-attempt budget in ms based on content type (movie vs TV) */
+function getAttemptBudgetMs(contentType?: string): number {
+  return (contentType === 'series'
+    ? (globalConfig.nzbdavTvTimeoutSeconds ?? 15)
+    : (globalConfig.nzbdavMoviesTimeoutSeconds ?? 30)) * 1000;
 }
 
 // ============================================================================
@@ -177,7 +137,12 @@ export async function prepareStream(
   contentType?: string,
   episodesInSeason?: number
 ): Promise<StreamData> {
-  console.log(`\n\u{1F3AC} Preparing stream: ${title}${episodePattern ? ` (selecting ${episodePattern})` : ''} [${contentType || 'unknown'}]`);
+  const totalBudgetMs = getAttemptBudgetMs(contentType);
+  const totalBudgetS = Math.round(totalBudgetMs / 1000);
+  const budgetStart = Date.now();
+  const remaining = () => Math.max(0, Math.round((totalBudgetMs - (Date.now() - budgetStart)) / 1000));
+
+  console.log(`\n\u{1F3AC} Preparing stream: ${title}${episodePattern ? ` (selecting ${episodePattern})` : ''} [${contentType || 'unknown'}] \u23F1\uFE0F ${totalBudgetS}s budget`);
 
   // Step 0: Check NZB library first - avoid grabbing from indexer if already downloaded
   const libraryResult = await checkNzbLibrary(title, config, episodePattern, contentType, episodesInSeason);
@@ -187,481 +152,28 @@ export async function prepareStream(
   }
 
   // Step 1: Submit NZB
-  const nzoId = await submitNzb(nzbUrl, title, config, contentType);
+  console.log(`  \u23F1\uFE0F Submitting NZB... (${remaining()}s remaining)`);
+  const submitBudgetMs = totalBudgetMs - (Date.now() - budgetStart);
+  const nzoId = await submitNzb(nzbUrl, title, config, contentType, submitBudgetMs);
+  console.log(`  \u23F1\uFE0F NZB submitted → ${remaining()}s remaining`);
 
-  // Step 2: Wait for job to complete (or fail)
-  await waitForJobCompletion(nzoId, config, undefined, undefined, contentType);
+  // Step 2: Wait for job to complete (or fail) — remaining budget
+  const jobBudgetMs = totalBudgetMs - (Date.now() - budgetStart);
+  await waitForJobCompletion(nzoId, config, jobBudgetMs, undefined, contentType);
+  console.log(`  \u23F1\uFE0F Job done → ${remaining()}s remaining`);
 
-  // Step 3: Find the video file
-  const video = await waitForVideoFile(nzoId, title, config, undefined, undefined, episodePattern, contentType, episodesInSeason);
+  // Step 3: Find the video file — remaining budget
+  const videoBudgetMs = totalBudgetMs - (Date.now() - budgetStart);
+  const video = await waitForVideoFile(nzoId, title, config, videoBudgetMs, undefined, episodePattern, contentType, episodesInSeason);
 
-  console.log(`\u2705 Stream ready: ${title}\n`);
+  const totalElapsed = Math.round((Date.now() - budgetStart) / 1000);
+  console.log(`\u2705 Stream ready: ${title} (${totalElapsed}s total)\n`);
 
   return {
     nzoId,
     videoPath: video.path,
     videoSize: video.size,
   };
-}
-
-// ============================================================================
-// HTTP Streaming Proxy — Helpers
-// ============================================================================
-
-interface ContentRangeInfo {
-  start: number;
-  end: number;
-  total: number | null; // null when total is '*'
-}
-
-function parseContentRange(header: string | undefined): ContentRangeInfo | null {
-  if (!header) return null;
-  const match = header.match(/bytes\s+(\d+)-(\d+)\s*\/\s*(\d+|\*)/i);
-  if (!match) return null;
-  return {
-    start: Number(match[1]),
-    end: Number(match[2]),
-    total: match[3] === '*' ? null : Number(match[3]),
-  };
-}
-
-/**
- * Make a streaming GET request to the upstream NZBDav WebDAV server.
- * Extracted so it can be reused for both initial requests and reconnects.
- */
-async function makeUpstreamRequest(
-  targetUrl: string,
-  config: NZBDavConfig,
-  userAgent: string,
-  rangeHeader: string,
-  signal: AbortSignal,
-  timeoutMs: number = NZBDAV_STREAM_TIMEOUT_MS,
-): Promise<import('axios').AxiosResponse> {
-  return axios.request({
-    url: targetUrl,
-    method: 'GET',
-    headers: {
-      'User-Agent': userAgent,
-      'Accept-Encoding': 'identity',
-      'Range': rangeHeader,
-    },
-    responseType: 'stream',
-    timeout: timeoutMs,
-    signal,
-    httpAgent: keepAliveHttpAgent,
-    httpsAgent: keepAliveHttpsAgent,
-    auth: config.webdavUser && config.webdavPassword ? {
-      username: config.webdavUser,
-      password: config.webdavPassword,
-    } : undefined,
-    validateStatus: (status: number) => status < 500,
-  });
-}
-
-/**
- * Manually pipe an upstream stream through a buffered PassThrough to the Express response.
- * Tracks bytes written to `res` via the `onChunk` callback.
- * Handles backpressure: pauses the buffer when `res.write()` signals pressure.
- * Can skip leading bytes on reconnect (when upstream returns overlapping data).
- */
-function consumeUpstream(
-  upstream: Readable,
-  res: ExpressResponse,
-  req: Request,
-  onChunk: (byteLength: number) => void,
-  skipBytes: number = 0,
-): Promise<void> {
-  const buffer = new PassThrough({ highWaterMark: getStreamBufferBytes() });
-  upstream.pipe(buffer);
-
-  return new Promise<void>((resolve, reject) => {
-    let settled = false;
-    let skipped = 0;
-
-    const finish = (err?: Error) => {
-      if (settled) return;
-      settled = true;
-      buffer.removeListener('data', onData);
-      buffer.removeListener('end', onEnd);
-      buffer.removeListener('error', onBufferError);
-      upstream.removeListener('error', onUpstreamError);
-      res.removeListener('drain', onDrain);
-      req.removeListener('close', onClientGone);
-      if (err) reject(err); else resolve();
-    };
-
-    const onData = (chunk: Buffer) => {
-      // Skip leading bytes on reconnect (overlap from upstream)
-      if (skipBytes > 0 && skipped < skipBytes) {
-        const remaining = skipBytes - skipped;
-        if (chunk.length <= remaining) {
-          skipped += chunk.length;
-          return;
-        }
-        chunk = chunk.subarray(remaining);
-        skipped = skipBytes;
-      }
-
-      onChunk(chunk.length);
-      const ok = res.write(chunk);
-      if (!ok) buffer.pause();
-    };
-
-    const onDrain = () => {
-      if (!settled) buffer.resume();
-    };
-
-    const onEnd = () => finish();
-
-    const onBufferError = (err: Error) => finish(err);
-
-    const onUpstreamError = (err: Error) => {
-      // Upstream died — destroy the buffer (discards any buffered-but-unsent data)
-      // so we can reconnect from the accurate bytesSent offset.
-      buffer.destroy();
-      finish(err);
-    };
-
-    const onClientGone = () => {
-      if (res.writableFinished) return; // Normal completion race
-      upstream.destroy();
-      buffer.destroy();
-      const err = new Error('Client disconnected') as NodeJS.ErrnoException;
-      err.code = 'ERR_STREAM_PREMATURE_CLOSE';
-      finish(err);
-    };
-
-    buffer.on('data', onData);
-    buffer.on('end', onEnd);
-    buffer.on('error', onBufferError);
-    upstream.on('error', onUpstreamError);
-    res.on('drain', onDrain);
-    req.on('close', onClientGone);
-  });
-}
-
-/**
- * Stream data from upstream to the client with transparent upstream reconnect.
- * When the NZBDav WebDAV connection drops mid-stream, reconnects from the last
- * byte delivered to the client using a new Range request. The client never knows
- * the upstream connection was lost — it just keeps receiving bytes.
- */
-async function pipeWithReconnect(
-  initialUpstream: Readable,
-  res: ExpressResponse,
-  req: Request,
-  rangeStart: number,
-  rangeEnd: number,
-  totalSize: number | null,
-  targetUrl: string,
-  config: NZBDavConfig,
-  userAgent: string,
-  abortController: AbortController,
-  title: string,
-): Promise<void> {
-  let bytesSent = 0;
-  let reconnectCount = 0;
-
-  // First consume attempt with the initial upstream
-  try {
-    await consumeUpstream(initialUpstream, res, req, (len) => { bytesSent += len; });
-    return; // Stream completed cleanly
-  } catch (firstError) {
-    if (req.destroyed || res.writableEnded || res.destroyed) {
-      throw firstError; // Client disconnected — let handleStream handle it
-    }
-  }
-
-  // Upstream failed while client is still alive — enter reconnect loop
-  while (reconnectCount < UPSTREAM_MAX_RECONNECTS) {
-    reconnectCount++;
-
-    const resumeByte = rangeStart + bytesSent;
-    const delay = Math.min(
-      UPSTREAM_RECONNECT_BASE_DELAY_MS * Math.pow(2, Math.min(reconnectCount - 1, 3)),
-      UPSTREAM_RECONNECT_MAX_DELAY_MS,
-    );
-
-    console.log(
-      `  \u{1F504} Upstream reconnect [${reconnectCount}/${UPSTREAM_MAX_RECONNECTS}]: ` +
-      `resuming from byte ${resumeByte} (${Math.round(bytesSent / 1024 / 1024)}MB sent), delay ${delay}ms`
-    );
-
-    // Update throttled log state
-    const logState = streamLogState.get(title);
-    if (logState) logState.upstreamReconnects++;
-
-    await new Promise(r => setTimeout(r, delay));
-
-    // Client may have left during the backoff
-    if (req.destroyed || res.writableEnded || res.destroyed) return;
-
-    // Attempt to establish a new upstream connection
-    let newResponse: import('axios').AxiosResponse;
-    try {
-      newResponse = await makeUpstreamRequest(
-        targetUrl, config, userAgent,
-        `bytes=${resumeByte}-${rangeEnd}`,
-        abortController.signal,
-        UPSTREAM_RECONNECT_TIMEOUT_MS,
-      );
-    } catch {
-      // Connection attempt failed — try again next iteration
-      continue;
-    }
-
-    // Validate Content-Range on the reconnected response
-    const newRange = parseContentRange(newResponse.headers['content-range']);
-
-    // Check file hasn't been replaced/modified
-    if (newRange && totalSize != null && newRange.total != null && newRange.total !== totalSize) {
-      console.warn(`  \u26A0\uFE0F File size changed on reconnect: ${totalSize} \u2192 ${newRange.total}. Ending stream.`);
-      newResponse.data.destroy();
-      if (!res.writableEnded) res.end();
-      return;
-    }
-
-    // Handle byte overlap or gap
-    let skipBytes = 0;
-    if (newRange) {
-      if (newRange.start < resumeByte) {
-        skipBytes = resumeByte - newRange.start;
-      } else if (newRange.start > resumeByte) {
-        // Gap in data — can't fix without corrupting the stream
-        console.warn(`  \u26A0\uFE0F Upstream returned byte ${newRange.start}, expected ${resumeByte}. Ending stream.`);
-        newResponse.data.destroy();
-        if (!res.writableEnded) res.end();
-        return;
-      }
-    }
-
-    // Consume the reconnected stream
-    try {
-      await consumeUpstream(newResponse.data, res, req, (len) => { bytesSent += len; }, skipBytes);
-      return; // Stream completed cleanly
-    } catch (err) {
-      if (req.destroyed || res.writableEnded || res.destroyed) {
-        throw err; // Client disconnected
-      }
-      // Upstream failed again — continue reconnect loop
-    }
-  }
-
-  // All reconnect attempts exhausted
-  console.error(`  \u26D4 Exhausted ${UPSTREAM_MAX_RECONNECTS} upstream reconnect attempts for ${title}`);
-  if (!res.writableEnded) res.end();
-}
-
-// ============================================================================
-// HTTP Streaming Proxy
-// ============================================================================
-
-/**
- * Proxy a WebDAV file stream directly via HTTP using axios.
- * Avoids the webdav library's createReadStream which buffers entire files in memory.
- * Uses transparent upstream reconnect for resilience on large files.
- * Cancels the upstream request when the client disconnects to prevent memory leaks.
- */
-async function proxyNzbdavStream(
-  req: Request,
-  res: ExpressResponse,
-  videoPath: string,
-  config: NZBDavConfig,
-  knownFileSize?: number,
-  verbose = true,
-  title = '',
-): Promise<void> {
-  const webdavBase = (config.webdavUrl || config.url).replace(/\/+$/, '');
-  const encodedPath = videoPath
-    .split('/')
-    .map(segment => segment ? encodeURIComponent(segment) : '')
-    .join('/');
-  const targetUrl = `${webdavBase}${encodedPath}`;
-
-  const isHead = req.method?.toUpperCase() === 'HEAD';
-  const userAgent = globalConfig.userAgents?.nzbdavOperations || getLatestVersions().chrome;
-
-  // For HEAD requests, respond immediately with cached size -- no round-trip to nzbdav
-  if (isHead && knownFileSize) {
-    if (verbose) console.log(`  \u{1F504} HEAD ${videoPath} (cached size: ${knownFileSize})`);
-    res.status(200);
-    res.setHeader('Content-Length', knownFileSize);
-    res.setHeader('Content-Type', inferMimeType(videoPath));
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.end();
-    return;
-  }
-
-  // AbortController to cancel the upstream request when the client disconnects
-  const abortController = new AbortController();
-  const onClientClose = () => abortController.abort();
-  req.on('close', onClientClose);
-
-  try {
-    // Build headers to forward
-    const headers: Record<string, string> = {
-      'User-Agent': userAgent,
-      'Accept-Encoding': 'identity',
-    };
-    if (req.headers.range) headers['Range'] = req.headers.range;
-    if (req.headers['if-range']) headers['If-Range'] = req.headers['if-range'] as string;
-
-    // Use cached file size, or fall back to a HEAD request for full GETs
-    let totalFileSize: number | null = knownFileSize || null;
-    if (!totalFileSize && !req.headers.range && !isHead) {
-      try {
-        const headResponse = await axios.request({
-          url: targetUrl,
-          method: 'HEAD',
-          headers: { 'User-Agent': userAgent },
-          timeout: 30000,
-          signal: abortController.signal,
-          httpAgent: keepAliveHttpAgent,
-          httpsAgent: keepAliveHttpsAgent,
-          auth: config.webdavUser && config.webdavPassword ? {
-            username: config.webdavUser,
-            password: config.webdavPassword,
-          } : undefined,
-          validateStatus: (status) => status < 500,
-        });
-        const cl = headResponse.headers['content-length'];
-        if (cl) {
-          totalFileSize = Number(cl);
-          console.log(`  \u{1F4CF} HEAD reported total size ${totalFileSize} bytes`);
-        }
-      } catch (headErr) {
-        if (isClientDisconnect(headErr)) throw headErr;
-        console.warn(`  \u26A0\uFE0F HEAD request failed, continuing without pre-fetched size: ${(headErr as Error).message}`);
-      }
-
-      // Synthesize a full Range header so the upstream always returns Content-Range
-      if (totalFileSize && totalFileSize > 0) {
-        headers['Range'] = `bytes=0-${totalFileSize - 1}`;
-        console.log(`  \u{1F4D0} Synthesized Range: bytes=0-${totalFileSize - 1}`);
-      }
-    }
-
-    // For HEAD requests without cached size, use a range trick to avoid downloading the body
-    if (isHead) {
-      headers['Range'] = 'bytes=0-0';
-    }
-
-    const requestConfig = {
-      url: targetUrl,
-      method: 'GET' as const,
-      headers,
-      responseType: 'stream' as const,
-      timeout: NZBDAV_STREAM_TIMEOUT_MS,
-      signal: abortController.signal,
-      httpAgent: keepAliveHttpAgent,
-      httpsAgent: keepAliveHttpsAgent,
-      auth: config.webdavUser && config.webdavPassword ? {
-        username: config.webdavUser,
-        password: config.webdavPassword,
-      } : undefined,
-      validateStatus: (status: number) => status < 500,
-    };
-
-    if (verbose) console.log(`  \u{1F504} Proxying ${isHead ? 'HEAD' : 'GET'} ${videoPath}`);
-
-    const nzbdavResponse = await axios.request(requestConfig);
-
-    let responseStatus = nzbdavResponse.status;
-    const contentRange = nzbdavResponse.headers['content-range'];
-
-    // If we got a 200 with Content-Range, it's actually a 206
-    if (contentRange && responseStatus === 200) {
-      responseStatus = 206;
-    }
-
-    // For HEAD requests, extract total size from Content-Range and respond
-    if (isHead) {
-      if (nzbdavResponse.data && typeof nzbdavResponse.data.destroy === 'function') {
-        nzbdavResponse.data.destroy();
-      }
-
-      // Parse total size from Content-Range: bytes 0-0/TOTAL
-      let headSize: number | null = null;
-      if (contentRange) {
-        const match = contentRange.match(/bytes\s+\d+-\d+\s*\/\s*(\d+)/i);
-        if (match) headSize = Number(match[1]);
-      }
-
-      res.status(200);
-      if (headSize != null) res.setHeader('Content-Length', headSize);
-      res.setHeader('Content-Type', inferMimeType(videoPath));
-      res.setHeader('Accept-Ranges', 'bytes');
-      res.end();
-      return;
-    }
-
-    // Set response status
-    res.status(responseStatus);
-
-    // Forward relevant headers from WebDAV response
-    const headerBlocklist = new Set(['transfer-encoding', 'www-authenticate', 'set-cookie', 'cookie', 'authorization']);
-    for (const [key, value] of Object.entries(nzbdavResponse.headers || {})) {
-      if (!headerBlocklist.has(key.toLowerCase()) && value !== undefined) {
-        res.setHeader(key, value as string);
-      }
-    }
-
-    // Set Content-Type based on file extension
-    res.setHeader('Content-Type', inferMimeType(videoPath));
-    res.setHeader('Accept-Ranges', 'bytes');
-
-    // Fix Content-Length from Content-Range if present
-    if (contentRange) {
-      const match = contentRange.match(/bytes\s+(\d+)-(\d+)\s*\/\s*(\d+|\*)/i);
-      if (match) {
-        const start = Number(match[1]);
-        const end = Number(match[2]);
-        const chunkLength = end - start + 1;
-        if (Number.isFinite(chunkLength) && chunkLength > 0) {
-          res.setHeader('Content-Length', String(chunkLength));
-        }
-      }
-    } else if (totalFileSize != null && Number.isFinite(totalFileSize)) {
-      // Use the pre-fetched HEAD size for full GET requests
-      res.setHeader('Content-Length', String(totalFileSize));
-    }
-
-    // Flush headers immediately so the client sees the 206 response right away,
-    // even before the first data chunk arrives from the upstream WebDAV server.
-    // Without this, Express waits until the first res.write() to send headers,
-    // which can cause impatient clients (e.g. Stremio) to disconnect and retry
-    // in a tight loop if there's any upstream latency.
-    res.flushHeaders();
-
-    // Parse the byte range we're serving so pipeWithReconnect can resume from the right offset
-    const range = parseContentRange(contentRange);
-    const effectiveStart = range?.start ?? 0;
-    const effectiveEnd = range?.end ?? (totalFileSize ? totalFileSize - 1 : Number.MAX_SAFE_INTEGER);
-    const effectiveTotal = range?.total ?? totalFileSize ?? null;
-
-    // Stream with transparent upstream reconnect (replaces single pipelineAsync)
-    await pipeWithReconnect(
-      nzbdavResponse.data,
-      res,
-      req,
-      effectiveStart,
-      effectiveEnd,
-      effectiveTotal,
-      targetUrl,
-      config,
-      userAgent,
-      abortController,
-      title || videoPath.split('/').pop() || videoPath,
-    );
-  } catch (error) {
-    if (isClientDisconnect(error)) {
-      // Normal: client seeked, stopped, or navigated away
-      throw error; // Re-throw so handleStream can log it quietly
-    }
-    throw error;
-  } finally {
-    req.removeListener('close', onClientClose);
-  }
 }
 
 // ============================================================================
@@ -750,6 +262,8 @@ export async function handleStream(
     return;
   }
 
+  const streamStartTime = Date.now();
+
   // Build episode pattern for season pack file selection (e.g. "S02E05")
   let episodePattern: string | undefined;
   const epcountParam = req.query.epcount as string | undefined;
@@ -765,32 +279,85 @@ export async function handleStream(
     { nzbUrl, title, indexerName: req.query.indexer as string || '' }
   ];
 
-  const maxFallbacks = globalConfig.nzbdavMaxFallbacks ?? 9;
+  const fallbackEnabled = globalConfig.nzbdavFallbackEnabled !== false;
+  const maxFallbacksSetting = globalConfig.nzbdavMaxFallbacks ?? 0; // 0 = unlimited (try all)
 
   // Check whether this request should produce detailed logs.
-  // During active playback, the video player fires dozens of range requests per
-  // second — logging each one floods the console. shouldLogStreamRequest returns
-  // true for the first request and then emits a compact summary every 30 s.
+  // During fallback processing, a single stream title may generate multiple
+  // self-redirect requests. shouldLogStreamRequest returns true for the
+  // first request and then emits a compact summary every 30 s.
   const verbose = shouldLogStreamRequest(title, 'request');
 
-  if (fallbackGroupId && maxFallbacks > 0) {
+  if (fallbackGroupId && fallbackEnabled) {
     const group = getFallbackGroup(fallbackGroupId);
     if (group) {
-      for (const candidate of group.candidates) {
-        if (candidate.nzbUrl === nzbUrl && candidate.title === title) continue;
-        candidates.push(candidate);
+      const fallbackOrder = globalConfig.nzbdavFallbackOrder || 'selected';
+      if (fallbackOrder === 'top') {
+        // Try the clicked NZB first, then continue from the top of the list (skipping it)
+        candidates.length = 0;
+        const clickedCandidate = group.candidates.find(
+          c => c.nzbUrl === nzbUrl && c.title === title
+        );
+        if (clickedCandidate) {
+          candidates.push(clickedCandidate);
+          candidates.push(...group.candidates.filter(c => c !== clickedCandidate));
+        } else {
+          candidates.push({ nzbUrl, title, indexerName: req.query.indexer as string || '' });
+          candidates.push(...group.candidates);
+        }
+      } else {
+        // Default 'selected': start from clicked NZB's position, continue down, then wrap
+        candidates.length = 0;
+        const clickedIdx = group.candidates.findIndex(
+          c => c.nzbUrl === nzbUrl && c.title === title
+        );
+        if (clickedIdx >= 0) {
+          candidates.push(...group.candidates.slice(clickedIdx));
+          candidates.push(...group.candidates.slice(0, clickedIdx));
+        } else {
+          // Clicked NZB not found in group — put it first, then all group candidates
+          candidates.push({ nzbUrl, title, indexerName: req.query.indexer as string || '' });
+          candidates.push(...group.candidates);
+        }
       }
       if (verbose) {
-        const totalToTry = Math.min(candidates.length, 1 + maxFallbacks);
-        console.log(`\u{1F504} Fallback group loaded: ${candidates.length} candidates available (will try up to ${totalToTry})`);
+        const totalToTry = maxFallbacksSetting === 0
+          ? candidates.length
+          : Math.min(candidates.length, 1 + maxFallbacksSetting);
+        console.log(`🔄 Fallback group loaded (${fallbackOrder}): ${candidates.length} candidates (trying up to ${totalToTry})`);
       }
     }
   }
 
-  const maxCandidates = maxFallbacks === 0 ? 1 : Math.min(candidates.length, 1 + maxFallbacks);
+  const maxCandidates = !fallbackEnabled ? 1
+    : maxFallbacksSetting === 0 ? candidates.length
+    : Math.min(candidates.length, 1 + maxFallbacksSetting);
   const streamCacheMap = getStreamCache();
+  const redirectCount = Math.max(0, parseInt(req.query._rc as string || '0', 10) || 0);
+  const attemptBudgetMs = getAttemptBudgetMs(contentType);
 
   for (let i = 0; i < maxCandidates; i++) {
+    // Stop processing if the client disconnected (user backed out)
+    if (req.socket.destroyed) {
+      console.log(`🔌 Client disconnected — stopping fallback loop at [${i + 1}/${maxCandidates}]`);
+      return;
+    }
+
+    // Self-redirect to reset Stremio's 60s timer before it expires.
+    // Failed candidates are cached, so the new request skips them instantly.
+    if (i > 0 && !req.socket.destroyed && redirectCount < MAX_SELF_REDIRECTS) {
+      const elapsed = Date.now() - streamStartTime;
+      if (elapsed + attemptBudgetMs + STREMIO_SAFETY_MARGIN_MS > STREMIO_TIMEOUT_MS) {
+        const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
+        redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
+        if (verbose) {
+          console.log(`⏰ Self-redirect to reset Stremio timer (${Math.round(elapsed / 1000)}s elapsed, redirect ${redirectCount + 1}/${MAX_SELF_REDIRECTS})`);
+        }
+        res.redirect(302, redirectUrl.href);
+        return;
+      }
+    }
+
     const candidate = candidates[i];
 
     // Skip candidates already known to be failed in cache
@@ -798,13 +365,13 @@ export async function handleStream(
       + (episodePattern ? `:${episodePattern}` : '');
     const cached = streamCacheMap.get(cacheKey);
     if (cached?.status === 'failed') {
-      console.log(`\u23ED\uFE0F Skipping known-failed [${i + 1}/${maxCandidates}]: ${candidate.title}`);
+      if (verbose) console.log(`\u23ED\uFE0F Skipping known-failed [${i + 1}/${maxCandidates}]: ${candidate.title}`);
       continue;
     }
 
     try {
       if (i > 0) {
-        console.log(`\u{1F504} Trying fallback [${i + 1}/${maxCandidates}]: ${candidate.title}`);
+        if (verbose) console.log(`\u{1F504} Trying fallback [${i + 1}/${maxCandidates}]: ${candidate.title}`);
         if (trackGrabFn && candidate.indexerName) {
           trackGrabFn(candidate.indexerName, candidate.title);
         }
@@ -814,11 +381,37 @@ export async function handleStream(
         candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason
       );
 
-      if (i > 0) {
+      if (i > 0 && verbose) {
         console.log(`\u2705 Fallback succeeded on attempt ${i + 1}/${maxCandidates}`);
       }
 
-      await proxyNzbdavStream(req, res, streamData.videoPath, config, streamData.videoSize, verbose, candidate.title);
+      // Check again after await — client may have disconnected while waiting
+      if (req.socket.destroyed) {
+        console.log(`🔌 Client disconnected — aborting redirect for: ${candidate.title}`);
+        return;
+      }
+
+      // Redirect to direct WebDAV URL with embedded credentials for player authentication
+      const webdavUrl = config.webdavUrl || config.url;
+      if (!webdavUrl) {
+        console.error('❌ No WebDAV URL configured — falling back to failure video');
+        break;
+      }
+      const webdavBase = webdavUrl.replace(/\/+$/, '');
+      const encodedPath = '/' + streamData.videoPath
+        .split('/')
+        .filter(segment => segment && segment !== '.' && segment !== '..')
+        .map(segment => encodeURIComponent(segment))
+        .join('/');
+      const redirectUrl = new URL(`${webdavBase}${encodedPath}`);
+      if (config.webdavUser && config.webdavPassword) {
+        redirectUrl.username = config.webdavUser;
+        redirectUrl.password = config.webdavPassword;
+      }
+      if (verbose) {
+        console.log(`  ↗️ Redirect: 302 → ${redirectUrl.protocol}//${redirectUrl.host}${redirectUrl.pathname}`);
+      }
+      res.redirect(302, redirectUrl.href);
       return;
 
     } catch (error) {

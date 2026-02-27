@@ -930,7 +930,7 @@ export default function HealthChecksOverlay({
                     hideBlocked: true,
                     libraryPreCheck: true,
                     healthCheckIndexers: {},
-                    segmentCache: { enabled: true, ttlHours: 0, maxSizeMB: 50 }
+                    segmentCache: { enabled: true, ttlHours: 0, maxSizeMB: 50 },
                   }));
                   setProviderTestStatus({});
                   setProviderTestMessage({});

@@ -1,7 +1,14 @@
 /**
  * NZBDav Service Types
- * Shared interfaces and type aliases used across all NZBDav modules.
+ * Shared interfaces, type aliases, and constants used across all NZBDav modules.
  */
+
+// ── Shared constants ──────────────────────────────────────────────────
+
+/** Timeout per WebDAV directory listing / file request — prevents hang if NZBDav is overwhelmed */
+export const WEBDAV_REQUEST_TIMEOUT_MS = 10_000;
+
+// ── Interfaces ────────────────────────────────────────────────────────
 
 export interface NZBDavConfig {
   url: string;

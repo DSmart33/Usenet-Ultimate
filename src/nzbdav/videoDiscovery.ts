@@ -6,11 +6,9 @@
  */
 
 import { createClient, FileStat } from 'webdav';
-import { extractDiscNumber } from '../parsers/bdmvParser.js';
-import { resolveBdmvEpisode, resolveMultiDiscBdmvEpisode } from './bdmvResolver.js';
 import { getWebdavClient } from './webdavClient.js';
 import { resolveCategory } from './nzbdavApi.js';
-import type { NZBDavConfig, StreamData } from './types.js';
+import { WEBDAV_REQUEST_TIMEOUT_MS, type NZBDavConfig, type StreamData } from './types.js';
 
 /**
  * Find video file in WebDAV directory
@@ -24,55 +22,13 @@ export async function findVideoFile(
 ): Promise<{ path: string; size: number } | null> {
   if (depth > 6) return null;
 
-  const videoExts = ['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.ts', '.m2ts', '.wmv', '.webm', '.mpg', '.mpeg'];
+  const videoExts = ['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.ts', '.wmv', '.webm', '.mpg', '.mpeg'];
   const minFileSize = 100 * 1024 * 1024; // 100MB minimum
 
   try {
-    const items = await client.getDirectoryContents(dirPath) as FileStat[];
-
-    // BDMV detection: check if this directory contains or IS a BDMV structure
-    if (episodePattern) {
-      // Check if current directory IS the BDMV directory
-      const currentDirName = (dirPath.split('/').filter(Boolean).pop() || '').toUpperCase();
-      if (currentDirName === 'BDMV') {
-        const parentPath = dirPath.split('/').slice(0, -1).join('/');
-        const bdmvResult = await resolveBdmvEpisode(client, dirPath, episodePattern, parentPath);
-        if (bdmvResult) return bdmvResult;
-      }
-
-      // Check if any child directory is named BDMV (single-disc)
-      const bdmvDir = items.find(
-        item => item.type === 'directory' &&
-                (item.filename.split('/').filter(Boolean).pop() || '').toUpperCase() === 'BDMV'
-      );
-      if (bdmvDir) {
-        const bdmvResult = await resolveBdmvEpisode(client, bdmvDir.filename, episodePattern, dirPath);
-        if (bdmvResult) return bdmvResult;
-        // BDMV resolution failed -- fall through to existing video file matching
-      }
-
-      // Multi-disc detection: check if child directories are disc folders (S04D01, Disc1, etc.)
-      // each containing their own BDMV -- common for complete season Blu-ray sets
-      if (!bdmvDir) {
-        const discDirs: Array<{ path: string; dirname: string; discNumber: number }> = [];
-        for (const item of items) {
-          if (item.type === 'directory') {
-            const dirname = item.filename.split('/').filter(Boolean).pop() || '';
-            const discNum = extractDiscNumber(dirname);
-            if (discNum !== undefined) {
-              discDirs.push({ path: item.filename, dirname, discNumber: discNum });
-            }
-          }
-        }
-
-        if (discDirs.length >= 2) {
-          discDirs.sort((a, b) => a.discNumber - b.discNumber);
-          const multiResult = await resolveMultiDiscBdmvEpisode(client, discDirs, episodePattern, episodesInSeason);
-          if (multiResult) return multiResult;
-          // Multi-disc resolution failed -- fall through to existing logic
-        }
-      }
-    }
+    const items = await client.getDirectoryContents(dirPath, {
+      signal: AbortSignal.timeout(WEBDAV_REQUEST_TIMEOUT_MS),
+    }) as FileStat[];
 
     const videos: { path: string; size: number }[] = [];
 
@@ -180,9 +136,11 @@ export async function waitForVideoFile(
   ];
 
   const startTime = Date.now();
-  console.log(`  \u{1F50D} Looking for video file...`);
+  console.log(`  \u{1F50D} Looking for video file (${Math.round(timeoutMs / 1000)}s budget)...`);
 
+  let scanCount = 0;
   while (Date.now() - startTime < timeoutMs) {
+    scanCount++;
     for (const p of paths) {
       const video = await findVideoFile(client, p, 0, episodePattern, episodesInSeason);
       if (video) {
@@ -190,6 +148,11 @@ export async function waitForVideoFile(
         console.log(`  \u2705 Video found: ${video.path} (${sizeMB}MB)`);
         return video;
       }
+    }
+
+    const remaining = Math.max(0, Math.round((timeoutMs - (Date.now() - startTime)) / 1000));
+    if (scanCount > 1) {
+      console.log(`  \u{1F50D} Video not found yet — scan #${scanCount} (${remaining}s remaining)`);
     }
 
     await new Promise(r => setTimeout(r, pollIntervalMs));

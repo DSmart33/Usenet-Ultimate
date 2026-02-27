@@ -155,7 +155,12 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   const router = Router({ mergeParams: true });
   const { config, handleStream, isStreamCached, trackGrab } = deps;
 
-  // NZBDav stream proxy endpoint (key-protected)
+  // Dedup set for grab tracking — prevents concurrent requests from tracking the same grab
+  // before the stream cache is populated. Entries are cleaned up after 60s.
+  const trackedGrabKeys = new Set<string>();
+  const GRAB_DEDUP_TTL_MS = 60_000;
+
+  // NZBDav stream endpoint (key-protected)
   // Uses history API polling to detect job completion/failure
   router.get('/stream', async (req, res) => {
     const nzbUrl = req.query.nzb as string;
@@ -164,7 +169,11 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     const isAuto = req.query.auto === 'true';
 
     // Track grab only for genuinely new streams (not cache hits, range requests, retries)
-    if (indexerName && nzbUrl && title !== 'Unknown' && !isStreamCached(nzbUrl, title)) {
+    // Key format: indexer::title (tracks unique grabs per indexer, matching fallback dedup)
+    const grabKey = `${indexerName}::${title}`;
+    if (indexerName && nzbUrl && title !== 'Unknown' && !isStreamCached(nzbUrl, title) && !trackedGrabKeys.has(grabKey)) {
+      trackedGrabKeys.add(grabKey);
+      setTimeout(() => trackedGrabKeys.delete(grabKey), GRAB_DEDUP_TTL_MS);
       trackGrab(indexerName, title);
       console.log(`\u{1F4CA} Tracked grab from ${indexerName}: ${title}${isAuto ? ' (auto)' : ''}`);
     }
@@ -180,9 +189,20 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       tvCategory: config.nzbdavTvCategory || 'Usenet-Ultimate-TV',
     };
 
+    // Wrap trackGrab with the same dedup set so fallback grabs after
+    // self-redirects don't double-count candidates already tracked.
+    const dedupedTrackGrab = (indexer: string, grabTitle: string) => {
+      const key = `${indexer}::${grabTitle}`;
+      if (trackedGrabKeys.has(key)) return;
+      trackedGrabKeys.add(key);
+      setTimeout(() => trackedGrabKeys.delete(key), GRAB_DEDUP_TTL_MS);
+      trackGrab(indexer, grabTitle);
+      console.log(`\u{1F4CA} Tracked grab from ${indexer}: ${grabTitle}`);
+    };
+
     // Delegate to nzbdav module (handles caching, history polling, streaming, fallback)
     try {
-      await handleStream(req, res, nzbdavConfig, trackGrab);
+      await handleStream(req, res, nzbdavConfig, dedupedTrackGrab);
     } catch (error) {
       if (!res.headersSent) {
         res.status(500).json({ error: 'Stream handler failed' });
