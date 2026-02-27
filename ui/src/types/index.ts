@@ -134,11 +134,14 @@ export interface Config {
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
   nzbdavFallbackEnabled?: boolean;
+  nzbdavLibraryCheckEnabled?: boolean;
   nzbdavMaxFallbacks?: number;
   nzbdavJobTimeoutSeconds?: number;
   nzbdavMoviesTimeoutSeconds?: number;
   nzbdavTvTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
+  nzbdavStreamBufferMB?: number;
+  nzbdavProxyEnabled?: boolean;
   easynewsEnabled?: boolean;
   easynewsUsername?: string;
   easynewsPassword?: string;

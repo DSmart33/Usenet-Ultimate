@@ -673,6 +673,8 @@ function App() {
           onClose={() => ac.setActiveOverlay(null)}
           nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
           setNzbdavFallbackEnabled={ac.setNzbdavFallbackEnabled}
+          nzbdavLibraryCheckEnabled={ac.nzbdavLibraryCheckEnabled}
+          setNzbdavLibraryCheckEnabled={ac.setNzbdavLibraryCheckEnabled}
           nzbdavMoviesTimeoutSeconds={ac.nzbdavMoviesTimeoutSeconds}
           setNzbdavMoviesTimeoutSeconds={ac.setNzbdavMoviesTimeoutSeconds}
           nzbdavTvTimeoutSeconds={ac.nzbdavTvTimeoutSeconds}
@@ -681,6 +683,10 @@ function App() {
           setNzbdavFallbackOrder={ac.setNzbdavFallbackOrder}
           nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
           setNzbdavMaxFallbacks={ac.setNzbdavMaxFallbacks}
+          nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
+          setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
+          nzbdavProxyEnabled={ac.nzbdavProxyEnabled}
+          setNzbdavProxyEnabled={ac.setNzbdavProxyEnabled}
           cacheTTL={ac.cacheTTL}
         />
       )}

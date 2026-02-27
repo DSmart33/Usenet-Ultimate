@@ -8,6 +8,8 @@ interface FallbackOverlayProps {
   onClose: () => void;
   nzbdavFallbackEnabled: boolean;
   setNzbdavFallbackEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  nzbdavLibraryCheckEnabled: boolean;
+  setNzbdavLibraryCheckEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   nzbdavMoviesTimeoutSeconds: number;
   setNzbdavMoviesTimeoutSeconds: React.Dispatch<React.SetStateAction<number>>;
   nzbdavTvTimeoutSeconds: number;
@@ -16,6 +18,10 @@ interface FallbackOverlayProps {
   setNzbdavFallbackOrder: React.Dispatch<React.SetStateAction<'selected' | 'top'>>;
   nzbdavMaxFallbacks: number;
   setNzbdavMaxFallbacks: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavStreamBufferMB: number;
+  setNzbdavStreamBufferMB: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavProxyEnabled: boolean;
+  setNzbdavProxyEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   cacheTTL: number;
 }
 
@@ -23,6 +29,8 @@ export function FallbackOverlay({
   onClose,
   nzbdavFallbackEnabled,
   setNzbdavFallbackEnabled,
+  nzbdavLibraryCheckEnabled,
+  setNzbdavLibraryCheckEnabled,
   nzbdavMoviesTimeoutSeconds,
   setNzbdavMoviesTimeoutSeconds,
   nzbdavTvTimeoutSeconds,
@@ -31,6 +39,10 @@ export function FallbackOverlay({
   setNzbdavFallbackOrder,
   nzbdavMaxFallbacks,
   setNzbdavMaxFallbacks,
+  nzbdavStreamBufferMB,
+  setNzbdavStreamBufferMB,
+  nzbdavProxyEnabled,
+  setNzbdavProxyEnabled,
   cacheTTL,
 }: FallbackOverlayProps) {
   const fallbackGroupTTLDisplay = cacheTTL >= 3600
@@ -64,10 +76,62 @@ export function FallbackOverlay({
               <div>
                 <span className="text-sm font-medium text-slate-300">Enable Fallback</span>
                 <p className="text-xs text-slate-500 mt-1">
-                  Automatically try alternative NZBs when the primary download fails. Redirects the player directly to the WebDAV video URL.
+                  Automatically try alternative NZBs when the primary download fails. When disabled, all streams use direct passthrough.
                 </p>
               </div>
             </label>
+          </div>
+
+          {/* Library Check Toggle */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 transition-opacity", !nzbdavFallbackEnabled && "opacity-40 pointer-events-none")}>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={nzbdavLibraryCheckEnabled}
+                onChange={(e) => setNzbdavLibraryCheckEnabled(e.target.checked)}
+                className="w-5 h-5 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800"
+              />
+              <div>
+                <span className="text-sm font-medium text-slate-300">Library Check</span>
+                <p className="text-xs text-slate-500 mt-1">
+                  Check WebDAV library for existing files before grabbing from indexer. Disable if library files are inaccessible or removed.
+                </p>
+              </div>
+            </label>
+          </div>
+
+          {/* Streaming Method */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !nzbdavFallbackEnabled && "opacity-40 pointer-events-none")}>
+            <label className="block text-sm font-medium text-slate-300">Streaming Method</label>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setNzbdavProxyEnabled(true)}
+                className={clsx(
+                  "flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
+                  nzbdavProxyEnabled
+                    ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                    : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                )}
+              >
+                Proxy
+              </button>
+              <button
+                onClick={() => setNzbdavProxyEnabled(false)}
+                className={clsx(
+                  "flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
+                  !nzbdavProxyEnabled
+                    ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                    : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                )}
+              >
+                Direct
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">
+              {nzbdavProxyEnabled
+                ? 'Video streams through a local proxy with buffering and automatic reconnection. Recommended for mobile and TV.'
+                : 'Player is redirected directly to the WebDAV URL. Recommended for desktop players.'}
+            </p>
           </div>
 
           {/* Movie Wait Time — always editable because it controls the initial stream wait time too */}
@@ -212,15 +276,46 @@ export function FallbackOverlay({
             </p>
           </div>
 
+          {/* Stream Buffer Size */}
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", (!nzbdavFallbackEnabled || !nzbdavProxyEnabled) && "opacity-40 pointer-events-none")}>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium text-slate-300">Stream Buffer</div>
+              <button
+                onClick={() => setNzbdavStreamBufferMB(128)}
+                className="text-xs text-amber-400 hover:text-amber-300"
+              >
+                Reset
+              </button>
+            </div>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={8}
+                max={256}
+                step={8}
+                value={nzbdavStreamBufferMB}
+                onChange={(e) => setNzbdavStreamBufferMB(parseInt(e.target.value, 10))}
+                className="flex-1 accent-amber-400"
+              />
+              <span className="text-sm text-slate-300 w-16 text-right">{nzbdavStreamBufferMB} MB</span>
+            </div>
+            <p className="text-xs text-slate-500">
+              Internal buffer between WebDAV and the player. Larger buffers absorb network jitter but use more memory per stream. If you experience buffering on large files, try increasing this.
+            </p>
+          </div>
+
           {/* Reset All */}
           <div className="pt-2">
             <button
               onClick={() => {
                 setNzbdavFallbackEnabled(true);
+                setNzbdavLibraryCheckEnabled(true);
                 setNzbdavMoviesTimeoutSeconds(30);
                 setNzbdavTvTimeoutSeconds(15);
                 setNzbdavFallbackOrder('selected');
                 setNzbdavMaxFallbacks(0);
+                setNzbdavStreamBufferMB(128);
+                setNzbdavProxyEnabled(false);
               }}
               className="btn-secondary w-full"
             >

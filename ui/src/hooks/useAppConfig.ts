@@ -125,10 +125,13 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavMoviesCategory, setNzbdavMoviesCategory] = useState('Usenet-Ultimate-Movies');
   const [nzbdavTvCategory, setNzbdavTvCategory] = useState('Usenet-Ultimate-TV');
   const [nzbdavFallbackEnabled, setNzbdavFallbackEnabled] = useState(true);
+  const [nzbdavLibraryCheckEnabled, setNzbdavLibraryCheckEnabled] = useState(true);
   const [nzbdavMaxFallbacks, setNzbdavMaxFallbacks] = useState(0);
   const [nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds] = useState(30);
   const [nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds] = useState(15);
   const [nzbdavFallbackOrder, setNzbdavFallbackOrder] = useState<'selected' | 'top'>('selected');
+  const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
+  const [nzbdavProxyEnabled, setNzbdavProxyEnabled] = useState(false);
   const [nzbdavConnectionStatus, setNzbdavConnectionStatus] = useState<'connected' | 'disconnected' | 'unconfigured' | 'checking' | null>(null);
   const [nzbdavTestNzbStatus, setNzbdavTestNzbStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [nzbdavTestNzbMessage, setNzbdavTestNzbMessage] = useState('');
@@ -292,11 +295,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
-      nzbdavFallbackEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder,
-      nzbdavMaxFallbacks,
+      nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder,
+      nzbdavMaxFallbacks, nzbdavStreamBufferMB, nzbdavProxyEnabled,
     }), 500);
     return () => clearTimeout(timer);
-  }, [nzbdavFallbackEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, saveSettings]);
+  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavStreamBufferMB, nzbdavProxyEnabled, saveSettings]);
 
   // Auto-save: index manager type
   useEffect(() => {
@@ -688,13 +691,18 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavMoviesCategory(data.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies');
       setNzbdavTvCategory(data.nzbdavTvCategory || 'Usenet-Ultimate-TV');
       setNzbdavFallbackEnabled(data.nzbdavFallbackEnabled !== false);
+      setNzbdavLibraryCheckEnabled(data.nzbdavLibraryCheckEnabled !== false);
       setNzbdavMaxFallbacks(data.nzbdavMaxFallbacks ?? 0);
       // Legacy: nzbdavJobTimeoutSeconds is used as a fallback seed for per-type timeouts on old configs
       const legacyTimeout = data.nzbdavJobTimeoutSeconds;
       setNzbdavMoviesTimeoutSeconds(data.nzbdavMoviesTimeoutSeconds ?? legacyTimeout ?? 30);
       setNzbdavTvTimeoutSeconds(data.nzbdavTvTimeoutSeconds ?? legacyTimeout ?? 15);
       setNzbdavFallbackOrder(data.nzbdavFallbackOrder || 'selected');
-      // Mark initial load as done so auto-save hooks don't fire on load
+      setNzbdavStreamBufferMB(data.nzbdavStreamBufferMB ?? 128);
+      setNzbdavProxyEnabled(data.nzbdavProxyEnabled === true);
+      // Mark initial load as done so auto-save hooks don't fire on load.
+      // setTimeout defers past React's useEffect cycle — effects from the setState
+      // batch above see initialLoadDone.current === false and skip the save.
       // Also auto-test NZBDav connection on startup (inline to avoid stale closure)
       setTimeout(async () => {
         initialLoadDone.current = true;
@@ -710,14 +718,15 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
                 webdavUrl: data.nzbdavWebdavUrl || '',
                 webdavUser: data.nzbdavWebdavUser || '',
                 webdavPassword: data.nzbdavWebdavPassword || '',
-              })
+              }),
+              signal: AbortSignal.timeout(20_000),
             });
             setNzbdavConnectionStatus(testResp.ok ? 'connected' : 'disconnected');
           } catch {
             setNzbdavConnectionStatus('disconnected');
           }
         }
-      }, 100);
+      });
     } catch (error) {
       console.error('Failed to fetch config:', error);
     } finally {
@@ -1123,10 +1132,13 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbdavMoviesCategory, setNzbdavMoviesCategory,
     nzbdavTvCategory, setNzbdavTvCategory,
     nzbdavFallbackEnabled, setNzbdavFallbackEnabled,
+    nzbdavLibraryCheckEnabled, setNzbdavLibraryCheckEnabled,
     nzbdavMaxFallbacks, setNzbdavMaxFallbacks,
     nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds,
     nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds,
     nzbdavFallbackOrder, setNzbdavFallbackOrder,
+    nzbdavStreamBufferMB, setNzbdavStreamBufferMB,
+    nzbdavProxyEnabled, setNzbdavProxyEnabled,
     nzbdavConnectionStatus, setNzbdavConnectionStatus,
     nzbdavTestNzbStatus, setNzbdavTestNzbStatus,
     nzbdavTestNzbMessage, setNzbdavTestNzbMessage,
