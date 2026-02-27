@@ -1,6 +1,6 @@
 /**
  * Stream Handler
- * Main stream preparation pipeline with 302 redirect to WebDAV.
+ * Main stream preparation pipeline with 302 redirect to WebDAV proxy.
  * Handles NZB submission -> job polling -> video discovery -> redirect,
  * with automatic fallback on failure and self-redirect to reset Stremio's timer.
  */
@@ -15,6 +15,7 @@ import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
 import { waitForVideoFile, checkNzbLibrary } from './videoDiscovery.js';
 import { getOrCreateStream, getCacheKey, getStreamCache, setPrepareFn } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
+import { encodeWebdavPath, nzbdavError, getDeliveryLog } from './utils.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
 
 const pipelineAsync = promisify(pipeline);
@@ -38,7 +39,8 @@ const STREAM_LOG_INTERVAL_MS = 30_000;   // 30 seconds
 const STREAM_LOG_STATE_TTL_MS = 3_600_000; // 1 hour — evict stale entries to prevent unbounded growth
 const STREMIO_TIMEOUT_MS = 60_000;       // Stremio's built-in HTTP timeout
 const STREMIO_SAFETY_MARGIN_MS = 5_000;  // Safety buffer when deciding whether to self-redirect
-const MAX_SELF_REDIRECTS = 5;            // Max self-redirects (~5 × 60s = 5 min of total trying)
+const MAX_SELF_REDIRECTS = 12;           // Max self-redirects (budget shared between Stremio timer and ExoPlayer safety)
+const EXO_PLAYER_BUDGET_MS = 8_000;      // Max blocking time per post-redirect request (keeps ExoPlayer alive on Android)
 
 interface StreamLogState {
   requests: number;
@@ -49,6 +51,9 @@ interface StreamLogState {
 }
 
 const streamLogState = new Map<string, StreamLogState>();
+
+// Delivery log lives in utils.ts to avoid circular dep between streamCache and streamHandler.
+const lastDeliveryLog = getDeliveryLog();
 
 /**
  * Returns true if this request should be logged in detail.
@@ -88,6 +93,9 @@ function shouldLogStreamRequest(title: string, event: 'request' | 'disconnect'):
     // Evict stale entries to prevent unbounded map growth
     for (const [key, s] of streamLogState) {
       if (now - s.lastLogAt > STREAM_LOG_STATE_TTL_MS) streamLogState.delete(key);
+    }
+    for (const [key, entry] of lastDeliveryLog) {
+      if (now - entry.at > STREAM_LOG_STATE_TTL_MS) lastDeliveryLog.delete(key);
     }
     return false;
   }
@@ -145,10 +153,14 @@ export async function prepareStream(
   console.log(`\n\u{1F3AC} Preparing stream: ${title}${episodePattern ? ` (selecting ${episodePattern})` : ''} [${contentType || 'unknown'}] \u23F1\uFE0F ${totalBudgetS}s budget`);
 
   // Step 0: Check NZB library first - avoid grabbing from indexer if already downloaded
-  const libraryResult = await checkNzbLibrary(title, config, episodePattern, contentType, episodesInSeason);
-  if (libraryResult) {
-    console.log(`\u2705 Stream ready (from library): ${title}\n`);
-    return libraryResult;
+  if (globalConfig.nzbdavLibraryCheckEnabled) {
+    const libraryResult = await checkNzbLibrary(title, config, episodePattern, contentType, episodesInSeason);
+    if (libraryResult) {
+      console.log(`\u2705 Stream ready (from library): ${title}\n`);
+      return libraryResult;
+    }
+  } else {
+    console.log(`\u{1F4DA} Library check disabled — skipping`);
   }
 
   // Step 1: Submit NZB
@@ -165,6 +177,60 @@ export async function prepareStream(
   // Step 3: Find the video file — remaining budget
   const videoBudgetMs = totalBudgetMs - (Date.now() - budgetStart);
   const video = await waitForVideoFile(nzoId, title, config, videoBudgetMs, undefined, episodePattern, contentType, episodesInSeason);
+
+  // Step 4: Verify the video is actually servable via WebDAV (GET first byte).
+  // HEAD isn't reliable — NZBDav returns 200 for HEAD even when content is gone.
+  // Retry with exponential backoff using remaining budget — large files may take
+  // time to become servable after NZBDav reports the job complete.
+  const webdavBase = (config.webdavUrl || config.url).replace(/\/+$/, '');
+  const probeUrl = `${webdavBase}${encodeWebdavPath(video.path)}`;
+  const probeHeaders: Record<string, string> = { 'Range': 'bytes=0-0' };
+  if (config.webdavUser && config.webdavPassword) {
+    probeHeaders['Authorization'] = 'Basic ' + Buffer.from(`${config.webdavUser}:${config.webdavPassword}`).toString('base64');
+  }
+  const PROBE_TIMEOUT_MS = 10_000;
+  const PROBE_RETRY_BASE_MS = 2_000;
+  const PROBE_MAX_RETRIES = 2;
+  let probeAttempt = 0;
+  let probeSuccess = false;
+  while (probeAttempt < PROBE_MAX_RETRIES) {
+    const elapsed = Date.now() - budgetStart;
+    if (elapsed >= totalBudgetMs) break; // out of budget
+    try {
+      const timeoutMs = Math.min(PROBE_TIMEOUT_MS, totalBudgetMs - elapsed);
+      const probeResp = await fetch(probeUrl, { headers: probeHeaders, signal: AbortSignal.timeout(timeoutMs) });
+      if (probeResp.status === 404 || probeResp.status === 410) {
+        await probeResp.body?.cancel().catch(() => {});
+        throw nzbdavError(`Video file not servable (${probeResp.status}): ${video.path}`);
+      }
+      if (probeResp.status === 206 || probeResp.status === 200) {
+        probeSuccess = true;
+        await probeResp.body?.cancel().catch(() => {});
+        break;
+      }
+      await probeResp.body?.cancel().catch(() => {});
+      // Unexpected status — count as an attempt and delay before retry
+      probeAttempt++;
+      console.warn(`  ⚠️ Probe returned ${probeResp.status} — retrying (${probeAttempt}/${PROBE_MAX_RETRIES})...`);
+      if (probeAttempt < PROBE_MAX_RETRIES) {
+        const delay = Math.min(PROBE_RETRY_BASE_MS * Math.pow(2, probeAttempt - 1), 10_000);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    } catch (err) {
+      if ((err as any).isNzbdavFailure) throw err;
+      probeAttempt++;
+      if (probeAttempt >= PROBE_MAX_RETRIES || (Date.now() - budgetStart) >= totalBudgetMs) {
+        console.warn(`  ⚠️ Probe failed after ${probeAttempt} attempts: ${(err as Error).message}`);
+        break;
+      }
+      const delay = Math.min(PROBE_RETRY_BASE_MS * Math.pow(2, probeAttempt - 1), 10_000);
+      console.warn(`  ⚠️ Probe attempt ${probeAttempt}/${PROBE_MAX_RETRIES} failed (${(err as Error).message}) — retrying in ${Math.round(delay / 1000)}s`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  if (!probeSuccess) {
+    throw nzbdavError(`Video file not servable (probe failed after ${probeAttempt} attempts): ${video.path}`);
+  }
 
   const totalElapsed = Math.round((Date.now() - budgetStart) / 1000);
   console.log(`\u2705 Stream ready: ${title} (${totalElapsed}s total)\n`);
@@ -343,21 +409,6 @@ export async function handleStream(
       return;
     }
 
-    // Self-redirect to reset Stremio's 60s timer before it expires.
-    // Failed candidates are cached, so the new request skips them instantly.
-    if (i > 0 && !req.socket.destroyed && redirectCount < MAX_SELF_REDIRECTS) {
-      const elapsed = Date.now() - streamStartTime;
-      if (elapsed + attemptBudgetMs + STREMIO_SAFETY_MARGIN_MS > STREMIO_TIMEOUT_MS) {
-        const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
-        redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
-        if (verbose) {
-          console.log(`⏰ Self-redirect to reset Stremio timer (${Math.round(elapsed / 1000)}s elapsed, redirect ${redirectCount + 1}/${MAX_SELF_REDIRECTS})`);
-        }
-        res.redirect(302, redirectUrl.href);
-        return;
-      }
-    }
-
     const candidate = candidates[i];
 
     // Skip candidates already known to be failed in cache
@@ -369,6 +420,24 @@ export async function handleStream(
       continue;
     }
 
+    // Self-redirect to reset Stremio's 60s timer before it expires.
+    // Pre-start the candidate so it's warming in cache during redirect round-trip.
+    if (i > 0 && !req.socket.destroyed && redirectCount < MAX_SELF_REDIRECTS) {
+      const elapsed = Date.now() - streamStartTime;
+      if (elapsed + attemptBudgetMs + STREMIO_SAFETY_MARGIN_MS > STREMIO_TIMEOUT_MS) {
+        if (!cached) {
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason).catch(() => {});
+        }
+        const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
+        redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
+        if (verbose) {
+          console.log(`⏰ Self-redirect to reset Stremio timer (${Math.round(elapsed / 1000)}s elapsed, redirect ${redirectCount + 1}/${MAX_SELF_REDIRECTS})`);
+        }
+        res.redirect(302, redirectUrl.href);
+        return;
+      }
+    }
+
     try {
       if (i > 0) {
         if (verbose) console.log(`\u{1F504} Trying fallback [${i + 1}/${maxCandidates}]: ${candidate.title}`);
@@ -377,9 +446,26 @@ export async function handleStream(
         }
       }
 
-      const streamData = await getOrCreateStream(
-        candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason
-      );
+      // On post-redirect requests, cap blocking time to keep Android ExoPlayer
+      // alive. If the candidate isn't ready within the budget, self-redirect
+      // and let the stream cache continue processing in the background.
+      let streamData: StreamData;
+      if (redirectCount > 0) {
+        const requestElapsed = Date.now() - streamStartTime;
+        const waitMs = Math.max(1000, EXO_PLAYER_BUDGET_MS - requestElapsed);
+        let exoTimerId: ReturnType<typeof setTimeout>;
+        streamData = await Promise.race([
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason)
+            .finally(() => clearTimeout(exoTimerId)),
+          new Promise<never>((_, reject) => {
+            exoTimerId = setTimeout(() => reject(Object.assign(new Error('ExoPlayer safety timeout'), { isExoTimeout: true })), waitMs);
+          })
+        ]);
+      } else {
+        streamData = await getOrCreateStream(
+          candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason
+        );
+      }
 
       if (i > 0 && verbose) {
         console.log(`\u2705 Fallback succeeded on attempt ${i + 1}/${maxCandidates}`);
@@ -391,30 +477,45 @@ export async function handleStream(
         return;
       }
 
-      // Redirect to direct WebDAV URL with embedded credentials for player authentication
-      const webdavUrl = config.webdavUrl || config.url;
-      if (!webdavUrl) {
-        console.error('❌ No WebDAV URL configured — falling back to failure video');
-        break;
+      // Decide delivery method: proxy (piped with buffer + reconnect) or direct redirect
+      const mode: 'proxy' | 'direct' = globalConfig.nzbdavProxyEnabled ? 'proxy' : 'direct';
+      const last = lastDeliveryLog.get(streamData.videoPath);
+      const shouldLogDelivery = !last || last.mode !== mode;
+      lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
+
+      if (mode === 'proxy') {
+        // Proxy: redirect to /v endpoint which adds auth + buffering + transparent reconnect
+        const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
+        proxyUrl.searchParams.set('path', streamData.videoPath);
+        if (shouldLogDelivery) console.log(`  📡 Proxy streaming: ${streamData.videoPath}`);
+        res.redirect(302, proxyUrl.href);
+      } else {
+        // Direct: redirect to WebDAV URL with embedded credentials (desktop players)
+        const webdavBase = (config.webdavUrl || config.url || '').replace(/\/+$/, '');
+        const safePath = encodeWebdavPath(streamData.videoPath);
+        const directUrl = new URL(`${webdavBase}${safePath}`);
+        if (config.webdavUser) {
+          directUrl.username = config.webdavUser;
+          directUrl.password = config.webdavPassword || '';
+        }
+        if (shouldLogDelivery) console.log(`  ⇗️ Direct passthrough: → ${directUrl.hostname}${safePath}`);
+        res.redirect(302, directUrl.href);
       }
-      const webdavBase = webdavUrl.replace(/\/+$/, '');
-      const encodedPath = '/' + streamData.videoPath
-        .split('/')
-        .filter(segment => segment && segment !== '.' && segment !== '..')
-        .map(segment => encodeURIComponent(segment))
-        .join('/');
-      const redirectUrl = new URL(`${webdavBase}${encodedPath}`);
-      if (config.webdavUser && config.webdavPassword) {
-        redirectUrl.username = config.webdavUser;
-        redirectUrl.password = config.webdavPassword;
-      }
-      if (verbose) {
-        console.log(`  ↗️ Redirect: 302 → ${redirectUrl.protocol}//${redirectUrl.host}${redirectUrl.pathname}`);
-      }
-      res.redirect(302, redirectUrl.href);
       return;
 
     } catch (error) {
+      // ExoPlayer safety timeout — candidate is still processing in cache,
+      // self-redirect to keep the player alive while we wait
+      if ((error as any).isExoTimeout && redirectCount < MAX_SELF_REDIRECTS && !req.socket.destroyed) {
+        const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
+        redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
+        if (verbose) {
+          console.log(`\u23F1\uFE0F ExoPlayer safety redirect (candidate still processing, rc=${redirectCount + 1}/${MAX_SELF_REDIRECTS})`);
+        }
+        res.redirect(302, redirectUrl.href);
+        return;
+      }
+
       if (isClientDisconnect(error)) {
         shouldLogStreamRequest(candidate.title, 'disconnect');
         return;

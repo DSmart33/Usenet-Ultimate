@@ -7,12 +7,15 @@
 
 import type { CacheEntry, StreamData, NZBDavConfig } from './types.js';
 import { config as globalConfig } from '../config/index.js';
+import { clearFallbackGroups } from './fallbackManager.js';
+import { clearDeliveryLog } from './utils.js';
 
 const streamCache = new Map<string, CacheEntry>();
+let cacheGeneration = 0; // Incremented on clear — stale promises check before writing back
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 function getFailedCacheTTLMs(): number {
-  return (globalConfig.cacheTTL || 43200) * 1000;
+  return (globalConfig.cacheTTL ?? 43200) * 1000;
 }
 
 /** Injected stream preparation function (set by streamHandler to break circular dep) */
@@ -93,14 +96,18 @@ export async function getOrCreateStream(
     expiresAt: Date.now() + pendingTTLMs,
   });
 
-  // Handle completion
+  // Handle completion — capture generation so stale promises from before
+  // a clearStreamCache() call don't repopulate the freshly cleared map.
+  const gen = cacheGeneration;
   promise.then((data) => {
+    if (gen !== cacheGeneration) return;
     streamCache.set(cacheKey, {
       status: 'ready',
       data,
       expiresAt: Date.now() + CACHE_TTL_MS,
     });
   }).catch((error) => {
+    if (gen !== cacheGeneration) return;
     // Only cache NZBDav failures (not network errors, etc.)
     if (error.isNzbdavFailure) {
       streamCache.set(cacheKey, {
@@ -128,8 +135,11 @@ export function getStreamCache(): Map<string, CacheEntry> {
  * Clear the stream cache (useful for testing/debugging)
  */
 export function clearStreamCache(): void {
+  cacheGeneration++;
   streamCache.clear();
-  console.log('\u{1F9F9} Stream cache cleared');
+  clearFallbackGroups();
+  clearDeliveryLog();
+  console.log('\u{1F9F9} Stream cache + fallback groups cleared');
 }
 
 /**

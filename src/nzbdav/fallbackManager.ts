@@ -37,6 +37,10 @@ export function createFallbackGroup(
   });
 }
 
+export function clearFallbackGroups(): void {
+  fallbackGroups.clear();
+}
+
 export function getFallbackGroup(id: string): FallbackGroup | undefined {
   const group = fallbackGroups.get(id);
   if (group && Date.now() - group.createdAt > getFallbackGroupTTLMs()) {
