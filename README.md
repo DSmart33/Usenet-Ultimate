@@ -40,9 +40,9 @@ Have questions, need help, or want to follow development?
 
 ## What Is It
 
-Usenet Ultimate is a self-hosted Stremio addon that turns Usenet into a streaming service. Point it at your Newznab indexers (or Prowlarr/NZBHydra), connect a Usenet provider and [NZBDav](https://github.com/NZBDav/NZBDav), and you've got a fully searchable streaming layer on top of Usenet — no download client required.
+Usenet Ultimate is a self-hosted Stremio addon that turns Usenet into a streaming service. Point it at your Newznab indexers (or Prowlarr/NZBHydra), connect a Usenet provider and [NZBDav](https://github.com/nzbdav-dev/nzbdav), and you've got a fully searchable streaming layer on top of Usenet — no download client required.
 
-> **What is NZBDav?** — [NZBDav](https://github.com/NZBDav/NZBDav) is the streaming engine that powers playback. It downloads NZBs from your Usenet provider, assembles the files, and serves them over WebDAV so Usenet Ultimate can stream video directly into Stremio. Think of it as the backend that turns Usenet downloads into a streamable library. Head to the [NZBDav repo](https://github.com/NZBDav/NZBDav) to set it up — it runs alongside Usenet Ultimate as a separate container.
+> **What is NZBDav?** — [NZBDav](https://github.com/nzbdav-dev/nzbdav) is the streaming engine that powers playback. It downloads NZBs from your Usenet provider, assembles the files, and serves them over WebDAV so Usenet Ultimate can stream video directly into Stremio. Think of it as the backend that turns Usenet downloads into a streamable library. Head to the [NZBDav repo](https://github.com/nzbdav-dev/nzbdav) to set it up — it runs alongside Usenet Ultimate as a separate container.
 
 ## How It Works
 
@@ -326,7 +326,7 @@ The addon periodically fetches the latest versions of Prowlarr, SABnzbd, Chrome,
   - Prowlarr or NZBHydra instance with Usenet indexers configured
   - An EasyNews account
 - For streaming (rather than external NZB links):
-  - A [NZBDav](https://github.com/NZBDav/NZBDav) instance, or
+  - A [NZBDav](https://github.com/nzbdav-dev/nzbdav) instance, or
   - EasyNews direct streaming
 
 ## Quick Start with Docker
