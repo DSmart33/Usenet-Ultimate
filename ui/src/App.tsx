@@ -610,10 +610,6 @@ function App() {
           setSyncMessage={ac.setSyncMessage}
           selectedSyncedIndexer={ac.selectedSyncedIndexer}
           setSelectedSyncedIndexer={ac.setSelectedSyncedIndexer}
-          connectionTestStatus={ac.connectionTestStatus}
-          setConnectionTestStatus={ac.setConnectionTestStatus}
-          connectionTestMessage={ac.connectionTestMessage}
-          setConnectionTestMessage={ac.setConnectionTestMessage}
           handleReorderSyncedIndexer={handleReorderSyncedIndexer}
           failedLogos={ac.failedLogos}
           setFailedLogos={ac.setFailedLogos}

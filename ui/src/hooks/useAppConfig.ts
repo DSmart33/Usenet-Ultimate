@@ -183,8 +183,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const [syncMessage, setSyncMessage] = useState('');
   const [selectedSyncedIndexer, setSelectedSyncedIndexer] = useState<string | null>(null);
-  const [connectionTestStatus, setConnectionTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [connectionTestMessage, setConnectionTestMessage] = useState('');
 
   // ─── Auto Play ──────────────────────────────────────────────────────
   const [autoPlay, setAutoPlay] = useState<AutoPlayState>({
@@ -1184,8 +1182,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     syncStatus, setSyncStatus,
     syncMessage, setSyncMessage,
     selectedSyncedIndexer, setSelectedSyncedIndexer,
-    connectionTestStatus, setConnectionTestStatus,
-    connectionTestMessage, setConnectionTestMessage,
 
     // Auto play
     autoPlay, setAutoPlay,
