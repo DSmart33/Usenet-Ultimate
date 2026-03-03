@@ -1,8 +1,8 @@
 /**
- * Integration routes — Prowlarr, NZBHydra, Zyclops, EasyNews test/sync
+ * Integration routes — Prowlarr & NZBHydra sync; Zyclops & EasyNews test
  *
- * Prowlarr:  POST /api/prowlarr/test, POST /api/prowlarr/sync
- * NZBHydra:  POST /api/nzbhydra/test, POST /api/nzbhydra/sync
+ * Prowlarr:  POST /api/prowlarr/sync
+ * NZBHydra:  POST /api/nzbhydra/sync
  * Zyclops:   POST /api/zyclops/test
  * EasyNews:  POST /api/easynews/test
  * Synced indexer management (shared by Prowlarr & NZBHydra):
@@ -23,30 +23,21 @@ interface IntegrationDeps {
   getLatestVersions: () => { chrome: string };
 }
 
+/**
+ * Parse NZBHydra2 indexer status data into a normalized list.
+ * Works with both /api/stats/indexers and /internalapi/indexerstatuses responses.
+ */
+function parseIndexerStatuses(data: any[]): { name: string; enabled: boolean }[] {
+  return data
+    .filter((s: any) => s.state !== 'DISABLED_SYSTEM')
+    .map((s: any) => ({ name: s.indexerName ?? s.indexer, enabled: s.state !== 'DISABLED_USER' }));
+}
+
 export function createIntegrationRoutes(deps: IntegrationDeps): Router {
   const router = Router();
   const { config, updateSettings, reorderSyncedIndexers, getLatestVersions } = deps;
 
   // === Prowlarr Integration ===
-
-  router.post('/prowlarr/test', async (req, res) => {
-    try {
-      const url = req.body.url ?? config.prowlarrUrl;
-      const apiKey = req.body.apiKey ?? config.prowlarrApiKey;
-      if (!url || !apiKey) return res.status(400).json({ success: false, message: 'Prowlarr URL and API key are required' });
-
-      const response = await axios.get(`${url}/api/v1/indexer`, {
-        headers: { 'X-Api-Key': apiKey },
-        timeout: 10000,
-      });
-      const usenet = response.data.filter((i: any) => i.protocol === 'usenet');
-      const enabled = usenet.filter((i: any) => i.enable);
-      res.json({ success: true, message: `Connected! Found ${enabled.length} enabled usenet indexer(s) (${usenet.length} total)` });
-    } catch (error: any) {
-      const msg = error.response?.status === 401 ? 'Invalid API key' : error.message;
-      res.status(500).json({ success: false, message: msg });
-    }
-  });
 
   router.post('/prowlarr/sync', async (req, res) => {
     try {
@@ -107,8 +98,6 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
         if (movieSearchMethod.length === 0) movieSearchMethod.push(bestMovie as MovieMethod);
         if (tvSearchMethod.length === 0) tvSearchMethod.push(bestTv as TvMethod);
 
-        console.log(`\u{1F4CB} Prowlarr sync: "${i.name}" \u2192 logo: ${logo || '(none)'}, movie: [${movieSearchParams.join(',')}], tv: [${tvSearchParams.join(',')}]`);
-
         return {
           id: i.id.toString(),
           name: i.name,
@@ -131,57 +120,6 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
 
   // === NZBHydra Integration ===
 
-  router.post('/nzbhydra/test', async (req, res) => {
-    try {
-      const url = req.body.url ?? config.nzbhydraUrl;
-      const apiKey = req.body.apiKey ?? config.nzbhydraApiKey;
-      const username = req.body.username ?? config.nzbhydraUsername ?? '';
-      const password = req.body.password ?? config.nzbhydraPassword ?? '';
-      if (!url || !apiKey) return res.status(400).json({ success: false, message: 'NZBHydra URL and API key are required' });
-
-      // Build auth headers (Basic Auth for auth-protected instances)
-      const authHeaders: Record<string, string> = {};
-      if (username && password) {
-        authHeaders['Authorization'] = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
-      }
-
-      // Test with a caps request (standard Newznab)
-      const response = await axios.get(`${url}/api`, {
-        params: { t: 'caps', apikey: apiKey },
-        headers: authHeaders,
-        timeout: 10000,
-      });
-      if (!response.data || (!response.data.includes('<caps') && !response.data.includes('<server'))) {
-        return res.json({ success: false, message: 'Invalid API key' });
-      }
-
-      // Also verify internal API access (gated when auth is enabled)
-      try {
-        await axios.get(`${url}/internalapi/indexerstatuses`, {
-          headers: authHeaders,
-          timeout: 10000,
-        });
-        res.json({ success: true, message: 'Connected to NZBHydra2 successfully!' });
-      } catch (err: any) {
-        const status = err.response?.status;
-        if (status === 401 || status === 403) {
-          // Internal API requires auth — credentials missing or wrong
-          if (username && password) {
-            res.json({ success: false, message: 'API key valid but credentials rejected — check username/password' });
-          } else {
-            res.json({ success: false, message: 'API key valid but auth is enabled — add username and password' });
-          }
-        } else {
-          // Internal API unavailable (old version, timeout, etc.) — caps passed, so connection is good
-          res.json({ success: true, message: 'Connected to NZBHydra2 successfully!' });
-        }
-      }
-    } catch (error: any) {
-      const msg = error.response?.status === 401 ? 'Invalid API key or credentials' : error.message;
-      res.status(500).json({ success: false, message: msg });
-    }
-  });
-
   router.post('/nzbhydra/sync', async (req, res) => {
     try {
       const url = req.body?.url ?? config.nzbhydraUrl;
@@ -190,53 +128,63 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
       const password = req.body?.password ?? config.nzbhydraPassword ?? '';
       if (!url || !apiKey) return res.status(400).json({ error: 'NZBHydra not configured' });
 
-      // Build auth headers (Basic Auth for auth-protected instances)
-      const authHeaders: Record<string, string> = {};
-      if (username && password) {
-        authHeaders['Authorization'] = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
-      }
-
-      // Validate credentials via Newznab caps (also used for capability parsing below)
+      // 1. Caps check — validates API key + provides capability parsing
       let capsData: string;
       try {
         const capsResp = await axios.get(`${url}/api`, {
           params: { t: 'caps', apikey: apiKey },
-          headers: authHeaders,
           timeout: 10000,
         });
         capsData = capsResp.data;
         if (!capsData || (!capsData.includes('<caps') && !capsData.includes('<server'))) {
           return res.status(400).json({ error: 'Invalid API key' });
         }
-      } catch (authErr: any) {
-        const msg = authErr.response?.status === 401 ? 'Invalid API key or credentials' : authErr.message;
+      } catch (capsErr: any) {
+        const msg = capsErr.response?.status === 401 ? 'Invalid API key or credentials' : capsErr.message;
         return res.status(500).json({ error: msg });
       }
 
-      // NZBHydra2 exposes indexer info via its internal API
+      // 2. Fetch indexer list — stats API first, internal API fallback
       let indexerList: { name: string; enabled: boolean }[] = [];
 
+      // Try /api/stats/indexers (API key only — works with any auth type)
       try {
-        // Attempt the internal API (NZBHydra2 v5+)
-        const statusResp = await axios.get(`${url}/internalapi/indexerstatuses`, {
-          headers: authHeaders,
-          timeout: 10000,
-        });
-        if (Array.isArray(statusResp.data)) {
-          indexerList = statusResp.data
-            .filter((s: any) => s.state !== 'DISABLED_SYSTEM')
-            .map((s: any) => ({ name: s.indexerName || s.indexer, enabled: s.state !== 'DISABLED_USER' }));
+        const statsResp = await axios.post(`${url}/api/stats/indexers`,
+          { apikey: apiKey },
+          { headers: { 'Content-Type': 'application/json' }, timeout: 10000 },
+        );
+        if (Array.isArray(statsResp.data)) {
+          indexerList = parseIndexerStatuses(statsResp.data);
+          console.log(`NZBHydra sync: ${indexerList.length} indexers via stats API`);
         }
-      } catch {
-        // Fall back: caps already validated above, use it for indexer info
-        indexerList = [{ name: 'NZBHydra (All)', enabled: true }];
+      } catch (e: any) {
+        console.warn(`NZBHydra sync: stats endpoint unavailable (${e.response?.status || e.message})`);
+      }
+
+      // Fall back to /internalapi with Basic auth if credentials provided
+      if (indexerList.length === 0 && username && password) {
+        try {
+          const authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+          const internalResp = await axios.get(`${url}/internalapi/indexerstatuses`, {
+            headers: { Authorization: authHeader },
+            timeout: 10000,
+          });
+          if (Array.isArray(internalResp.data)) {
+            indexerList = parseIndexerStatuses(internalResp.data);
+            console.log(`NZBHydra sync: ${indexerList.length} indexers via internal API`);
+          }
+        } catch (e: any) {
+          console.warn(`NZBHydra sync: internal API failed (${e.response?.status || e.message})`);
+        }
       }
 
       if (indexerList.length === 0) {
-        return res.status(404).json({ error: 'No indexers found in NZBHydra2' });
+        return res.status(500).json({
+          error: 'Could not fetch indexer list. Please enable "Allow stats access" in NZBHydra authorization settings, or add Basic auth credentials.',
+        });
       }
 
-      // Parse aggregate capabilities from the caps response we already fetched
+      // 3. Parse aggregate capabilities from caps response
       let aggregateCaps: { movieSearchParams: string[]; tvSearchParams: string[] } | undefined;
       try {
         const { parseStringPromise } = await import('xml2js');
@@ -247,22 +195,18 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
           movieSearchParams: extractParams(searching?.['movie-search']?.[0]),
           tvSearchParams: extractParams(searching?.['tv-search']?.[0]),
         };
-        console.log(`\u{1F4CB} NZBHydra caps: movie=[${aggregateCaps.movieSearchParams.join(',')}] tv=[${aggregateCaps.tvSearchParams.join(',')}]`);
       } catch (err: any) {
-        console.warn(`\u26A0\uFE0F  Failed to parse NZBHydra caps: ${err.message}`);
+        console.warn(`NZBHydra sync: failed to parse caps (${err.message})`);
       }
 
-      // Merge with existing synced indexers
+      // 4. Merge with existing synced indexers (preserve user settings)
       const existing = new Map((config.syncedIndexers || []).map((i: SyncedIndexer) => [i.id, i]));
       const synced: SyncedIndexer[] = indexerList
         .filter(i => i.enabled)
         .map(i => {
           const prev = existing.get(i.name);
-
-          // Use aggregate caps for all NZBHydra indexers (NZBHydra proxies to all)
           const capabilities = aggregateCaps || prev?.capabilities;
 
-          // Determine best available method, validate existing selection
           const mp = capabilities?.movieSearchParams || [];
           const tp = capabilities?.tvSearchParams || [];
           const bestMovie = mp.includes('imdbid') ? 'imdb' : mp.includes('tmdbid') ? 'tmdb' : 'text';
@@ -297,6 +241,7 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
           };
         });
 
+      console.log(`NZBHydra sync: saved ${synced.length} indexers`);
       updateSettings({ syncedIndexers: synced });
       res.json({ indexers: synced, total: indexerList.length });
     } catch (error: any) {
