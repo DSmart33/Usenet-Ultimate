@@ -1,8 +1,36 @@
 // What this does:
 //   NZB Fallback configuration overlay with enable toggle, fallback order, wait times, and cache TTL display
 
+import { useRef, useCallback, useEffect } from 'react';
 import { RotateCcw, X, Film, Tv } from 'lucide-react';
 import clsx from 'clsx';
+
+function useHoldRepeat(action: () => void, initialDelay = 400, minDelay = 60) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const delay = useRef(initialDelay);
+
+  const stop = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    delay.current = initialDelay;
+  }, [initialDelay]);
+
+  const start = useCallback(() => {
+    action();
+    const tick = () => {
+      timer.current = setTimeout(() => {
+        action();
+        delay.current = Math.max(minDelay, delay.current * 0.85);
+        tick();
+      }, delay.current);
+    };
+    tick();
+  }, [action, minDelay]);
+
+  useEffect(() => stop, [stop]);
+
+  return { onMouseDown: start, onMouseUp: stop, onMouseLeave: stop, onTouchStart: start, onTouchEnd: stop, onTouchCancel: stop };
+}
 
 interface FallbackOverlayProps {
   onClose: () => void;
@@ -45,6 +73,11 @@ export function FallbackOverlay({
   setNzbdavProxyEnabled,
   cacheTTL,
 }: FallbackOverlayProps) {
+  const movieDec = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavMoviesTimeoutSeconds]));
+  const movieInc = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.min(180, v + 1)), [setNzbdavMoviesTimeoutSeconds]));
+  const tvDec = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavTvTimeoutSeconds]));
+  const tvInc = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.min(180, v + 1)), [setNzbdavTvTimeoutSeconds]));
+
   const fallbackGroupTTLDisplay = cacheTTL >= 3600
     ? `${Math.round(cacheTTL / 3600 * 10) / 10}h`
     : `${Math.round(cacheTTL / 60)} min`;
@@ -154,26 +187,39 @@ export function FallbackOverlay({
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setNzbdavMoviesTimeoutSeconds(v => Math.max(5, v - 5))}
+                    {...movieDec}
                     className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                   >−</button>
                   <div className="flex flex-col items-center">
-                    <input
-                      type="number"
-                      min={5}
-                      max={600}
-                      step={5}
-                      value={nzbdavMoviesTimeoutSeconds}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (!isNaN(v)) setNzbdavMoviesTimeoutSeconds(Math.min(600, Math.max(5, v)));
-                      }}
-                      className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
-                    />
-                    <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                    {nzbdavMoviesTimeoutSeconds >= 60 ? (
+                      <>
+                        <div className="text-2xl font-bold text-amber-400/90 leading-none tabular-nums">
+                          {Math.floor(nzbdavMoviesTimeoutSeconds / 60)}
+                          <span className="text-lg text-amber-400/40 mx-px">:</span>
+                          {String(nzbdavMoviesTimeoutSeconds % 60).padStart(2, '0')}
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">min : sec</span>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="number"
+                          min={1}
+                          max={180}
+                          step={1}
+                          value={nzbdavMoviesTimeoutSeconds}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            if (!isNaN(v)) setNzbdavMoviesTimeoutSeconds(Math.min(180, Math.max(1, v)));
+                          }}
+                          className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
+                        />
+                        <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                      </>
+                    )}
                   </div>
                   <button
-                    onClick={() => setNzbdavMoviesTimeoutSeconds(v => Math.min(600, v + 5))}
+                    {...movieInc}
                     className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                   >+</button>
                 </div>
@@ -186,33 +232,46 @@ export function FallbackOverlay({
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setNzbdavTvTimeoutSeconds(v => Math.max(5, v - 5))}
+                    {...tvDec}
                     className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                   >−</button>
                   <div className="flex flex-col items-center">
-                    <input
-                      type="number"
-                      min={5}
-                      max={600}
-                      step={5}
-                      value={nzbdavTvTimeoutSeconds}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (!isNaN(v)) setNzbdavTvTimeoutSeconds(Math.min(600, Math.max(5, v)));
-                      }}
-                      className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
-                    />
-                    <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                    {nzbdavTvTimeoutSeconds >= 60 ? (
+                      <>
+                        <div className="text-2xl font-bold text-amber-400/90 leading-none tabular-nums">
+                          {Math.floor(nzbdavTvTimeoutSeconds / 60)}
+                          <span className="text-lg text-amber-400/40 mx-px">:</span>
+                          {String(nzbdavTvTimeoutSeconds % 60).padStart(2, '0')}
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">min : sec</span>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="number"
+                          min={1}
+                          max={180}
+                          step={1}
+                          value={nzbdavTvTimeoutSeconds}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            if (!isNaN(v)) setNzbdavTvTimeoutSeconds(Math.min(180, Math.max(1, v)));
+                          }}
+                          className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
+                        />
+                        <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                      </>
+                    )}
                   </div>
                   <button
-                    onClick={() => setNzbdavTvTimeoutSeconds(v => Math.min(600, v + 5))}
+                    {...tvInc}
                     className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                   >+</button>
                 </div>
               </div>
             </div>
             <p className="text-xs text-slate-500">
-              How long to wait for a stream to become ready before trying the next NZB.
+              How long to wait for a stream to become ready before trying the next NZB. Hold the +/- buttons to accelerate. Min 1s, max 3 min.
             </p>
           </div>
 
@@ -229,7 +288,7 @@ export function FallbackOverlay({
               />
               <div>
                 <div className="text-sm text-slate-200 font-medium">From Selected</div>
-                <p className="text-xs text-slate-500">Start with the NZB you clicked, then try alternatives in quality order.</p>
+                <p className="text-xs text-slate-500">Start with the NZB you clicked, then try alternatives in displayed order.</p>
               </div>
             </label>
             <label className="flex items-start gap-3 cursor-pointer">
