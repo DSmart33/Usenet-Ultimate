@@ -17,6 +17,9 @@ import { checkNzbLibrary } from '../nzbdav/videoDiscovery.js';
 import type { NZBDavConfig } from '../nzbdav/types.js';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:1337';
+// Internal self-requests (auto-queue) hit localhost directly to avoid
+// cross-origin redirect errors from reverse proxies / external BASE_URL.
+const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
 
 export interface HealthCheckContext {
   allResults: any[];
@@ -76,7 +79,7 @@ export async function coordinateHealthChecks(
         const meta = r.easynewsMeta;
         const nzbParams = new URLSearchParams({ hash: meta.hash, filename: meta.filename, ext: meta.ext });
         if (meta.sig) nzbParams.set('sig', meta.sig);
-        const nzbUrl = `${BASE_URL}/${hcManifestKey}/easynews/nzb?${nzbParams.toString()}`;
+        const nzbUrl = `${SELF_URL}/${hcManifestKey}/easynews/nzb?${nzbParams.toString()}`;
         easynewsLinkToNzbUrl.set(r.link, nzbUrl);
         nzbUrlToEasynewsLink.set(nzbUrl, r.link);
       }
@@ -410,10 +413,10 @@ export function earlyAutoQueueToNzbdav(
         hash: meta.hash, filename: meta.filename, ext: meta.ext,
       });
       if (meta.sig) nzbParams.set('sig', meta.sig);
-      nzbUrl = `${BASE_URL}/${autoManifestKey}/easynews/nzb?${nzbParams.toString()}`;
+      nzbUrl = `${SELF_URL}/${autoManifestKey}/easynews/nzb?${nzbParams.toString()}`;
     }
 
-    const proxyUrl = `${BASE_URL}/${autoManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbUrl)}&title=${encodeURIComponent(firstEligible.title)}&type=${type}&indexer=${encodeURIComponent(firstEligible.indexerName)}&auto=true${autoEpParams}`;
+    const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbUrl)}&title=${encodeURIComponent(firstEligible.title)}&type=${type}&indexer=${encodeURIComponent(firstEligible.indexerName)}&auto=true${autoEpParams}`;
     fetch(proxyUrl).catch(err => console.error('❌ Early auto-queue failed:', err));
   } catch (error) {
     console.error('❌ Early auto-queue failed:', error);
@@ -457,10 +460,10 @@ export function autoQueueToNzbdav(
           ext: meta.ext,
         });
         if (meta.sig) nzbParams.set('sig', meta.sig);
-        nzbUrl = `${BASE_URL}/${autoManifestKey}/easynews/nzb?${nzbParams.toString()}`;
+        nzbUrl = `${SELF_URL}/${autoManifestKey}/easynews/nzb?${nzbParams.toString()}`;
       }
 
-      const proxyUrl = `${BASE_URL}/${autoManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}&auto=true${autoEpParams}`;
+      const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}&auto=true${autoEpParams}`;
       fetch(proxyUrl).catch(err => console.error('❌ Auto-queue failed:', err));
     } catch (error) {
       console.error('❌ Auto-queue to NZBDav failed:', error);
