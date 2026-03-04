@@ -5,7 +5,7 @@ import { useRef, useCallback, useEffect } from 'react';
 import { RotateCcw, X, Film, Tv } from 'lucide-react';
 import clsx from 'clsx';
 
-function useHoldRepeat(action: () => void, initialDelay = 400, minDelay = 60) {
+function useHoldRepeat(action: () => void, initialDelay = 400, minDelay = 200) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const delay = useRef(initialDelay);
 
@@ -20,7 +20,7 @@ function useHoldRepeat(action: () => void, initialDelay = 400, minDelay = 60) {
     const tick = () => {
       timer.current = setTimeout(() => {
         action();
-        delay.current = Math.max(minDelay, delay.current * 0.85);
+        delay.current = Math.max(minDelay, delay.current * 0.93);
         tick();
       }, delay.current);
     };

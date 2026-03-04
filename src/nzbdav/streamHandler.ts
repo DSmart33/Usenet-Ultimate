@@ -477,8 +477,10 @@ export async function handleStream(
         return;
       }
 
-      // Decide delivery method: proxy (piped with buffer + reconnect) or direct redirect
-      const mode: 'proxy' | 'direct' = globalConfig.nzbdavProxyEnabled ? 'proxy' : 'direct';
+      // Decide delivery method: proxy (piped with buffer + reconnect) or direct redirect.
+      // When fallback is off, always use proxy — avoids cross-origin redirect issues on mobile/TV.
+      const fallbackOn = globalConfig.nzbdavFallbackEnabled !== false;
+      const mode: 'proxy' | 'direct' = (!fallbackOn || globalConfig.nzbdavProxyEnabled) ? 'proxy' : 'direct';
       const last = lastDeliveryLog.get(streamData.videoPath);
       const shouldLogDelivery = !last || last.mode !== mode;
       lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
