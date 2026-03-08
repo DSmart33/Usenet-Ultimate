@@ -69,6 +69,31 @@ const readyCache = new Map<string, ReadyEntry>();
 interface DeadNzbEntry { error: Error; createdAt: number; expiresAt: number }
 const deadNzbCache = new Map<string, DeadNzbEntry>();
 
+// ── Secondary URL index (for O(1) URL-only lookups by health checks) ──
+const readyByUrl = new Map<string, Set<string>>();
+const deadByUrl = new Map<string, Set<string>>();
+
+function extractUrlFromKey(key: string): string {
+  const idx = key.indexOf('::');
+  return idx === -1 ? key : key.substring(0, idx);
+}
+
+function addToUrlIndex(index: Map<string, Set<string>>, key: string): void {
+  const url = extractUrlFromKey(key);
+  let set = index.get(url);
+  if (!set) { set = new Set(); index.set(url, set); }
+  set.add(key);
+}
+
+function removeFromUrlIndex(index: Map<string, Set<string>>, key: string): void {
+  const url = extractUrlFromKey(key);
+  const set = index.get(url);
+  if (set) {
+    set.delete(key);
+    if (set.size === 0) index.delete(url);
+  }
+}
+
 // ── Disk persistence ──────────────────────────────────────────────────
 
 interface SerializedDeadEntry {
@@ -83,7 +108,10 @@ function loadCacheFromDisk(): void {
     const raw = JSON.parse(fs.readFileSync(READY_CACHE_FILE, 'utf-8')) as Record<string, ReadyEntry>;
     for (const [key, entry] of Object.entries(raw)) {
       const expiresAt = entry.expiresAt || Infinity;
-      if (expiresAt > now) readyCache.set(key, { ...entry, createdAt: (entry as any).createdAt || now, expiresAt });
+      if (expiresAt > now) {
+        readyCache.set(key, { ...entry, createdAt: (entry as any).createdAt || now, expiresAt });
+        addToUrlIndex(readyByUrl, key);
+      }
     }
     if (readyCache.size) console.log(`💾 Loaded ${readyCache.size} ready streams from disk`);
   } catch {}
@@ -95,6 +123,7 @@ function loadCacheFromDisk(): void {
         const error = new Error(entry.error.message);
         (error as any).isNzbdavFailure = entry.error.isNzbdavFailure;
         deadNzbCache.set(key, { error, createdAt: (entry as any).createdAt || now, expiresAt });
+        addToUrlIndex(deadByUrl, key);
       }
     }
     if (deadNzbCache.size) console.log(`💾 Loaded ${deadNzbCache.size} dead NZBs from disk`);
@@ -145,10 +174,10 @@ export function cleanupExpiredCache(): void {
     if (entry.expiresAt < now) pendingCache.delete(key);
   }
   for (const [key, entry] of readyCache.entries()) {
-    if (entry.expiresAt < now) readyCache.delete(key);
+    if (entry.expiresAt < now) { readyCache.delete(key); removeFromUrlIndex(readyByUrl, key); }
   }
   for (const [key, entry] of deadNzbCache.entries()) {
-    if (entry.expiresAt < now) deadNzbCache.delete(key);
+    if (entry.expiresAt < now) { deadNzbCache.delete(key); removeFromUrlIndex(deadByUrl, key); }
   }
 }
 
@@ -243,6 +272,7 @@ export async function getOrCreateStream(
       createdAt,
       expiresAt: createdAt + getReadyTTLMs(),
     });
+    addToUrlIndex(readyByUrl, cacheKey);
     if (globalConfig.healthyNzbDbMode === 'storage') {
       enforceStorageLimit(readyCache, estimateReadyCacheSize, globalConfig.healthyNzbDbMaxSizeMB ?? 50);
     }
@@ -256,6 +286,7 @@ export async function getOrCreateStream(
         createdAt: deadCreatedAt,
         expiresAt: deadCreatedAt + getDeadTTLMs(),
       });
+      addToUrlIndex(deadByUrl, cacheKey);
       if (globalConfig.deadNzbDbMode === 'storage') {
         enforceStorageLimit(deadNzbCache, estimateDeadCacheSize, globalConfig.deadNzbDbMaxSizeMB ?? 50);
       }
@@ -300,6 +331,7 @@ export function clearStreamCache(): void {
 export function clearReadyCache(): number {
   const count = readyCache.size;
   readyCache.clear();
+  readyByUrl.clear();
   if (count) {
     console.log(`\u{1F9F9} Cleared ${count} successful stream cache entries`);
     saveCacheToDisk();
@@ -313,6 +345,7 @@ export function clearReadyCache(): number {
 export function clearFailedCache(): number {
   const count = deadNzbCache.size;
   deadNzbCache.clear();
+  deadByUrl.clear();
   if (count) {
     console.log(`\u{1F9F9} Cleared ${count} dead NZB cache entries`);
     saveCacheToDisk();
@@ -324,7 +357,10 @@ export function clearFailedCache(): number {
  * Delete a single cache entry by key (checks ready cache, dead NZB cache, and pending cache)
  */
 export function deleteCacheEntry(cacheKey: string): boolean {
-  const deleted = readyCache.delete(cacheKey) || deadNzbCache.delete(cacheKey) || pendingCache.delete(cacheKey);
+  let deleted = false;
+  if (readyCache.delete(cacheKey)) { removeFromUrlIndex(readyByUrl, cacheKey); deleted = true; }
+  else if (deadNzbCache.delete(cacheKey)) { removeFromUrlIndex(deadByUrl, cacheKey); deleted = true; }
+  else if (pendingCache.delete(cacheKey)) { deleted = true; }
   if (deleted) saveCacheToDisk();
   return deleted;
 }
@@ -409,4 +445,48 @@ export function getCacheStats(): {
   const readySizeMB = Math.round(estimateReadyCacheSize() / 1024 / 1024 * 100) / 100;
   const deadSizeMB = Math.round(estimateDeadCacheSize() / 1024 / 1024 * 100) / 100;
   return { total: ready + pending + failed, ready, pending, failed, readySizeMB, deadSizeMB };
+}
+
+// ── URL-only lookups (used by health check coordinator) ──────────────
+
+/** Check if any non-expired dead entry exists for this NZB URL */
+export function isDeadNzbByUrl(nzbUrl: string): boolean {
+  const keys = deadByUrl.get(nzbUrl);
+  if (!keys) return false;
+  const now = Date.now();
+  for (const key of keys) {
+    const entry = deadNzbCache.get(key);
+    if (entry && entry.expiresAt > now) return true;
+    if (!entry) keys.delete(key);
+  }
+  if (keys.size === 0) deadByUrl.delete(nzbUrl);
+  return false;
+}
+
+/** Check if any non-expired ready entry exists for this NZB URL */
+export function isReadyNzbByUrl(nzbUrl: string): boolean {
+  const keys = readyByUrl.get(nzbUrl);
+  if (!keys) return false;
+  const now = Date.now();
+  for (const key of keys) {
+    const entry = readyCache.get(key);
+    if (entry && entry.expiresAt > now) return true;
+    if (!entry) keys.delete(key);
+  }
+  if (keys.size === 0) readyByUrl.delete(nzbUrl);
+  return false;
+}
+
+/** Write a dead entry for a health-check-blocked NZB (caller must call saveCacheToDisk) */
+export function addDeadNzbByUrl(nzbUrl: string, title: string): void {
+  const key = `${nzbUrl}::${title}`;
+  if (deadNzbCache.has(key)) return;
+  const createdAt = Date.now();
+  const error = new Error('Health check: blocked');
+  (error as any).isNzbdavFailure = true;
+  deadNzbCache.set(key, { error, createdAt, expiresAt: createdAt + getDeadTTLMs() });
+  addToUrlIndex(deadByUrl, key);
+  if (globalConfig.deadNzbDbMode === 'storage') {
+    enforceStorageLimit(deadNzbCache, estimateDeadCacheSize, globalConfig.deadNzbDbMaxSizeMB ?? 50);
+  }
 }
