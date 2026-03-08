@@ -122,7 +122,7 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
 
   router.post('/nzbhydra/sync', async (req, res) => {
     try {
-      const url = req.body?.url ?? config.nzbhydraUrl;
+      const url = (req.body?.url ?? config.nzbhydraUrl).replace(/\/+$/, '');
       const apiKey = req.body?.apiKey ?? config.nzbhydraApiKey;
       const username = req.body?.username ?? config.nzbhydraUsername ?? '';
       const password = req.body?.password ?? config.nzbhydraPassword ?? '';
@@ -161,7 +161,37 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
         console.warn(`NZBHydra sync: stats endpoint unavailable (${e.response?.status || e.message})`);
       }
 
-      // Fall back to /internalapi with Basic auth if credentials provided
+      // Fall back to /internalapi — try form login first, then Basic auth
+      if (indexerList.length === 0 && username && password) {
+        // Form login — works when NZBHydra uses form-based auth (session cookie)
+        try {
+          const loginResp = await axios.post(`${url}/login`,
+            new URLSearchParams({ username, password }).toString(),
+            {
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              timeout: 10000,
+              maxRedirects: 0,
+              validateStatus: (s) => s < 400,
+            },
+          );
+          const cookies = loginResp.headers['set-cookie'];
+          if (cookies) {
+            const cookieHeader = cookies.map((c: string) => c.split(';')[0]).join('; ');
+            const internalResp = await axios.get(`${url}/internalapi/indexerstatuses`, {
+              headers: { Cookie: cookieHeader },
+              timeout: 10000,
+            });
+            if (Array.isArray(internalResp.data)) {
+              indexerList = parseIndexerStatuses(internalResp.data);
+              console.log(`NZBHydra sync: ${indexerList.length} indexers via form login`);
+            }
+          }
+        } catch (e: any) {
+          console.warn(`NZBHydra sync: form login failed (${e.response?.status || e.message})`);
+        }
+      }
+
+      // Basic auth fallback — works when NZBHydra uses HTTP Basic auth
       if (indexerList.length === 0 && username && password) {
         try {
           const authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
@@ -171,7 +201,7 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
           });
           if (Array.isArray(internalResp.data)) {
             indexerList = parseIndexerStatuses(internalResp.data);
-            console.log(`NZBHydra sync: ${indexerList.length} indexers via internal API`);
+            console.log(`NZBHydra sync: ${indexerList.length} indexers via internal API (Basic auth)`);
           }
         } catch (e: any) {
           console.warn(`NZBHydra sync: internal API failed (${e.response?.status || e.message})`);
@@ -180,7 +210,7 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
 
       if (indexerList.length === 0) {
         return res.status(500).json({
-          error: 'Could not fetch indexer list. Please enable "Allow stats access" in NZBHydra authorization settings, or add Basic auth credentials.',
+          error: 'Could not fetch indexer list. Please enable "Allow stats access" in NZBHydra, or provide login credentials.',
         });
       }
 

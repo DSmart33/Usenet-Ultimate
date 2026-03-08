@@ -1,5 +1,5 @@
 // What this does:
-//   NZB Fallback configuration overlay with enable toggle, fallback order, wait times, and cache TTL display
+//   NZB Fallback configuration overlay with enable toggle, fallback order, wait times, and streaming method
 
 import { useRef, useCallback, useEffect } from 'react';
 import { RotateCcw, X, Film, Tv } from 'lucide-react';
@@ -50,7 +50,6 @@ interface FallbackOverlayProps {
   setNzbdavStreamBufferMB: React.Dispatch<React.SetStateAction<number>>;
   nzbdavProxyEnabled: boolean;
   setNzbdavProxyEnabled: React.Dispatch<React.SetStateAction<boolean>>;
-  cacheTTL: number;
 }
 
 export function FallbackOverlay({
@@ -71,16 +70,12 @@ export function FallbackOverlay({
   setNzbdavStreamBufferMB,
   nzbdavProxyEnabled,
   setNzbdavProxyEnabled,
-  cacheTTL,
 }: FallbackOverlayProps) {
   const movieDec = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavMoviesTimeoutSeconds]));
   const movieInc = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.min(180, v + 1)), [setNzbdavMoviesTimeoutSeconds]));
   const tvDec = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavTvTimeoutSeconds]));
   const tvInc = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.min(180, v + 1)), [setNzbdavTvTimeoutSeconds]));
 
-  const fallbackGroupTTLDisplay = cacheTTL >= 3600
-    ? `${Math.round(cacheTTL / 3600 * 10) / 10}h`
-    : `${Math.round(cacheTTL / 60)} min`;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
@@ -109,7 +104,7 @@ export function FallbackOverlay({
               <div>
                 <span className="text-sm font-medium text-slate-300">Enable Fallback</span>
                 <p className="text-xs text-slate-500 mt-1">
-                  Automatically try alternative NZBs when the primary download fails. When disabled, all streams use direct passthrough.
+                  Automatically try alternative NZBs when the primary download fails. When disabled, all streams use proxy without a redirect.
                 </p>
               </div>
             </label>
@@ -162,8 +157,8 @@ export function FallbackOverlay({
             </div>
             <p className="text-xs text-slate-500">
               {nzbdavProxyEnabled
-                ? 'Video streams through a local proxy with buffering and automatic reconnection. Recommended for mobile and TV.'
-                : 'Player is redirected directly to the WebDAV URL. Recommended for desktop players.'}
+                ? 'Video streams through a local proxy with buffering and automatic reconnection. Recommended for Android devices.'
+                : 'Player is redirected directly to the WebDAV URL. Recommended for Apple devices.'}
             </p>
           </div>
 
@@ -348,17 +343,6 @@ export function FallbackOverlay({
                 <span className="text-sm text-slate-300 w-8 text-right">{nzbdavMaxFallbacks}</span>
               </div>
             )}
-          </div>
-
-          {/* Cache TTL (read-only, matches search cache) */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !nzbdavFallbackEnabled && "opacity-40 pointer-events-none")}>
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-slate-300">Fallback & Failed NZB Cache</div>
-              <span className="text-sm text-slate-300">{fallbackGroupTTLDisplay}</span>
-            </div>
-            <p className="text-xs text-slate-500">
-              Matches your Search Cache TTL. Fallback candidates and failed NZB records are kept as long as search results are cached. Failed NZBs are skipped instantly on retry. Change this in the Search Cache TTL settings.
-            </p>
           </div>
 
           {/* Stream Buffer Size */}
