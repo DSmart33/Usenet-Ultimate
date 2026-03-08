@@ -120,6 +120,24 @@ export const config: Config = {
     if (env !== undefined) return env;
     return configData.nzbdavProxyEnabled === true;
   },
+  get healthyNzbDbMode(): 'time' | 'storage' {
+    return configData.healthyNzbDbMode || 'time';
+  },
+  get healthyNzbDbTTL() {
+    return configData.healthyNzbDbTTL ?? 259200;
+  },
+  get healthyNzbDbMaxSizeMB() {
+    return Math.min(50, Math.max(1, configData.healthyNzbDbMaxSizeMB ?? 50));
+  },
+  get deadNzbDbMode(): 'time' | 'storage' {
+    return configData.deadNzbDbMode || 'storage';
+  },
+  get deadNzbDbTTL() {
+    return configData.deadNzbDbTTL ?? 86400;
+  },
+  get deadNzbDbMaxSizeMB() {
+    return Math.min(50, Math.max(1, configData.deadNzbDbMaxSizeMB ?? 50));
+  },
   get proxyMode() {
     return envEnum('PROXY_MODE', ['disabled', 'http']) || configData.proxyMode || 'disabled';
   },
@@ -266,7 +284,7 @@ export const config: Config = {
       smartAdditionalRuns: hc.smartAdditionalRuns ?? 1,
       maxConnections: hc.maxConnections ?? 12,
       segmentCache: hc.segmentCache ?? { enabled: true, ttlHours: 0, maxSizeMB: 50 },
-      autoQueueMode: hc.autoQueueMode || 'all',
+      autoQueueMode: hc.autoQueueMode ?? 'all',
       libraryPreCheck: hc.libraryPreCheck !== false,
     };
 

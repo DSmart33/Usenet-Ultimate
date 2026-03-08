@@ -3,4 +3,4 @@
  * Re-exports cache stats and clear functions for external consumers.
  */
 
-export { getCacheStats, clearStreamCache, isStreamCached } from './streamCache.js';
+export { getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, isStreamCached, saveCacheToDisk } from './streamCache.js';

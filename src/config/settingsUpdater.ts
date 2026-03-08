@@ -7,6 +7,7 @@
 
 import type { UsenetProvider, SearchConfig, AutoPlayConfig, SyncedIndexer, StreamDisplayConfig } from '../types.js';
 import { configData, saveConfigFile } from './schema.js';
+import { enforceZyclopsEnabled } from './indexerCrud.js';
 
 export function updateSettings(settings: {
   addonEnabled?: boolean;
@@ -37,6 +38,12 @@ export function updateSettings(settings: {
   nzbdavFallbackOrder?: 'selected' | 'top';
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
+  healthyNzbDbMode?: 'time' | 'storage';
+  healthyNzbDbTTL?: number;
+  healthyNzbDbMaxSizeMB?: number;
+  deadNzbDbMode?: 'time' | 'storage';
+  deadNzbDbTTL?: number;
+  deadNzbDbMaxSizeMB?: number;
   proxyMode?: 'disabled' | 'http';
   proxyUrl?: string;
   proxyIndexers?: Record<string, boolean>;
@@ -166,6 +173,24 @@ export function updateSettings(settings: {
   if (settings.nzbdavProxyEnabled !== undefined) {
     configData.nzbdavProxyEnabled = settings.nzbdavProxyEnabled;
   }
+  if (settings.healthyNzbDbMode !== undefined) {
+    configData.healthyNzbDbMode = settings.healthyNzbDbMode;
+  }
+  if (settings.healthyNzbDbTTL !== undefined) {
+    configData.healthyNzbDbTTL = Math.min(345600, Math.max(15, settings.healthyNzbDbTTL));
+  }
+  if (settings.healthyNzbDbMaxSizeMB !== undefined) {
+    configData.healthyNzbDbMaxSizeMB = Math.min(50, Math.max(1, settings.healthyNzbDbMaxSizeMB));
+  }
+  if (settings.deadNzbDbMode !== undefined) {
+    configData.deadNzbDbMode = settings.deadNzbDbMode;
+  }
+  if (settings.deadNzbDbTTL !== undefined) {
+    configData.deadNzbDbTTL = Math.min(345600, Math.max(15, settings.deadNzbDbTTL));
+  }
+  if (settings.deadNzbDbMaxSizeMB !== undefined) {
+    configData.deadNzbDbMaxSizeMB = Math.min(50, Math.max(1, settings.deadNzbDbMaxSizeMB));
+  }
   if (settings.proxyMode !== undefined) {
     configData.proxyMode = settings.proxyMode;
     // Clear cached proxy agents when switching modes
@@ -240,25 +265,16 @@ export function updateSettings(settings: {
     configData.healthChecks = {
       ...settings.healthChecks,
       providers: settings.healthChecks.providers ?? existingProviders,
-      autoQueueMode: settings.healthChecks.autoQueueMode || configData.healthChecks?.autoQueueMode || 'all',
+      autoQueueMode: settings.healthChecks.autoQueueMode ?? configData.healthChecks?.autoQueueMode ?? 'all',
     };
   }
   if (settings.streamDisplayConfig !== undefined) {
     configData.streamDisplayConfig = settings.streamDisplayConfig;
   }
 
-  // Mutual exclusion: force-disable health checks for Zyclops-enabled indexers
-  // Note: proxy is NOT force-disabled — runtime already skips proxy for Zyclops indexers,
-  // and preserving the user's proxy preference allows it to restore when Zyclops is turned off.
-  if (configData.indexers) {
-    for (const indexer of configData.indexers) {
-      if (indexer.zyclops?.enabled) {
-        console.log(`🤖 Zyclops mutual exclusion (settings save): disabling health checks for ${indexer.name}`);
-        if (configData.healthChecks?.healthCheckIndexers) {
-          configData.healthChecks.healthCheckIndexers[indexer.name] = false;
-        }
-      }
-    }
+  // Mutual exclusion: force enabled + disable proxy/health checks for Zyclops-enabled indexers
+  for (const indexer of configData.indexers) {
+    enforceZyclopsEnabled(indexer, 'settings save');
   }
 
   saveConfigFile(configData);

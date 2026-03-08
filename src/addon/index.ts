@@ -25,7 +25,7 @@ const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config } from '../config/index.js';
 import type { Stream } from '../types.js';
-import { createFallbackGroup, type FallbackCandidate } from '../nzbdav/index.js';
+import { createFallbackGroup, clearFallbackGroups, type FallbackCandidate } from '../nzbdav/index.js';
 import { resolveTitle } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { processResults } from './resultProcessor.js';
@@ -38,6 +38,7 @@ const cache = new NodeCache({ stdTTL: 0 });
 
 export function clearSearchCache(): void {
   cache.flushAll();
+  clearFallbackGroups();
 }
 
 // Define addon manifest - tells Stremio what we support

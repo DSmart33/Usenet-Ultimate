@@ -132,6 +132,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavFallbackOrder, setNzbdavFallbackOrder] = useState<'selected' | 'top'>('selected');
   const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
   const [nzbdavProxyEnabled, setNzbdavProxyEnabled] = useState(false);
+  const [healthyNzbDbMode, setHealthyNzbDbMode] = useState<'time' | 'storage'>('time');
+  const [healthyNzbDbTTL, setHealthyNzbDbTTL] = useState(259200);
+  const [healthyNzbDbMaxSizeMB, setHealthyNzbDbMaxSizeMB] = useState(50);
+  const [deadNzbDbMode, setDeadNzbDbMode] = useState<'time' | 'storage'>('storage');
+  const [deadNzbDbTTL, setDeadNzbDbTTL] = useState(86400);
+  const [deadNzbDbMaxSizeMB, setDeadNzbDbMaxSizeMB] = useState(50);
   const [nzbdavConnectionStatus, setNzbdavConnectionStatus] = useState<'connected' | 'disconnected' | 'unconfigured' | 'checking' | null>(null);
   const [nzbdavTestNzbStatus, setNzbdavTestNzbStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [nzbdavTestNzbMessage, setNzbdavTestNzbMessage] = useState('');
@@ -154,6 +160,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [zyclopsTestMessage, setZyclopsTestMessage] = useState('');
   const [zyclopsConfirmDialog, setZyclopsConfirmDialog] = useState<{ show: boolean; indexerName: string }>({ show: false, indexerName: '' });
   const [singleIpConfirmDialog, setSingleIpConfirmDialog] = useState<{ show: boolean; indexerName: string }>({ show: false, indexerName: '' });
+  const [zyclopsInflightToggle, setZyclopsInflightToggle] = useState<Set<string>>(new Set());
 
   // ─── User-Agent ─────────────────────────────────────────────────────
   const defaultChromeUA = DEFAULT_CHROME_UA;
@@ -298,6 +305,16 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     }), 500);
     return () => clearTimeout(timer);
   }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavStreamBufferMB, nzbdavProxyEnabled, saveSettings]);
+
+  // Auto-save: NZB database settings
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    const timer = setTimeout(() => saveSettings({
+      healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB,
+      deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB,
+    }), 500);
+    return () => clearTimeout(timer);
+  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, saveSettings]);
 
   // Auto-save: index manager type
   useEffect(() => {
@@ -551,6 +568,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
           ? [...order.slice(0, zyclopsIdx + 1), 'fallback', ...order.slice(zyclopsIdx + 1)]
           : [...order, 'fallback'];
       }
+      if (!order.includes('nzbDatabase')) {
+        const fallbackIdx = order.indexOf('fallback');
+        order = fallbackIdx !== -1
+          ? [...order.slice(0, fallbackIdx + 1), 'nzbDatabase', ...order.slice(fallbackIdx + 1)]
+          : [...order, 'nzbDatabase'];
+      }
       setCardOrder(order);
 
       // Load auto-play settings
@@ -698,6 +721,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavFallbackOrder(data.nzbdavFallbackOrder || 'selected');
       setNzbdavStreamBufferMB(data.nzbdavStreamBufferMB ?? 128);
       setNzbdavProxyEnabled(data.nzbdavProxyEnabled === true);
+      setHealthyNzbDbMode(data.healthyNzbDbMode || 'time');
+      setHealthyNzbDbTTL(data.healthyNzbDbTTL ?? 259200);
+      setHealthyNzbDbMaxSizeMB(data.healthyNzbDbMaxSizeMB ?? 50);
+      setDeadNzbDbMode(data.deadNzbDbMode || 'storage');
+      setDeadNzbDbTTL(data.deadNzbDbTTL ?? 86400);
+      setDeadNzbDbMaxSizeMB(data.deadNzbDbMaxSizeMB ?? 50);
       // Mark initial load as done so auto-save hooks don't fire on load.
       // setTimeout defers past React's useEffect cycle — effects from the setState
       // batch above see initialLoadDone.current === false and skip the save.
@@ -1137,6 +1166,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbdavFallbackOrder, setNzbdavFallbackOrder,
     nzbdavStreamBufferMB, setNzbdavStreamBufferMB,
     nzbdavProxyEnabled, setNzbdavProxyEnabled,
+    healthyNzbDbMode, setHealthyNzbDbMode,
+    healthyNzbDbTTL, setHealthyNzbDbTTL,
+    healthyNzbDbMaxSizeMB, setHealthyNzbDbMaxSizeMB,
+    deadNzbDbMode, setDeadNzbDbMode,
+    deadNzbDbTTL, setDeadNzbDbTTL,
+    deadNzbDbMaxSizeMB, setDeadNzbDbMaxSizeMB,
     nzbdavConnectionStatus, setNzbdavConnectionStatus,
     nzbdavTestNzbStatus, setNzbdavTestNzbStatus,
     nzbdavTestNzbMessage, setNzbdavTestNzbMessage,
@@ -1159,6 +1194,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     zyclopsTestMessage, setZyclopsTestMessage,
     zyclopsConfirmDialog, setZyclopsConfirmDialog,
     singleIpConfirmDialog, setSingleIpConfirmDialog,
+    zyclopsInflightToggle, setZyclopsInflightToggle,
 
     // User agents
     defaultChromeUA,

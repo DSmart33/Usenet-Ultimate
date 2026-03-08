@@ -63,6 +63,11 @@ export interface ZyclopsIndexerConfig {
   providerHosts?: string;              // NNTP provider hostnames (comma-separated) — takes priority over backbone
   showUnknown?: boolean;               // Show results with unknown health status (default false)
   singleIp?: boolean;                  // Single IP mode — only Zyclops IP touches upstream (default true)
+  preZyclopsState?: {                  // Snapshot of settings before Zyclops was enabled — restored on disable
+    enabled: boolean;
+    proxy: boolean;
+    healthCheck: boolean;
+  };
 }
 
 // Valid Zyclops backbone identifiers
@@ -132,6 +137,12 @@ export interface Config {
   nzbdavFallbackOrder?: 'selected' | 'top';   // Start from clicked NZB or top of quality-sorted list
   nzbdavStreamBufferMB?: number;              // WebDAV proxy buffer size in MB (default 128)
   nzbdavProxyEnabled?: boolean;               // Stream through local proxy (buffer+reconnect) or direct WebDAV redirect (default false)
+  healthyNzbDbMode?: 'time' | 'storage';      // Database limit mode for successful streams (default 'time')
+  healthyNzbDbTTL?: number;                   // TTL in seconds for successful streams when mode is 'time' (default 259200 / 3 days)
+  healthyNzbDbMaxSizeMB?: number;             // Max storage in MB for successful streams when mode is 'storage' (default 50)
+  deadNzbDbMode?: 'time' | 'storage';         // Database limit mode for dead NZBs (default 'storage')
+  deadNzbDbTTL?: number;                      // TTL in seconds for dead NZBs when mode is 'time' (default 86400)
+  deadNzbDbMaxSizeMB?: number;                // Max storage in MB for dead NZBs when mode is 'storage' (default 50)
   easynewsEnabled?: boolean;
   easynewsUsername?: string;
   easynewsPassword?: string;

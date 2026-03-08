@@ -16,7 +16,7 @@ import { config, getIndexers, addIndexer, updateIndexer, deleteIndexer, reorderI
 import { getLogBuffer, subscribeToLogs } from './logBuffer.js';
 import { getAllStats, getIndexerStats, resetIndexerStats, resetAllStats, trackGrab } from './statsTracker.js';
 import { fetchLatestVersions, getLatestVersions } from './versionFetcher.js';
-import { handleStream, getCacheStats, clearStreamCache, isStreamCached } from './nzbdav/index.js';
+import { handleStream, getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, isStreamCached, saveCacheToDisk } from './nzbdav/index.js';
 import { proxyFetch, testProxyConnection } from './proxy.js';
 import { fetchIndexerCaps } from './parsers/newznabClient.js';
 import { getSegmentCacheStats, clearSegmentCache, configureSegmentCache, loadSegmentCache, shutdownSegmentCache } from './health/index.js';
@@ -97,6 +97,10 @@ const nzbdavDeps = {
   handleStream,
   getCacheStats,
   clearStreamCache,
+  clearReadyCache,
+  clearFailedCache,
+  deleteCacheEntry,
+  getCacheEntries,
   isStreamCached,
   trackGrab,
   getLatestVersions,
@@ -186,15 +190,17 @@ if (config.healthChecks?.segmentCache) {
 }
 loadSegmentCache();
 
-// Graceful shutdown — persist segment cache before exit
+// Graceful shutdown — persist caches before exit
 process.on('SIGTERM', () => {
-  console.log('[shutdown] SIGTERM received, saving segment cache...');
+  console.log('[shutdown] SIGTERM received, saving caches...');
   shutdownSegmentCache();
+  saveCacheToDisk();
   process.exit(0);
 });
 process.on('SIGINT', () => {
-  console.log('[shutdown] SIGINT received, saving segment cache...');
+  console.log('[shutdown] SIGINT received, saving caches...');
   shutdownSegmentCache();
+  saveCacheToDisk();
   process.exit(0);
 });
 

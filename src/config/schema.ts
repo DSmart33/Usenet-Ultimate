@@ -44,6 +44,12 @@ export interface ConfigData {
   nzbdavFallbackOrder?: 'selected' | 'top';
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
+  healthyNzbDbMode?: 'time' | 'storage';
+  healthyNzbDbTTL?: number;
+  healthyNzbDbMaxSizeMB?: number;
+  deadNzbDbMode?: 'time' | 'storage';
+  deadNzbDbTTL?: number;
+  deadNzbDbMaxSizeMB?: number;
   easynewsEnabled?: boolean;
   easynewsUsername?: string;
   easynewsPassword?: string;

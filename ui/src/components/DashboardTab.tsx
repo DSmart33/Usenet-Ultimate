@@ -2,7 +2,7 @@
 //   Renders the Dashboard tab content: a grid of draggable cards for addon controls,
 //   indexer management, streaming, proxy, cache, filters, health checks, stats, and more.
 
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Power,
   Database,
@@ -39,6 +39,7 @@ export interface DashboardTabProps {
   config: Config;
   addonEnabled: boolean;
   setAddonEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  activeOverlay: OverlayType;
   setActiveOverlay: (overlay: OverlayType) => void;
   indexManager: 'newznab' | 'prowlarr' | 'nzbhydra';
   easynewsEnabled: boolean;
@@ -71,12 +72,14 @@ export interface DashboardTabProps {
   handleCardDragOver: (e: React.DragEvent, cardId: string) => void;
   handleCardDrop: (e: React.DragEvent, cardId: string) => void;
   handleCardDragEnd: () => void;
+  apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
 export function DashboardTab({
   config,
   addonEnabled,
   setAddonEnabled,
+  activeOverlay,
   setActiveOverlay,
   indexManager,
   easynewsEnabled,
@@ -103,7 +106,25 @@ export function DashboardTab({
   handleCardDragOver,
   handleCardDrop,
   handleCardDragEnd,
+  apiFetch,
 }: DashboardTabProps) {
+  const [nzbDbReady, setNzbDbReady] = useState(0);
+  const [nzbDbFailed, setNzbDbFailed] = useState(0);
+  const prevOverlayRef = useRef(activeOverlay);
+
+  useEffect(() => {
+    if (streamingMode !== 'nzbdav') return;
+    const prev = prevOverlayRef.current;
+    prevOverlayRef.current = activeOverlay;
+    // Only refetch on mount or when the nzbDatabase overlay closes
+    if (prev !== undefined && !(prev === 'nzbDatabase' && activeOverlay !== 'nzbDatabase')) return;
+    apiFetch('/api/nzbdav/cache').then(r => r.ok ? r.json() : null).then(stats => {
+      if (stats) {
+        setNzbDbReady(stats.ready ?? 0);
+        setNzbDbFailed(stats.failed ?? 0);
+      }
+    }).catch(() => {});
+  }, [streamingMode, activeOverlay, apiFetch]);
   return (
     <div className="flex-1 overflow-y-auto p-4 md:p-6 animate-fade-in-up">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -287,6 +308,41 @@ export function DashboardTab({
                     </div>
                     {streamingMode !== 'nzbdav' && (
                       <span className="text-xs text-slate-600 mt-1">NZB Fallback is only available in NZBDav streaming mode</span>
+                    )}
+                  </div>
+                ),
+                nzbDatabase: (
+                  <div
+                    key="nzbDatabase"
+                    draggable
+                    onDragStart={() => handleCardDragStart('nzbDatabase')}
+                    onDragOver={(e) => handleCardDragOver(e, 'nzbDatabase')}
+                    onDrop={(e) => handleCardDrop(e, 'nzbDatabase')}
+                    onDragEnd={handleCardDragEnd}
+                    className={clsx(
+                      "card p-4 cursor-move group hover:!border-amber-400/50 hover:!shadow-amber-400/30 transition-all",
+                      isDragging && "opacity-50 scale-95",
+                      isOver && "ring-2 ring-amber-400 scale-105",
+                      streamingMode !== 'nzbdav' && "opacity-50 pointer-events-none"
+                    )}
+                    onClick={() => {
+                      if (!draggedCard && streamingMode === 'nzbdav') setActiveOverlay('nzbDatabase');
+                    }}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <GripVertical className="w-4 h-4 text-slate-600" />
+                      <Database className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
+                      <span className="text-slate-400 text-sm">NZB Database</span>
+                    </div>
+                    <div className="text-2xl font-bold group-hover:text-amber-400 transition-colors">
+                      <span className="text-emerald-400">{nzbDbReady}</span>
+                      <span className="text-slate-500 text-lg mx-1">healthy</span>
+                      <span className="text-slate-600 text-lg">·</span>
+                      <span className="text-red-400 ml-1">{nzbDbFailed}</span>
+                      <span className="text-slate-500 text-lg ml-1">dead</span>
+                    </div>
+                    {streamingMode !== 'nzbdav' && (
+                      <span className="text-xs text-slate-600 mt-1">NZB Database is only available in NZBDav streaming mode</span>
                     )}
                   </div>
                 ),

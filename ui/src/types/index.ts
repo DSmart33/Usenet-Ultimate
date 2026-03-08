@@ -12,6 +12,11 @@ export interface ZyclopsIndexerConfig {
   providerHosts?: string;
   showUnknown?: boolean;
   singleIp?: boolean;
+  preZyclopsState?: {
+    enabled: boolean;
+    proxy: boolean;
+    healthCheck: boolean;
+  };
 }
 
 export interface Indexer {
@@ -164,7 +169,7 @@ export interface IndexerPreset {
 export type Tab = 'dashboard' | 'install';
 
 
-export type OverlayType = 'indexManager' | 'streaming' | 'fallback' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | 'zyclops' | null;
+export type OverlayType = 'indexManager' | 'streaming' | 'fallback' | 'nzbDatabase' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | 'zyclops' | null;
 
 export interface LogEntry {
   timestamp: string;
