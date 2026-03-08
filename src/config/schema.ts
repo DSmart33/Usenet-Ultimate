@@ -125,7 +125,7 @@ function loadConfigFile(): ConfigData {
   return {
     indexers: [],
     cacheEnabled: true,
-    cacheTTL: 43200,
+    cacheTTL: 0,
     streamingMode: 'nzbdav',
     indexManager: 'newznab',
   };

@@ -141,7 +141,7 @@ export const DEFAULT_FILTERS = {
     edition: {} as Record<string, boolean>
   },
   maxFileSize: undefined as number | undefined,
-  maxStreams: 10 as number | undefined,
+  maxStreams: undefined as number | undefined,
   maxStreamsPerQuality: undefined as number | undefined,
   resolutionPriority: ['2160p', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'] as string[],
   videoPriority: ['BluRay REMUX', 'BluRay', 'WEB-DL', 'WEBRip', 'HDRip', 'HC HD-Rip', 'DVDRip', 'HDTV', 'Unknown'] as string[],

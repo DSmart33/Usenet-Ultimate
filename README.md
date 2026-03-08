@@ -418,7 +418,7 @@ These are migrated into `config/config.json` on first startup. After that, manag
 |----------|---------|-------------|
 | `INDEXER_URL` | — | Newznab-compatible indexer URL. Comma-separated for multiple indexers |
 | `INDEXER_API_KEY` | — | API key(s) matching each indexer URL. Comma-separated for multiple |
-| `CACHE_TTL` | `43200` (12h) | Search result cache TTL in seconds. `0` disables caching |
+| `CACHE_TTL` | `0` (disabled) | Search result cache TTL in seconds. `0` disables caching |
 
 #### Index Manager
 

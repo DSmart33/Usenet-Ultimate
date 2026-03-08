@@ -85,8 +85,8 @@ export const config: Config = {
     const env = envBool('NZBDAV_FALLBACK_ENABLED');
     if (env !== undefined) return env;
     if (configData.nzbdavFallbackEnabled !== undefined) return configData.nzbdavFallbackEnabled;
-    // Migration: old configs used maxFallbacks=0 for disabled (no nzbdavFallbackEnabled field)
-    return configData.nzbdavMaxFallbacks !== 0;
+    // Default: disabled — user must explicitly enable fallback
+    return false;
   },
   get nzbdavLibraryCheckEnabled() {
     const env = envBool('NZBDAV_LIBRARY_CHECK');
@@ -118,7 +118,7 @@ export const config: Config = {
   get nzbdavProxyEnabled() {
     const env = envBool('NZBDAV_PROXY_ENABLED');
     if (env !== undefined) return env;
-    return configData.nzbdavProxyEnabled === true;
+    return configData.nzbdavProxyEnabled !== false;
   },
   get healthyNzbDbMode(): 'time' | 'storage' {
     return configData.healthyNzbDbMode || 'time';
@@ -209,7 +209,7 @@ export const config: Config = {
         edition: {}
       },
       maxFileSize: undefined,
-      maxStreams: 10,
+      maxStreams: undefined,
       maxStreamsPerQuality: undefined,
       resolutionPriority: ['2160p', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'],
       videoPriority: ['BluRay REMUX', 'BluRay', 'WEB-DL', 'WEBRip', 'HDRip', 'HC HD-Rip', 'DVDRip', 'HDTV', 'Unknown'],

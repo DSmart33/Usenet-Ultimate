@@ -377,14 +377,14 @@ export function FallbackOverlay({
           <div className="pt-2">
             <button
               onClick={() => {
-                setNzbdavFallbackEnabled(true);
+                setNzbdavFallbackEnabled(false);
                 setNzbdavLibraryCheckEnabled(true);
                 setNzbdavMoviesTimeoutSeconds(30);
                 setNzbdavTvTimeoutSeconds(15);
                 setNzbdavFallbackOrder('selected');
                 setNzbdavMaxFallbacks(0);
                 setNzbdavStreamBufferMB(128);
-                setNzbdavProxyEnabled(false);
+                setNzbdavProxyEnabled(true);
               }}
               className="btn-secondary w-full"
             >

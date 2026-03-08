@@ -128,7 +128,7 @@ export interface Config {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
-  nzbdavFallbackEnabled?: boolean; // Master toggle for fallback feature (default true)
+  nzbdavFallbackEnabled?: boolean; // Master toggle for fallback feature (default false)
   nzbdavLibraryCheckEnabled?: boolean; // Check WebDAV library before grabbing NZB (default true)
   nzbdavMaxFallbacks?: number;  // 0 = try all results (default), 1-20 = limit
   nzbdavJobTimeoutSeconds?: number;            // Legacy — use nzbdavMoviesTimeoutSeconds / nzbdavTvTimeoutSeconds
@@ -136,7 +136,7 @@ export interface Config {
   nzbdavTvTimeoutSeconds?: number;             // Max seconds to wait for TV streams (default 15)
   nzbdavFallbackOrder?: 'selected' | 'top';   // Start from clicked NZB or top of quality-sorted list
   nzbdavStreamBufferMB?: number;              // WebDAV proxy buffer size in MB (default 128)
-  nzbdavProxyEnabled?: boolean;               // Stream through local proxy (buffer+reconnect) or direct WebDAV redirect (default false)
+  nzbdavProxyEnabled?: boolean;               // Stream through local proxy (buffer+reconnect) or direct WebDAV redirect (default true)
   healthyNzbDbMode?: 'time' | 'storage';      // Database limit mode for successful streams (default 'time')
   healthyNzbDbTTL?: number;                   // TTL in seconds for successful streams when mode is 'time' (default 259200 / 3 days)
   healthyNzbDbMaxSizeMB?: number;             // Max storage in MB for successful streams when mode is 'storage' (default 50)
@@ -209,7 +209,7 @@ export interface FilterConfig {
     edition?: Record<string, boolean>;       // Which editions are enabled
   };
   maxFileSize?: number;                      // Max file size in bytes (undefined = unlimited)
-  maxStreams?: number;                       // Max total streams to return (default 10)
+  maxStreams?: number;                       // Max total streams to return (default unlimited)
   maxStreamsPerQuality?: number;             // Max streams per quality level (undefined = unlimited)
   resolutionPriority?: string[];             // Resolution priority order for sorting
   videoPriority?: string[];                  // Video source priority order for sorting

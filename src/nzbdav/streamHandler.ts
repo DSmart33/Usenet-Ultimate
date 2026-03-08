@@ -349,7 +349,7 @@ export async function handleStream(
     { nzbUrl, title, indexerName: req.query.indexer as string || '' }
   ];
 
-  const fallbackEnabled = globalConfig.nzbdavFallbackEnabled !== false;
+  const fallbackEnabled = globalConfig.nzbdavFallbackEnabled === true;
   const maxFallbacksSetting = globalConfig.nzbdavMaxFallbacks ?? 0; // 0 = unlimited (try all)
 
   // Check whether this request should produce detailed logs.
@@ -489,7 +489,7 @@ export async function handleStream(
 
       // Decide delivery method: proxy (piped with buffer + reconnect) or direct redirect.
       // When fallback is off, inline proxy (no 302) for broadest player compatibility.
-      const fallbackOn = globalConfig.nzbdavFallbackEnabled !== false;
+      const fallbackOn = globalConfig.nzbdavFallbackEnabled === true;
       const mode: 'proxy' | 'direct' = (!fallbackOn || globalConfig.nzbdavProxyEnabled) ? 'proxy' : 'direct';
       const last = lastDeliveryLog.get(streamData.videoPath);
       const shouldLogDelivery = !last || last.mode !== mode;

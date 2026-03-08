@@ -81,10 +81,10 @@ export function CacheTTLOverlay({
             </div>
             <div className="pt-4 border-t border-slate-700 space-y-2">
               <button
-                onClick={() => setCacheTTL(43200)}
+                onClick={() => setCacheTTL(0)}
                 className="btn-secondary w-full"
               >
-                Reset to Default (12 Hours)
+                Reset to Default (Disabled)
               </button>
               <button
                 onClick={async () => {

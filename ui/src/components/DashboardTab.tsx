@@ -110,7 +110,7 @@ export function DashboardTab({
 }: DashboardTabProps) {
   const [nzbDbReady, setNzbDbReady] = useState(0);
   const [nzbDbFailed, setNzbDbFailed] = useState(0);
-  const prevOverlayRef = useRef(activeOverlay);
+  const prevOverlayRef = useRef<typeof activeOverlay | undefined>(undefined);
 
   useEffect(() => {
     if (streamingMode !== 'nzbdav') return;
@@ -123,7 +123,8 @@ export function DashboardTab({
         setNzbDbReady(stats.ready ?? 0);
         setNzbDbFailed(stats.failed ?? 0);
       }
-    }).catch(() => {});
+    }).catch(() => {
+    });
   }, [streamingMode, activeOverlay, apiFetch]);
   return (
     <div className="flex-1 overflow-y-auto p-4 md:p-6 animate-fade-in-up">

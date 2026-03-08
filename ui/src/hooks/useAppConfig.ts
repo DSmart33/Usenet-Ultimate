@@ -73,7 +73,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [showApiKey, setShowApiKey] = useState<{ new: boolean; edit: boolean }>({ new: false, edit: false });
 
   // ─── Cache ──────────────────────────────────────────────────────────
-  const [cacheTTL, setCacheTTL] = useState<number>(43200);
+  const [cacheTTL, setCacheTTL] = useState<number>(0);
 
   // ─── Streaming & Index Manager ──────────────────────────────────────
   const [streamingMode, setStreamingMode] = useState<'nzbdav' | 'stremio'>('nzbdav');
@@ -124,14 +124,14 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavWebdavPassword, setNzbdavWebdavPassword] = useState('');
   const [nzbdavMoviesCategory, setNzbdavMoviesCategory] = useState('Usenet-Ultimate-Movies');
   const [nzbdavTvCategory, setNzbdavTvCategory] = useState('Usenet-Ultimate-TV');
-  const [nzbdavFallbackEnabled, setNzbdavFallbackEnabled] = useState(true);
+  const [nzbdavFallbackEnabled, setNzbdavFallbackEnabled] = useState(false);
   const [nzbdavLibraryCheckEnabled, setNzbdavLibraryCheckEnabled] = useState(true);
   const [nzbdavMaxFallbacks, setNzbdavMaxFallbacks] = useState(0);
   const [nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds] = useState(30);
   const [nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds] = useState(15);
   const [nzbdavFallbackOrder, setNzbdavFallbackOrder] = useState<'selected' | 'top'>('selected');
   const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
-  const [nzbdavProxyEnabled, setNzbdavProxyEnabled] = useState(false);
+  const [nzbdavProxyEnabled, setNzbdavProxyEnabled] = useState(true);
   const [healthyNzbDbMode, setHealthyNzbDbMode] = useState<'time' | 'storage'>('time');
   const [healthyNzbDbTTL, setHealthyNzbDbTTL] = useState(259200);
   const [healthyNzbDbMaxSizeMB, setHealthyNzbDbMaxSizeMB] = useState(50);
@@ -476,7 +476,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       const data = await response.json();
       setConfig(data);
       setAddonEnabled(data.addonEnabled !== false);
-      setCacheTTL(data.cacheTTL ?? 43200);
+      setCacheTTL(data.cacheTTL ?? 0);
       setStreamingMode(data.streamingMode || 'nzbdav');
       setIndexManager(data.indexManager || 'newznab');
       setProxyMode(data.proxyMode || 'disabled');
@@ -684,7 +684,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
             'Remastered': true,
           }
         };
-        tvDefaults.maxStreams = 10;
+        tvDefaults.maxStreams = undefined;
         setTvFilters(tvDefaults);
       } else {
         setTvFilters(data.tvFilters);
@@ -711,7 +711,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavWebdavPassword(data.nzbdavWebdavPassword || '');
       setNzbdavMoviesCategory(data.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies');
       setNzbdavTvCategory(data.nzbdavTvCategory || 'Usenet-Ultimate-TV');
-      setNzbdavFallbackEnabled(data.nzbdavFallbackEnabled !== false);
+      setNzbdavFallbackEnabled(data.nzbdavFallbackEnabled === true);
       setNzbdavLibraryCheckEnabled(data.nzbdavLibraryCheckEnabled !== false);
       setNzbdavMaxFallbacks(data.nzbdavMaxFallbacks ?? 0);
       // Legacy: nzbdavJobTimeoutSeconds is used as a fallback seed for per-type timeouts on old configs
@@ -720,7 +720,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavTvTimeoutSeconds(data.nzbdavTvTimeoutSeconds ?? legacyTimeout ?? 15);
       setNzbdavFallbackOrder(data.nzbdavFallbackOrder || 'selected');
       setNzbdavStreamBufferMB(data.nzbdavStreamBufferMB ?? 128);
-      setNzbdavProxyEnabled(data.nzbdavProxyEnabled === true);
+      setNzbdavProxyEnabled(data.nzbdavProxyEnabled !== false);
       setHealthyNzbDbMode(data.healthyNzbDbMode || 'time');
       setHealthyNzbDbTTL(data.healthyNzbDbTTL ?? 259200);
       setHealthyNzbDbMaxSizeMB(data.healthyNzbDbMaxSizeMB ?? 50);
