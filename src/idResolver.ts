@@ -64,7 +64,7 @@ export async function resolveExternalId(
 async function findOnTmdb(
   imdbId: string,
   type: 'movie' | 'series'
-): Promise<{ id: number; title: string } | null> {
+): Promise<{ id: number; title: string; year?: string } | null> {
   const apiKey = config.searchConfig?.tmdbApiKey;
   if (!apiKey) {
     console.warn('⚠️  TMDB API key not configured');
@@ -86,9 +86,13 @@ async function findOnTmdb(
   const data = response.data;
 
   if (type === 'movie' && data.movie_results?.length > 0) {
-    return { id: data.movie_results[0].id, title: data.movie_results[0].title };
+    const movie = data.movie_results[0];
+    const year = movie.release_date?.match(/^\d{4}/)?.[0];
+    return { id: movie.id, title: movie.title, year };
   } else if (type === 'series' && data.tv_results?.length > 0) {
-    return { id: data.tv_results[0].id, title: data.tv_results[0].name };
+    const show = data.tv_results[0];
+    const year = show.first_air_date?.match(/^\d{4}/)?.[0];
+    return { id: show.id, title: show.name, year };
   }
 
   console.warn(`⚠️  No TMDB ${type} result found for ${imdbId}`);
@@ -107,9 +111,12 @@ async function resolveTmdbId(
   const result = await findOnTmdb(imdbId, type);
   if (!result) return null;
 
-  // Cache the canonical title as a side effect (avoids a second API call in resolveTitleFromTmdb)
+  // Cache the canonical title and year as side effects (avoids a second API call in resolveTitleFromTmdb)
   if (result.title) {
     idCache.set(`title:tmdb:${imdbId}`, result.title);
+  }
+  if (result.year) {
+    idCache.set(`year:tmdb:${imdbId}`, result.year);
   }
 
   return { idParam: 'tmdbid', idValue: result.id.toString() };
@@ -130,12 +137,13 @@ async function resolveTmdbId(
 export async function resolveTitleFromTmdb(
   imdbId: string,
   type: 'movie' | 'series'
-): Promise<string | null> {
+): Promise<{ title: string; year?: string } | null> {
   const titleCacheKey = `title:tmdb:${imdbId}`;
-  const cached = idCache.get<string>(titleCacheKey);
-  if (cached) {
-    console.log(`🎯 TMDB title cache hit: ${imdbId} → "${cached}"`);
-    return cached;
+  const cachedTitle = idCache.get<string>(titleCacheKey);
+  if (cachedTitle) {
+    const cachedYear = idCache.get<string>(`year:tmdb:${imdbId}`);
+    console.log(`🎯 TMDB title cache hit: ${imdbId} → "${cachedTitle}"`);
+    return { title: cachedTitle, year: cachedYear };
   }
 
   try {
@@ -143,6 +151,9 @@ export async function resolveTitleFromTmdb(
     if (!result?.title) return null;
 
     idCache.set(titleCacheKey, result.title);
+    if (result.year) {
+      idCache.set(`year:tmdb:${imdbId}`, result.year);
+    }
 
     // Also cache the ID as a bonus (avoids a duplicate API call if ID resolution happens later)
     const idCacheKey = `id:${imdbId}:tmdb`;
@@ -151,7 +162,7 @@ export async function resolveTitleFromTmdb(
     }
 
     console.log(`🎯 TMDB title resolved: ${imdbId} → "${result.title}"`);
-    return result.title;
+    return { title: result.title, year: result.year };
   } catch (error) {
     console.warn(`⚠️  Failed to resolve TMDB title for ${imdbId}:`, (error as Error).message);
     return null;
