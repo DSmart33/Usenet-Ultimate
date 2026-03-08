@@ -39,7 +39,7 @@ const STREAM_LOG_INTERVAL_MS = 30_000;   // 30 seconds
 const STREAM_LOG_STATE_TTL_MS = 3_600_000; // 1 hour — evict stale entries to prevent unbounded growth
 const STREMIO_TIMEOUT_MS = 60_000;       // Stremio's built-in HTTP timeout
 const STREMIO_SAFETY_MARGIN_MS = 5_000;  // Safety buffer when deciding whether to self-redirect
-const MAX_SELF_REDIRECTS = 100;          // Safety cap on self-redirects — supports large fallback chains without infinite loops
+const MAX_SELF_REDIRECTS = Number(process.env.NZBDAV_MAX_SELF_REDIRECTS) || 100; // Safety cap on self-redirects — supports large fallback chains without infinite loops
 const EXO_PLAYER_BUDGET_MS = 8_000;      // Max blocking time per post-redirect request (keeps ExoPlayer alive on Android)
 // Self-redirect query params (internal, appended to stream URL during 302 redirects):
 //   _rc — redirect count: how many self-redirects have occurred (prevents infinite loops)

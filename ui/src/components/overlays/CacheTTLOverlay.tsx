@@ -78,6 +78,9 @@ export function CacheTTLOverlay({
               <p className="text-xs text-slate-500 mt-1">
                 How long to cache search results. Set all values to 0 to disable caching. Maximum 4 days.
               </p>
+              <p className="text-xs text-slate-500 mt-1">
+                Fallback groups also expire with this TTL. When caching is disabled, fallback groups persist for 2 hours.
+              </p>
             </div>
             <div className="pt-4 border-t border-slate-700 space-y-2">
               <button

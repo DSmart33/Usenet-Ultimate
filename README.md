@@ -460,14 +460,24 @@ These are migrated into `config/config.json` on first startup. After that, manag
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NZBDAV_FALLBACK_ENABLED` | `true` | Enable automatic fallback to alternative NZBs on failure |
+| `NZBDAV_FALLBACK_ENABLED` | `false` | Enable automatic fallback to alternative NZBs on failure |
 | `NZBDAV_FALLBACK_ORDER` | `selected` | Candidate ordering: `selected` (start from clicked NZB) or `top` (start from highest-ranked) |
 | `NZBDAV_MAX_FALLBACKS` | `0` | Max fallback attempts. `0` = unlimited (try all search results), `1-20` = limit |
-| `NZBDAV_MOVIES_TIMEOUT` | `30` | Seconds to wait for a movie stream before trying the next fallback (5-600) |
-| `NZBDAV_TV_TIMEOUT` | `15` | Seconds to wait for a TV episode stream before trying the next fallback (5-600) |
-| `NZBDAV_JOB_TIMEOUT` | `120` | Legacy: sets both movie and TV timeouts if the specific ones aren't configured (clamped to 5-600) |
+| `NZBDAV_LIBRARY_CHECK` | `true` | Check WebDAV library for existing files before grabbing a new NZB |
+| `NZBDAV_MOVIES_TIMEOUT` | `30` | Seconds to wait for a movie stream before trying the next fallback (1-180) |
+| `NZBDAV_TV_TIMEOUT` | `15` | Seconds to wait for a TV episode stream before trying the next fallback (1-180) |
+| `NZBDAV_JOB_TIMEOUT` | `120` | Legacy: sets both movie and TV timeouts if the specific ones aren't configured (clamped to 1-180) |
+| `NZBDAV_MAX_SELF_REDIRECTS` | `100` | Max Stremio self-redirects during fallback chains before giving up |
 
-#### Proxy
+#### Stream Proxy
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NZBDAV_PROXY_ENABLED` | `true` | Stream through a local proxy with buffering and reconnection. When disabled, players are redirected directly to the WebDAV URL |
+| `NZBDAV_STREAM_BUFFER_MB` | `128` | Internal proxy buffer size in MB. Larger buffers absorb network jitter but use more memory (min: 8) |
+| `NZBDAV_STREAM_MAX_RECONNECTS` | `30` | Max upstream reconnect attempts before giving up on a proxied stream |
+
+#### HTTP Proxy
 
 | Variable | Default | Description |
 |----------|---------|-------------|
