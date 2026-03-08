@@ -487,6 +487,13 @@ export async function handleStream(
         return;
       }
 
+      // Auto-queue: only pre-cache the stream, don't proxy the video
+      if (req.query.auto === 'true') {
+        if (verbose) console.log(`  ✅ Auto-queue cached: ${candidate.title}`);
+        res.json({ cached: true, videoPath: streamData.videoPath });
+        return;
+      }
+
       // Decide delivery method: proxy (piped with buffer + reconnect) or direct redirect.
       // When fallback is off, inline proxy (no 302) for broadest player compatibility.
       const fallbackOn = globalConfig.nzbdavFallbackEnabled === true;
