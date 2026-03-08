@@ -569,9 +569,9 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
           : [...order, 'fallback'];
       }
       if (!order.includes('nzbDatabase')) {
-        const fallbackIdx = order.indexOf('fallback');
-        order = fallbackIdx !== -1
-          ? [...order.slice(0, fallbackIdx + 1), 'nzbDatabase', ...order.slice(fallbackIdx + 1)]
+        const healthIdx = order.indexOf('healthChecks');
+        order = healthIdx !== -1
+          ? [...order.slice(0, healthIdx + 1), 'nzbDatabase', ...order.slice(healthIdx + 1)]
           : [...order, 'nzbDatabase'];
       }
       setCardOrder(order);
