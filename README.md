@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/gkwR8xyW"><img src="https://img.shields.io/badge/Discord-Join%20the%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://discord.gg/6RPVSeg56v"><img src="https://img.shields.io/badge/Discord-Join%20the%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" /></a>
   &nbsp;&nbsp;
   <a href="https://ko-fi.com/dsmart33"><img src="https://img.shields.io/badge/Ko--fi-Support%20Development-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Ko-fi" /></a>
 </p>
@@ -32,7 +32,7 @@
 
 Have questions, need help, or want to follow development?
 
-- **Discord** — [Join the community](https://discord.gg/gkwR8xyW) for help, feature discussion, and updates
+- **Discord** — [Join the community](https://discord.gg/6RPVSeg56v) for help, feature discussion, and updates
 - **Ko-fi** — [Support development](https://ko-fi.com/dsmart33) if you find this project useful
 - **Issues** — [Open an issue](../../issues) to report bugs or request features
 
@@ -161,9 +161,9 @@ Two health check modes are available:
 
 Per-indexer Zyclops proxy support for backbone-level pre-verification. When enabled, search requests are routed through the Zyclops API, which pre-checks article availability across major Usenet backbones (usenetexpress, eweka, etc.). Results come back pre-marked as verified, reducing the need for your own NNTP health checks.
 
-**Segment Cache**
+**NZB Database Pre-Check**
 
-Known-missing article message IDs are cached persistently to disk (`config/segment-cache.json`). On repeat searches, NZBs containing cached-dead segments are instantly rejected without any NNTP connection. The cache supports configurable TTL (or no expiry), size-based eviction (default 50MB), and survives restarts. It auto-saves every 5 minutes and performs a final save during graceful shutdown. Corrupt cache files are detected and rebuilt automatically.
+Before running NNTP checks, health checks consult the NZB Database (the same caches used by the streaming pipeline). NZBs previously streamed successfully are instantly marked as verified, and NZBs that previously failed are instantly blocked — skipping expensive NNTP connections entirely. Blocked results from health checks are also written back to the dead NZB database so future searches skip them instantly.
 
 **NZBDav Library Pre-Check**
 
@@ -218,8 +218,7 @@ Stremio's native binge watching is fully supported. When an episode ends, Stremi
 
 For seamless binge watching, the addon can pre-download content to NZBDav before you need it:
 
-- **Early auto-queue**: Starts the NZBDav download of the top-ranked result *during* health checks, overlapping download time with verification
-- **Standard auto-queue**: After health checks complete, queues the verified result(s) so they're ready before the current episode ends
+- **Auto-queue**: After health checks complete, queues the verified result(s) so they're ready before the current episode ends
 - Two modes: queue only the top result, or queue all verified results in order
 
 ---
@@ -761,7 +760,8 @@ All persistent data lives in the `config/` directory (single Docker volume):
 |------|---------|
 | `config.json` | All settings, indexers, filters, display preferences |
 | `users.json` | User accounts with bcrypt password hashes and manifest keys |
-| `segment-cache.json` | Persistent cache of known-missing NNTP article IDs |
+| `healthy-nzbs.json` | NZB Database: successfully streamed NZBs (ready cache) |
+| `dead-nzbs.json` | NZB Database: failed NZBs from streaming and health checks |
 | `stats.json` | Per-indexer query counts, response times, grab statistics |
 | `version-cache.json` | Cached latest versions of Prowlarr, SABnzbd, Chrome, Alpine |
 
