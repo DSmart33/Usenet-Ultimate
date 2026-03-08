@@ -29,7 +29,7 @@ import { createFallbackGroup, clearFallbackGroups, type FallbackCandidate } from
 import { resolveTitle } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { processResults } from './resultProcessor.js';
-import { coordinateHealthChecks, autoMarkRemainingResults, earlyAutoQueueToNzbdav, autoQueueToNzbdav } from './healthCheckCoordinator.js';
+import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav } from './healthCheckCoordinator.js';
 import { buildStreams } from './streamBuilder.js';
 
 // Create cache for search results
@@ -138,10 +138,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
     // === STEP 3: DEDUP, FILTER, SORT ===
     let allResults = processResults(allRawResults, type);
-
-    // Early auto-queue: start NZBDav download before health checks so the
-    // download overlaps with health checking, reducing wait time for binge mode
-    earlyAutoQueueToNzbdav(allResults, type, season, episode, titleInfo.episodesInSeason);
 
     // === STEP 4: HEALTH CHECKS ===
     const { healthResults, filteredResults } = await coordinateHealthChecks({
