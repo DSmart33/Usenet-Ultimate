@@ -20,9 +20,13 @@ import { encodeWebdavPath } from '../nzbdav/utils.js';
 
 interface NzbdavDeps {
   config: Config;
-  handleStream: (req: any, res: any, nzbdavConfig: NZBDavConfig, trackGrab: (indexer: string, title: string) => void) => Promise<void>;
+  handleStream: (req: any, res: any, nzbdavConfig: NZBDavConfig, trackGrab: (indexer: string, title: string) => void, proxyFn?: (req: any, res: any, videoPath: string) => Promise<void>) => Promise<void>;
   getCacheStats: () => any;
   clearStreamCache: () => void;
+  clearReadyCache: () => number;
+  clearFailedCache: () => number;
+  deleteCacheEntry: (cacheKey: string) => boolean;
+  getCacheEntries: () => any;
   isStreamCached: (nzbUrl: string, title: string) => boolean;
   trackGrab: (indexerName: string, title: string) => void;
   getLatestVersions: () => { chrome: string };
@@ -30,7 +34,7 @@ interface NzbdavDeps {
 
 export function createNzbdavRoutes(deps: NzbdavDeps): Router {
   const router = Router();
-  const { config, getCacheStats, clearStreamCache, getLatestVersions } = deps;
+  const { config, getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, getLatestVersions } = deps;
 
   const TEST_CONNECTION_TIMEOUT_MS = 15_000;
 
@@ -155,6 +159,31 @@ export function createNzbdavRoutes(deps: NzbdavDeps): Router {
     res.json({ success: true });
   });
 
+  // Detailed cache entries endpoint
+  router.get('/cache/entries', (req, res) => {
+    res.json(getCacheEntries());
+  });
+
+  // Clear only ready (successful) cache entries
+  router.delete('/cache/ready', (req, res) => {
+    const cleared = clearReadyCache();
+    res.json({ success: true, cleared });
+  });
+
+  // Clear only failed cache entries
+  router.delete('/cache/failed', (req, res) => {
+    const cleared = clearFailedCache();
+    res.json({ success: true, cleared });
+  });
+
+  // Delete a single cache entry by key
+  router.delete('/cache/entry', (req, res) => {
+    const key = req.query.key as string;
+    if (!key) return res.status(400).json({ message: 'Missing key parameter' });
+    const deleted = deleteCacheEntry(key);
+    res.json({ success: deleted });
+  });
+
   return router;
 }
 
@@ -213,7 +242,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
 
     // Delegate to nzbdav module (handles caching, history polling, streaming, fallback)
     try {
-      await handleStream(req, res, nzbdavConfig, dedupedTrackGrab);
+      await handleStream(req, res, nzbdavConfig, dedupedTrackGrab, proxyVideoStream);
     } catch (error) {
       if (!res.headersSent) {
         res.status(500).json({ error: 'Stream handler failed' });
@@ -428,13 +457,8 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     });
   }
 
-  router.get('/v', (req, res) => {
-    const videoPath = req.query.path as string;
-    if (!videoPath) {
-      res.status(400).send('Missing path parameter');
-      return;
-    }
-
+  /** Proxy video bytes from WebDAV with auth, buffering, and transparent reconnect. */
+  async function proxyVideoStream(req: any, res: any, videoPath: string): Promise<void> {
     const webdavBase = (config.nzbdavWebdavUrl || config.nzbdavUrl || 'http://localhost:3000').replace(/\/+$/, '');
     const safePath = encodeWebdavPath(videoPath);
 
@@ -463,7 +487,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       if (!res.writableFinished) res.destroy();
     });
 
-    (async () => {
+    try {
       // Phase 1: Establish upstream connection (pre-header retries)
       let upstream: http.IncomingMessage | undefined;
       for (let attempt = 1; attempt <= MAX_PROXY_RETRIES; attempt++) {
@@ -604,13 +628,22 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
 
       console.error(`  \u26D4 Exhausted ${UPSTREAM_MAX_RECONNECTS} reconnect attempts for ${safePath}`);
       if (!res.writableFinished) res.end();
-    })().catch((err) => {
+    } catch (err: any) {
       if (aborted) return;
       console.error(`\u274C WebDAV proxy error: ${(err as Error).message}`);
       if (!res.headersSent) res.status(502).send('WebDAV proxy error');
-    }).finally(() => {
+    } finally {
       untrackRequest(safePath, reqId);
-    });
+    }
+  }
+
+  router.get('/v', (req, res) => {
+    const videoPath = req.query.path as string;
+    if (!videoPath) {
+      res.status(400).send('Missing path parameter');
+      return;
+    }
+    proxyVideoStream(req, res, videoPath);
   });
 
   return router;

@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
 import { waitForVideoFile, checkNzbLibrary } from './videoDiscovery.js';
-import { getOrCreateStream, getCacheKey, getStreamCache, setPrepareFn } from './streamCache.js';
+import { getOrCreateStream, getCacheKey, getStreamCache, getReadyStream, isDeadNzb, setPrepareFn, cleanupExpiredCache } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog } from './utils.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
@@ -39,8 +39,11 @@ const STREAM_LOG_INTERVAL_MS = 30_000;   // 30 seconds
 const STREAM_LOG_STATE_TTL_MS = 3_600_000; // 1 hour — evict stale entries to prevent unbounded growth
 const STREMIO_TIMEOUT_MS = 60_000;       // Stremio's built-in HTTP timeout
 const STREMIO_SAFETY_MARGIN_MS = 5_000;  // Safety buffer when deciding whether to self-redirect
-const MAX_SELF_REDIRECTS = 12;           // Max self-redirects (budget shared between Stremio timer and ExoPlayer safety)
+const MAX_SELF_REDIRECTS = 100;          // Safety cap on self-redirects — supports large fallback chains without infinite loops
 const EXO_PLAYER_BUDGET_MS = 8_000;      // Max blocking time per post-redirect request (keeps ExoPlayer alive on Android)
+// Self-redirect query params (internal, appended to stream URL during 302 redirects):
+//   _rc — redirect count: how many self-redirects have occurred (prevents infinite loops)
+//   _ci — candidate index: which fallback candidate to resume at (avoids restarting from 0)
 
 interface StreamLogState {
   requests: number;
@@ -314,7 +317,8 @@ export async function handleStream(
   req: Request,
   res: ExpressResponse,
   config: NZBDavConfig,
-  trackGrabFn?: (indexerName: string, title: string) => void
+  trackGrabFn?: (indexerName: string, title: string) => void,
+  proxyFn?: (req: Request, res: ExpressResponse, videoPath: string) => Promise<void>
 ): Promise<void> {
   const nzbUrl = req.query.nzb as string;
   const title = req.query.title as string;
@@ -400,9 +404,15 @@ export async function handleStream(
     : Math.min(candidates.length, 1 + maxFallbacksSetting);
   const streamCacheMap = getStreamCache();
   const redirectCount = Math.max(0, parseInt(req.query._rc as string || '0', 10) || 0);
+  const candidateStart = maxCandidates > 0
+    ? Math.min(Math.max(0, parseInt(req.query._ci as string || '0', 10) || 0), maxCandidates - 1)
+    : 0;
   const attemptBudgetMs = getAttemptBudgetMs(contentType);
 
-  for (let i = 0; i < maxCandidates; i++) {
+  // Evict expired entries once before the loop so isDeadNzb() trusts existence
+  cleanupExpiredCache();
+
+  for (let i = candidateStart; i < maxCandidates; i++) {
     // Stop processing if the client disconnected (user backed out)
     if (req.socket.destroyed) {
       console.log(`🔌 Client disconnected — stopping fallback loop at [${i + 1}/${maxCandidates}]`);
@@ -411,12 +421,11 @@ export async function handleStream(
 
     const candidate = candidates[i];
 
-    // Skip candidates already known to be failed in cache
+    // Skip candidates already known to be dead
     const cacheKey = getCacheKey(candidate.nzbUrl, candidate.title)
       + (episodePattern ? `:${episodePattern}` : '');
-    const cached = streamCacheMap.get(cacheKey);
-    if (cached?.status === 'failed') {
-      if (verbose) console.log(`\u23ED\uFE0F Skipping known-failed [${i + 1}/${maxCandidates}]: ${candidate.title}`);
+    if (isDeadNzb(cacheKey)) {
+      if (verbose) console.log(`\u23ED\uFE0F NZB Database (skipping dead) [${i + 1}/${maxCandidates}]: ${candidate.title}`);
       continue;
     }
 
@@ -425,13 +434,14 @@ export async function handleStream(
     if (i > 0 && !req.socket.destroyed && redirectCount < MAX_SELF_REDIRECTS) {
       const elapsed = Date.now() - streamStartTime;
       if (elapsed + attemptBudgetMs + STREMIO_SAFETY_MARGIN_MS > STREMIO_TIMEOUT_MS) {
-        if (!cached) {
-          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason).catch(() => {});
+        if (!streamCacheMap.has(cacheKey) && !getReadyStream(cacheKey) && !isDeadNzb(cacheKey)) {
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, verbose).catch(() => {});
         }
         const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
         redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
+        redirectUrl.searchParams.set('_ci', String(i));
         if (verbose) {
-          console.log(`⏰ Self-redirect to reset Stremio timer (${Math.round(elapsed / 1000)}s elapsed, redirect ${redirectCount + 1}/${MAX_SELF_REDIRECTS})`);
+          console.log(`⏰ Self-redirect to reset Stremio timer (${Math.round(elapsed / 1000)}s elapsed, redirect ${redirectCount + 1}/${MAX_SELF_REDIRECTS}, resuming at candidate ${i + 1}/${maxCandidates})`);
         }
         res.redirect(302, redirectUrl.href);
         return;
@@ -455,7 +465,7 @@ export async function handleStream(
         const waitMs = Math.max(1000, EXO_PLAYER_BUDGET_MS - requestElapsed);
         let exoTimerId: ReturnType<typeof setTimeout>;
         streamData = await Promise.race([
-          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason)
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, verbose)
             .finally(() => clearTimeout(exoTimerId)),
           new Promise<never>((_, reject) => {
             exoTimerId = setTimeout(() => reject(Object.assign(new Error('ExoPlayer safety timeout'), { isExoTimeout: true })), waitMs);
@@ -463,7 +473,7 @@ export async function handleStream(
         ]);
       } else {
         streamData = await getOrCreateStream(
-          candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason
+          candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, verbose
         );
       }
 
@@ -478,7 +488,7 @@ export async function handleStream(
       }
 
       // Decide delivery method: proxy (piped with buffer + reconnect) or direct redirect.
-      // When fallback is off, always use proxy — avoids cross-origin redirect issues on mobile/TV.
+      // When fallback is off, inline proxy (no 302) for broadest player compatibility.
       const fallbackOn = globalConfig.nzbdavFallbackEnabled !== false;
       const mode: 'proxy' | 'direct' = (!fallbackOn || globalConfig.nzbdavProxyEnabled) ? 'proxy' : 'direct';
       const last = lastDeliveryLog.get(streamData.videoPath);
@@ -486,11 +496,16 @@ export async function handleStream(
       lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
 
       if (mode === 'proxy') {
-        // Proxy: redirect to /v endpoint which adds auth + buffering + transparent reconnect
-        const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
-        proxyUrl.searchParams.set('path', streamData.videoPath);
         if (shouldLogDelivery) console.log(`  📡 Proxy streaming: ${streamData.videoPath}`);
-        res.redirect(302, proxyUrl.href);
+        if (!fallbackOn && proxyFn) {
+          // Inline proxy — no 302, broadest player compatibility
+          await proxyFn(req, res, streamData.videoPath);
+        } else {
+          // Redirect to /v endpoint which adds auth + buffering + transparent reconnect
+          const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
+          proxyUrl.searchParams.set('path', streamData.videoPath);
+          res.redirect(302, proxyUrl.href);
+        }
       } else {
         // Direct: redirect to WebDAV URL with embedded credentials (desktop players)
         const webdavBase = (config.webdavUrl || config.url || '').replace(/\/+$/, '');
@@ -511,8 +526,9 @@ export async function handleStream(
       if ((error as any).isExoTimeout && redirectCount < MAX_SELF_REDIRECTS && !req.socket.destroyed) {
         const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
         redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
+        redirectUrl.searchParams.set('_ci', String(i));
         if (verbose) {
-          console.log(`\u23F1\uFE0F ExoPlayer safety redirect (candidate still processing, rc=${redirectCount + 1}/${MAX_SELF_REDIRECTS})`);
+          console.log(`\u23F1\uFE0F ExoPlayer safety redirect (candidate still processing, rc=${redirectCount + 1}/${MAX_SELF_REDIRECTS}, resuming at ${i + 1}/${maxCandidates})`);
         }
         res.redirect(302, redirectUrl.href);
         return;
