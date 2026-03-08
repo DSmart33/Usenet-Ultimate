@@ -86,7 +86,6 @@ export function updateSettings(settings: {
     autoQueueMode?: 'off' | 'top' | 'all';
     hideBlocked: boolean;
     healthCheckIndexers?: Record<string, boolean>;
-    segmentCache?: { enabled: boolean; ttlHours: number; maxSizeMB: number };
   };
 }): void {
   if (settings.addonEnabled !== undefined) {

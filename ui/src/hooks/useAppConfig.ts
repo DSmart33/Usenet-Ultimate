@@ -216,9 +216,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const editFormRef = useRef(editForm);
   editFormRef.current = editForm;
 
-  // ─── Segment cache convenience value ────────────────────────────────
-  const segmentCacheMaxSizeMB = healthChecks.segmentCache?.maxSizeMB ?? 50;
-
   // ─── Internal auto-save helper ──────────────────────────────────────
   const saveSettings = useCallback(
     async (settings: Record<string, unknown>) => {
@@ -278,7 +275,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     const timer = setTimeout(() => saveSettings({ healthChecks: { ...healthCheckSettings, providers: undefined } }), 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [healthChecks.enabled, healthChecks.archiveInspection, healthChecks.sampleCount, healthChecks.nzbsToInspect, healthChecks.inspectionMethod, healthChecks.smartBatchSize, healthChecks.smartAdditionalRuns, healthChecks.maxConnections, healthChecks.autoQueueMode, healthChecks.hideBlocked, healthChecks.libraryPreCheck, healthChecks.healthCheckIndexers, healthChecks.segmentCache, saveSettings]);
+  }, [healthChecks.enabled, healthChecks.archiveInspection, healthChecks.sampleCount, healthChecks.nzbsToInspect, healthChecks.inspectionMethod, healthChecks.smartBatchSize, healthChecks.smartAdditionalRuns, healthChecks.maxConnections, healthChecks.autoQueueMode, healthChecks.hideBlocked, healthChecks.libraryPreCheck, healthChecks.healthCheckIndexers, saveSettings]);
 
   // Auto-save: addon enabled/disabled
   useEffect(() => {
@@ -1237,7 +1234,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     dragOverCard, setDragOverCard,
 
     // Computed
-    segmentCacheMaxSizeMB,
     rankedIndexers,
     categoryAwards,
 

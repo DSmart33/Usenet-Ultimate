@@ -116,7 +116,6 @@ export const DEFAULT_HEALTH_CHECKS = {
   hideBlocked: true,
   libraryPreCheck: true,
   healthCheckIndexers: {} as Record<string, boolean>,
-  segmentCache: { enabled: true, ttlHours: 0, maxSizeMB: 50 },
 };
 
 export const DEFAULT_FILTERS = {

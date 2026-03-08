@@ -191,11 +191,6 @@ export interface HealthChecksState {
   hideBlocked: boolean;
   libraryPreCheck: boolean;
   healthCheckIndexers: Record<string, boolean>;
-  segmentCache?: {
-    enabled: boolean;
-    ttlHours: number;
-    maxSizeMB: number;
-  };
 }
 
 export interface AutoPlayState {

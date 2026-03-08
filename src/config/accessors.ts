@@ -244,7 +244,6 @@ export const config: Config = {
         autoQueueMode: 'all' as const,
         hideBlocked: true,
         libraryPreCheck: true,
-        segmentCache: { enabled: true, ttlHours: 0, maxSizeMB: 50 },
       };
       // Inject env-based NNTP provider if configured
       const envHost = envStr('HEALTH_CHECK_NNTP_HOST');
@@ -283,7 +282,6 @@ export const config: Config = {
       smartBatchSize: hc.smartBatchSize ?? 3,
       smartAdditionalRuns: hc.smartAdditionalRuns ?? 1,
       maxConnections: hc.maxConnections ?? 12,
-      segmentCache: hc.segmentCache ?? { enabled: true, ttlHours: 0, maxSizeMB: 50 },
       autoQueueMode: hc.autoQueueMode ?? 'all',
       libraryPreCheck: hc.libraryPreCheck !== false,
     };

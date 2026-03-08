@@ -250,11 +250,6 @@ export interface HealthCheckConfig {
   hideBlocked: boolean;          // Filter out blocked NZBs from results
   libraryPreCheck: boolean;      // Check NZBDav library before NNTP checks — skip checking content already downloaded
   healthCheckIndexers?: Record<string, boolean>; // Per-indexer health check enable/disable
-  segmentCache?: {               // Missing segment cache for instant rejection of known-dead NZBs
-    enabled: boolean;            // default true
-    ttlHours: number;            // default 0 (no expiry), 0 = never expire
-    maxSizeMB: number;           // default 50
-  };
 }
 
 // User account for authentication

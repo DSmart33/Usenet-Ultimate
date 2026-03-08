@@ -99,7 +99,6 @@ export interface ConfigData {
     hideBlocked: boolean;
     libraryPreCheck?: boolean;
     healthCheckIndexers?: Record<string, boolean>;
-    segmentCache?: { enabled: boolean; ttlHours: number; maxSizeMB: number };
     // Legacy single-provider fields (auto-migrated to providers array)
     usenetHost?: string;
     usenetPort?: number;

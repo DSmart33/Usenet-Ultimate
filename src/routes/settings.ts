@@ -18,7 +18,6 @@ import { recalculateTTLExpirations } from '../nzbdav/streamCache.js';
 interface SettingsDeps {
   config: Config;
   updateSettings: (settings: Record<string, any>) => void;
-  configureSegmentCache: (cacheConfig: { enabled: boolean; ttlHours: number; maxSizeMB: number }) => void;
   fetchLatestVersions: (force: boolean) => Promise<void>;
   getLatestVersions: () => { chrome: string; prowlarr: string; sabnzbd: string };
   testProxyConnection: (proxyUrl?: string) => Promise<any>;
@@ -104,7 +103,7 @@ function buildConfigResponse(config: Config) {
 
 export function createSettingsRoutes(deps: SettingsDeps): Router {
   const router = Router();
-  const { config, updateSettings, configureSegmentCache, fetchLatestVersions, getLatestVersions, testProxyConnection, clearSearchCache } = deps;
+  const { config, updateSettings, fetchLatestVersions, getLatestVersions, testProxyConnection, clearSearchCache } = deps;
 
   // Configuration API endpoint for frontend
   router.get('/config', (req, res) => {
@@ -120,10 +119,6 @@ export function createSettingsRoutes(deps: SettingsDeps): Router {
           req.body.healthyNzbDbMode !== undefined || req.body.deadNzbDbMode !== undefined ||
           req.body.healthyNzbDbMaxSizeMB !== undefined || req.body.deadNzbDbMaxSizeMB !== undefined) {
         recalculateTTLExpirations();
-      }
-      // Reconfigure segment cache if health check settings changed
-      if (config.healthChecks?.segmentCache) {
-        configureSegmentCache(config.healthChecks.segmentCache);
       }
       res.json(buildConfigResponse(config));
     } catch (error) {

@@ -19,7 +19,6 @@ import { fetchLatestVersions, getLatestVersions } from './versionFetcher.js';
 import { handleStream, getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, isStreamCached, saveCacheToDisk } from './nzbdav/index.js';
 import { proxyFetch, testProxyConnection } from './proxy.js';
 import { fetchIndexerCaps } from './parsers/newznabClient.js';
-import { getSegmentCacheStats, clearSegmentCache, configureSegmentCache, loadSegmentCache, shutdownSegmentCache } from './health/index.js';
 import { hasAnyUsers, createUser, authenticateUser, generateToken, verifyToken, getUserById } from './auth/auth.js';
 import { requireAuth, validateManifestKey } from './auth/authMiddleware.js';
 import { requestContext } from './requestContext.js';
@@ -128,7 +127,6 @@ app.use('/api', createIntegrationRoutes({
 app.use('/api', createSettingsRoutes({
   config,
   updateSettings,
-  configureSegmentCache,
   fetchLatestVersions,
   getLatestVersions,
   testProxyConnection,
@@ -143,8 +141,6 @@ app.use('/api/health-check', createHealthCheckRoutes({
   updateProvider,
   deleteProvider,
   reorderProviders,
-  getSegmentCacheStats,
-  clearSegmentCache,
 }));
 
 app.use('/api/search-config', createExternalApiRoutes());
@@ -184,22 +180,18 @@ app.get('*', (req, res) => {
 });
 
 // Start server
-// Initialize segment cache from config and restore from disk
-if (config.healthChecks?.segmentCache) {
-  configureSegmentCache(config.healthChecks.segmentCache);
-}
-loadSegmentCache();
+// Clean up orphaned segment cache file from previous versions
+import fs from 'fs';
+try { fs.unlinkSync(path.join(__dirname, '..', 'config', 'segment-cache.json')); } catch {}
 
 // Graceful shutdown — persist caches before exit
 process.on('SIGTERM', () => {
   console.log('[shutdown] SIGTERM received, saving caches...');
-  shutdownSegmentCache();
   saveCacheToDisk();
   process.exit(0);
 });
 process.on('SIGINT', () => {
   console.log('[shutdown] SIGINT received, saving caches...');
-  shutdownSegmentCache();
   saveCacheToDisk();
   process.exit(0);
 });
