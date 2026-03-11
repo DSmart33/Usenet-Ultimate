@@ -28,13 +28,6 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Smooth scrolling & 120Hz support */
-  *,
-  *::before,
-  *::after {
-    -webkit-overflow-scrolling: touch;
-  }
-
   /* Lock html/body/#root to exact viewport size so the document itself never
      scrolls.  This prevents iOS standalone-PWA pull-to-refresh from firing
      and keeps the sticky header stable. */
@@ -110,9 +103,9 @@
 @layer components {
   .card {
     @apply bg-slate-800/40 backdrop-blur-xl rounded-xl border border-slate-700/50 shadow-2xl;
-    @apply hover:border-primary-500/50 transition-all duration-300;
-    @apply hover:shadow-primary-500/20 hover:shadow-xl;
-    @apply hover:-translate-y-1;
+    @apply hover:border-primary-500/50 active:border-primary-500/50 transition-all duration-300;
+    @apply hover:shadow-primary-500/20 hover:shadow-xl active:shadow-primary-500/20 active:shadow-xl;
+    @apply hover:-translate-y-1 active:-translate-y-1;
   }
   
   .btn {
