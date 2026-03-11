@@ -198,14 +198,16 @@ export function NzbDatabaseOverlay({
             <p>Time TTL: expired entries are cleaned up on new stream requests.</p>
           </div>
 
-          {/* ── Successful Streams Section ──────────────────────────── */}
+          {/* ── Healthy NZBs Section ──────────────────────────── */}
           <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3">
             <div className="flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-emerald-400" />
-              <span className="text-sm font-medium text-slate-300">Successful Streams</span>
+              <span className="text-sm font-medium text-slate-300">Healthy NZBs</span>
             </div>
             <p className="text-xs text-slate-500">
-              Streams that have been successfully prepared. Served instantly on replay.
+              A log of NZBs that have been successfully prepared in NZBDav.
+              <br />
+              Healthy NZBs are for observational purposes only, this database has no functional effect on streaming.
             </p>
 
             {/* Mode Toggle */}

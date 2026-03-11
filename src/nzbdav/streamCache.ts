@@ -61,7 +61,12 @@ function enforceStorageLimit(cache: Map<string, any>, sizeFn: () => number, maxM
   }
 }
 
-/** Successful streams — persisted to disk, survives restarts */
+/**
+ * Successful streams — persisted to disk, survives restarts.
+ * NOTE: readyCache is a data/observability store only. Unlike deadNzbCache,
+ * entries are NOT used to short-circuit stream preparation or health checks.
+ * The library check in prepareStream() is the authoritative source for video availability.
+ */
 interface ReadyEntry { data: StreamData; createdAt: number; expiresAt: number }
 const readyCache = new Map<string, ReadyEntry>();
 
@@ -226,13 +231,6 @@ export async function getOrCreateStream(
   if (dead) {
     if (verbose) console.log(`\u274C NZB Database (dead): ${title} - ${dead.error.message}`);
     throw dead.error;
-  }
-
-  // Check ready cache — successful streams served instantly on replay
-  const ready = readyCache.get(cacheKey);
-  if (ready) {
-    if (verbose) console.log(`\u2705 NZB Database (ready): ${title}`);
-    return ready.data;
   }
 
   // Check pending cache — share the in-flight promise

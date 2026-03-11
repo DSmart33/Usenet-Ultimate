@@ -14,7 +14,7 @@ import { getLatestVersions } from '../versionFetcher.js';
 import { performBatchHealthChecks, type HealthCheckResult, type HealthCheckOptions } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
 import { checkNzbLibrary } from '../nzbdav/videoDiscovery.js';
-import { isDeadNzbByUrl, isReadyNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
+import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import type { NZBDavConfig } from '../nzbdav/types.js';
 
 // Internal self-requests (auto-queue) hit localhost directly to avoid
@@ -207,7 +207,7 @@ export async function coordinateHealthChecks(
         }
       }
 
-      // NZB Database pre-check: skip NNTP for NZBs with known streaming outcomes
+      // NZB Database pre-check: skip NNTP for known-bad NZBs
       if (toCheck.length > 0) {
         let nzbDbHits = 0;
         for (const r of toCheck) {
@@ -215,9 +215,6 @@ export async function coordinateHealthChecks(
           const url = easynewsLinkToNzbUrl.get(r.link) || r.link;
           if (isDeadNzbByUrl(url)) {
             healthResults.set(r.link, { status: 'blocked', message: 'NZB Database: previously failed', playable: false });
-            nzbDbHits++;
-          } else if (isReadyNzbByUrl(url)) {
-            healthResults.set(r.link, { status: 'verified', message: 'NZB Database: previously verified', playable: true });
             nzbDbHits++;
           }
         }
@@ -304,7 +301,7 @@ export async function coordinateHealthChecks(
       }
     }
 
-    // NZB Database pre-check: skip NNTP for NZBs with known streaming outcomes
+    // NZB Database pre-check: skip NNTP for known-bad NZBs
     if (nonEasynewsToCheck.length > 0) {
       let nzbDbHits = 0;
       for (const r of nonEasynewsToCheck) {
@@ -312,9 +309,6 @@ export async function coordinateHealthChecks(
         const url = easynewsLinkToNzbUrl.get(r.link) || r.link;
         if (isDeadNzbByUrl(url)) {
           healthResults.set(r.link, { status: 'blocked', message: 'NZB Database: previously failed', playable: false });
-          nzbDbHits++;
-        } else if (isReadyNzbByUrl(url)) {
-          healthResults.set(r.link, { status: 'verified', message: 'NZB Database: previously verified', playable: true });
           nzbDbHits++;
         }
       }
@@ -484,8 +478,6 @@ export function autoQueueToNzbdav(
     if (r.easynewsMeta && config.easynewsMode !== 'nzb') return false;
     const health = healthResults.get(r.link);
     if (!health || !isVerifiedStatus(health.status)) return false;
-    // Skip results already in the NZB Database — they're already cached
-    if (health.message === 'NZB Database: previously verified') return false;
     return true;
   };
 
