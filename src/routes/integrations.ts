@@ -320,10 +320,11 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
 
       // Just verify credentials with an authenticated request — no search performed
       const authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+      const userAgent = config.userAgents?.general || getLatestVersions().chrome;
       const response = await axios.get('https://members.easynews.com/', {
         headers: {
           Authorization: authHeader,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'User-Agent': userAgent,
         },
         timeout: 15000,
         maxRedirects: 5,

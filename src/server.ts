@@ -160,7 +160,7 @@ app.use('/api/logs', createLogRoutes({
 // --- Key-protected proxy routes (no JWT auth, validated by manifest key) ---
 
 // EasyNews resolve and NZB proxy — /:manifestKey/easynews/*
-app.use('/:manifestKey/easynews', validateManifestKey, createEasynewsProxyRoutes({ config }));
+app.use('/:manifestKey/easynews', validateManifestKey, createEasynewsProxyRoutes({ config, getLatestVersions }));
 
 // NZBDav stream proxy — /:manifestKey/nzbdav/*
 app.use('/:manifestKey/nzbdav', validateManifestKey, createNzbdavStreamRoutes(nzbdavDeps));

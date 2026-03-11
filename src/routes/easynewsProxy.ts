@@ -12,11 +12,12 @@ import type { Config } from '../types.js';
 
 interface EasynewsProxyDeps {
   config: Config;
+  getLatestVersions: () => { chrome: string };
 }
 
 export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
   const router = Router({ mergeParams: true });
-  const { config } = deps;
+  const { config, getLatestVersions } = deps;
 
   // EasyNews direct download resolve endpoint (key-protected)
   // Resolves CDN URL with auth server-side and redirects client to it
@@ -39,13 +40,14 @@ export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
       const port = dlPort || '443';
       const directUrl = `${baseUrl}/${farm}/${port}/${hash}.${ext}/${encodeURIComponent(filename)}.${ext}`;
       const authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+      const userAgent = config.userAgents?.general || getLatestVersions().chrome;
 
       // GET with maxRedirects:0 to capture the CDN redirect (some servers don't redirect on HEAD)
       try {
         const resolveResp = await axios.get(directUrl, {
           headers: {
             Authorization: authHeader,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': userAgent,
           },
           maxRedirects: 0,
           timeout: 15000,
@@ -81,7 +83,7 @@ export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
         const streamResp = await axios.get(directUrl, {
           headers: {
             Authorization: authHeader,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': userAgent,
           },
           responseType: 'stream',
           maxRedirects: 5,
@@ -116,6 +118,7 @@ export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
       }
 
       const authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+      const userAgent = config.userAgents?.general || getLatestVersions().chrome;
 
       // Build the dl-nzb POST payload
       // Format: autoNZB=1&{index}&sig={sig}={hash}|{filename_b64}:{ext_b64}
@@ -132,7 +135,7 @@ export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
         headers: {
           Authorization: authHeader,
           'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'User-Agent': userAgent,
         },
         responseType: 'arraybuffer',
         timeout: 30000,

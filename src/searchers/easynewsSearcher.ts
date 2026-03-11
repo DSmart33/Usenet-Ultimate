@@ -13,6 +13,7 @@
 import axios from 'axios';
 import type { NZBSearchResult } from '../types.js';
 import { config } from '../config/index.js';
+import { getLatestVersions } from '../versionFetcher.js';
 import { isTextSearchMatch, stripDiacritics } from '../parsers/titleMatching.js';
 
 const EASYNEWS_SEARCH_URL = 'https://members.easynews.com/2.0/search/solr-search/';
@@ -121,6 +122,7 @@ export class EasynewsSearcher {
     const allResults: (NZBSearchResult & { indexerName: string })[] = [];
     const seenHashes = new Set<string>();
     const effectiveMaxPages = maxPagesOverride ?? this.maxPages;
+    const userAgent = config.userAgents?.general || getLatestVersions().chrome;
 
     for (let page = 1; page <= effectiveMaxPages; page++) {
       const params = new URLSearchParams({
@@ -148,7 +150,7 @@ export class EasynewsSearcher {
           headers: {
             Authorization: this.authHeader,
             Accept: 'application/json, text/javascript, */*; q=0.9',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': userAgent,
           },
           timeout: 30000,
         });
