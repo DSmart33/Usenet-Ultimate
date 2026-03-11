@@ -175,15 +175,17 @@ export function getCacheKey(nzbUrl: string, title: string): string {
 
 export function cleanupExpiredCache(): void {
   const now = Date.now();
+  let removed = false;
   for (const [key, entry] of pendingCache.entries()) {
     if (entry.expiresAt < now) pendingCache.delete(key);
   }
   for (const [key, entry] of readyCache.entries()) {
-    if (entry.expiresAt < now) { readyCache.delete(key); removeFromUrlIndex(readyByUrl, key); }
+    if (entry.expiresAt < now) { readyCache.delete(key); removeFromUrlIndex(readyByUrl, key); removed = true; }
   }
   for (const [key, entry] of deadNzbCache.entries()) {
-    if (entry.expiresAt < now) { deadNzbCache.delete(key); removeFromUrlIndex(deadByUrl, key); }
+    if (entry.expiresAt < now) { deadNzbCache.delete(key); removeFromUrlIndex(deadByUrl, key); removed = true; }
   }
+  if (removed) saveCacheToDisk();
 }
 
 /**
