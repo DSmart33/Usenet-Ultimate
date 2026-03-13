@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
 import { waitForVideoFile, checkNzbLibrary } from './videoDiscovery.js';
-import { getOrCreateStream, getCacheKey, getStreamCache, isDeadNzb, setPrepareFn, cleanupExpiredCache } from './streamCache.js';
+import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, setPrepareFn, cleanupExpiredCache } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog } from './utils.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
@@ -422,9 +422,8 @@ export async function handleStream(
     const candidate = candidates[i];
 
     // Skip candidates already known to be dead
-    const cacheKey = getCacheKey(candidate.nzbUrl, candidate.title)
-      + (episodePattern ? `:${episodePattern}` : '');
-    if (isDeadNzb(cacheKey)) {
+    const deadKey = getDeadCacheKey(candidate.nzbUrl, episodePattern);
+    if (isDeadNzb(deadKey)) {
       if (verbose) console.log(`\u23ED\uFE0F NZB Database (skipping dead) [${i + 1}/${maxCandidates}]: ${candidate.title}`);
       continue;
     }
@@ -434,7 +433,8 @@ export async function handleStream(
     if (i > 0 && !req.socket.destroyed && redirectCount < MAX_SELF_REDIRECTS) {
       const elapsed = Date.now() - streamStartTime;
       if (elapsed + attemptBudgetMs + STREMIO_SAFETY_MARGIN_MS > STREMIO_TIMEOUT_MS) {
-        if (!streamCacheMap.has(cacheKey) && !isDeadNzb(cacheKey)) {
+        const pendingKey = getCacheKey(candidate.nzbUrl, candidate.title) + (episodePattern ? `:${episodePattern}` : '');
+        if (!streamCacheMap.has(pendingKey) && !isDeadNzb(deadKey)) {
           getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, verbose).catch(() => {});
         }
         const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);

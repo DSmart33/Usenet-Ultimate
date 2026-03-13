@@ -205,9 +205,9 @@ export function NzbDatabaseOverlay({
               <span className="text-sm font-medium text-slate-300">Healthy NZBs</span>
             </div>
             <p className="text-xs text-slate-500">
-              A log of NZBs that have been successfully prepared in NZBDav.
+              Successful streams are cached to speed up repeat requests.
               <br />
-              Healthy NZBs are for observational purposes only, this database has no functional effect on streaming.
+              Clearing this database won't affect streaming — the next request will simply re-verify the stream.
             </p>
 
             {/* Mode Toggle */}
