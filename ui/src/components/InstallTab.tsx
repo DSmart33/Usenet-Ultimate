@@ -100,7 +100,7 @@ export function InstallTab({ manifestKey, hasIndexers }: InstallTabProps) {
           </div>
 
           <a
-            href="https://discord.gg/gkwR8xyW"
+            href="https://discord.gg/6RPVSeg56v"
             target="_blank"
             rel="noopener noreferrer"
             className="group flex items-center gap-4 p-4 rounded-lg bg-[#5865F2]/10 border border-[#5865F2]/30 hover:bg-[#5865F2]/20 hover:border-[#5865F2]/50 transition-all"
@@ -128,7 +128,7 @@ export function InstallTab({ manifestKey, hasIndexers }: InstallTabProps) {
           </div>
 
           <a
-            href="https://discord.gg/gkwR8xyW"
+            href="https://discord.gg/6RPVSeg56v"
             target="_blank"
             rel="noopener noreferrer"
             className="card group flex items-center gap-4 p-4 bg-[#5865F2]/10 border border-[#5865F2]/30 hover:bg-[#5865F2]/20 hover:border-[#5865F2]/50 transition-all"
