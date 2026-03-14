@@ -435,7 +435,7 @@ export async function handleStream(
       if (elapsed + attemptBudgetMs + STREMIO_SAFETY_MARGIN_MS > STREMIO_TIMEOUT_MS) {
         const pendingKey = getCacheKey(candidate.nzbUrl, candidate.title) + (episodePattern ? `:${episodePattern}` : '');
         if (!streamCacheMap.has(pendingKey) && !isDeadNzb(deadKey)) {
-          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, verbose).catch(() => {});
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose).catch(() => {});
         }
         const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
         redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
@@ -465,7 +465,7 @@ export async function handleStream(
         const waitMs = Math.max(1000, EXO_PLAYER_BUDGET_MS - requestElapsed);
         let exoTimerId: ReturnType<typeof setTimeout>;
         streamData = await Promise.race([
-          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, verbose)
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose)
             .finally(() => clearTimeout(exoTimerId)),
           new Promise<never>((_, reject) => {
             exoTimerId = setTimeout(() => reject(Object.assign(new Error('ExoPlayer safety timeout'), { isExoTimeout: true })), waitMs);
@@ -473,7 +473,7 @@ export async function handleStream(
         ]);
       } else {
         streamData = await getOrCreateStream(
-          candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, verbose
+          candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose
         );
       }
 

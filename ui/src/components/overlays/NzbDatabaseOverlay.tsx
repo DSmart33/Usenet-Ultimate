@@ -3,12 +3,32 @@
 //   Each database can be configured as time-based (TTL sliders) or storage-based (MB limit with FIFO eviction).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Database, X, CheckCircle, XCircle, ChevronDown } from 'lucide-react';
+import { Database, X, CheckCircle, XCircle, ChevronDown, Trash2, HardDrive, Clock, FileVideo, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 import { decomposeTTL, composeTTL } from '../../utils/ttl';
 
-interface CacheEntryReady { key: string; title: string; videoPath: string; videoSize: number; expiresAt: number }
-interface CacheEntryFailed { key: string; title: string; error: string; expiresAt: number }
+interface CacheEntryReady { key: string; title: string; indexerName?: string; videoPath: string; videoSize: number; expiresAt: number }
+interface CacheEntryFailed { key: string; title: string; indexerName?: string; error: string; expiresAt: number }
+
+function formatBytes(bytes: number): string {
+  if (!bytes || !Number.isFinite(bytes)) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+function formatExpiry(expiresAt: number): string {
+  if (!Number.isFinite(expiresAt)) return 'No expiry';
+  const diff = expiresAt - Date.now();
+  if (diff <= 0) return 'Expired';
+  const d = Math.floor(diff / 86400000);
+  const h = Math.floor((diff % 86400000) / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
 
 interface NzbDatabaseOverlayProps {
   onClose: () => void;
@@ -117,6 +137,8 @@ export function NzbDatabaseOverlay({
   const [failedExpanded, setFailedExpanded] = useState(false);
   const [readySizeMB, setReadySizeMB] = useState(0);
   const [deadSizeMB, setDeadSizeMB] = useState(0);
+  const readyListRef = useRef<HTMLDivElement>(null);
+  const failedListRef = useRef<HTMLDivElement>(null);
 
   const fetchEntries = useCallback(async () => {
     try {
@@ -184,7 +206,9 @@ export function NzbDatabaseOverlay({
         <div className="sticky top-0 z-10 bg-slate-900/95 backdrop-blur-sm p-4 md:p-6 border-b border-slate-700/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Database className="w-6 h-6 text-amber-400" />
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 via-amber-600 to-yellow-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
+                <Database className="w-5 h-5 text-white" />
+              </div>
               <h3 className="text-xl font-semibold text-slate-200">NZB Database</h3>
             </div>
             <button onClick={() => onClose()} className="text-slate-400 hover:text-slate-200 transition-colors">
@@ -200,9 +224,11 @@ export function NzbDatabaseOverlay({
 
           {/* ── Healthy NZBs Section ──────────────────────────── */}
           <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-emerald-400" />
-              <span className="text-sm font-medium text-slate-300">Healthy NZBs</span>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-md shadow-emerald-500/20">
+                <CheckCircle className="w-4 h-4 text-white" />
+              </div>
+              <span className="text-sm font-semibold text-slate-200">Healthy NZBs</span>
             </div>
             <p className="text-xs text-slate-500">
               Successful streams are cached to speed up repeat requests.
@@ -247,29 +273,63 @@ export function NzbDatabaseOverlay({
 
             {/* Expandable entry list */}
             <button
-              onClick={() => setReadyExpanded(v => !v)}
-              className="flex items-center justify-between w-full text-left pt-1"
+              onClick={() => setReadyExpanded(v => {
+                if (!v) setTimeout(() => readyListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 320);
+                return !v;
+              })}
+              aria-expanded={readyExpanded}
+              className="flex items-center justify-between w-full text-left pt-1 px-2 py-1.5 -mx-2 rounded-lg hover:bg-slate-800/50 transition-colors"
             >
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">
-                  {readyEntries.length} {readyEntries.length === 1 ? 'entry' : 'entries'} · ~{readySizeMB} MB
+                <span className="text-xs text-slate-400">Healthy NZBs</span>
+                <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-400/15 text-emerald-400 border border-emerald-400/20">
+                  {readyEntries.length}
                 </span>
+                <span className="text-[10px] text-slate-500">~{readySizeMB} MB</span>
+                {healthyNzbDbMode === 'storage' && (
+                  <div className="w-16 bg-slate-800 rounded-full h-1 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-green-500 transition-all duration-500"
+                      style={{ width: `${Math.min((readySizeMB / healthyNzbDbMaxSizeMB) * 100, 100)}%` }}
+                    />
+                  </div>
+                )}
               </div>
-              <ChevronDown className={clsx("w-4 h-4 text-slate-500 transition-transform", readyExpanded && "rotate-180")} />
+              <ChevronDown className={clsx("w-4 h-4 text-slate-500 transition-transform duration-200", readyExpanded && "rotate-180")} />
             </button>
-            {readyExpanded && (
-              <div className="space-y-2">
+            <div ref={readyListRef} className={clsx(
+              "overflow-hidden transition-all duration-300 ease-in-out",
+              readyExpanded ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+            )}>
+              <div className="space-y-2 pt-1">
                 {readyEntries.length > 0 ? (
-                  <div className="bg-slate-800/40 rounded-lg border border-slate-700/20 max-h-48 overflow-y-auto">
-                    {readyEntries.map((entry, i) => (
-                      <div key={entry.key} className={clsx("flex items-center gap-2 px-3 py-2", i < readyEntries.length - 1 && "border-b border-slate-700/20")}>
+                  <div className="bg-slate-800/40 rounded-lg border border-slate-700/20 max-h-48 overflow-y-auto p-1 space-y-0.5">
+                    {readyEntries.map((entry) => (
+                      <div key={entry.key} className="group flex items-start gap-2.5 px-3 py-2.5 rounded-lg hover:bg-slate-700/30 transition-colors">
+                        <div className="mt-1.5 w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm text-slate-300 truncate">{entry.title}</div>
+                          <div className="text-sm text-slate-300 break-words">{entry.title}</div>
                           <div className="text-xs text-slate-500 truncate">{entry.videoPath}</div>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="flex items-center gap-1 text-[10px] text-slate-500">
+                              <HardDrive className="w-3 h-3" />
+                              {formatBytes(entry.videoSize)}
+                            </span>
+                            <span className="flex items-center gap-1 text-[10px] text-slate-500">
+                              <Clock className="w-3 h-3" />
+                              {formatExpiry(entry.expiresAt)}
+                            </span>
+                          </div>
+                          {entry.indexerName && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/80 text-slate-300 mt-0.5 max-w-full truncate">
+                              {entry.indexerName}
+                            </span>
+                          )}
                         </div>
                         <button
                           onClick={() => deleteEntry(entry.key)}
-                          className="flex-shrink-0 p-1 text-slate-500 hover:text-red-400 transition-colors"
+                          aria-label="Remove entry"
+                          className="flex-shrink-0 p-1.5 rounded-md text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -277,24 +337,35 @@ export function NzbDatabaseOverlay({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500 italic">No streams in database</p>
+                  <div className="flex flex-col items-center justify-center py-6 text-center">
+                    <FileVideo className="w-8 h-8 text-slate-700 mb-2" />
+                    <p className="text-xs text-slate-500">No cached streams</p>
+                    <p className="text-[10px] text-slate-600 mt-0.5">Streams will appear here after playback</p>
+                  </div>
                 )}
                 <button
                   onClick={clearReady}
                   disabled={readyEntries.length === 0}
-                  className={clsx("btn-secondary w-full !border-red-500/30 !text-red-400 hover:!bg-red-500/10", readyEntries.length === 0 && "opacity-40 cursor-not-allowed")}
+                  className={clsx(
+                    "flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                    "border border-red-500/25 text-red-400 hover:bg-red-500/10 hover:border-red-500/40",
+                    readyEntries.length === 0 && "opacity-40 cursor-not-allowed"
+                  )}
                 >
-                  Clear All Successful
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Clear All Healthy
                 </button>
               </div>
-            )}
+            </div>
           </div>
 
           {/* ── Dead NZBs Section ──────────────────────────────────── */}
           <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <XCircle className="w-4 h-4 text-red-400" />
-              <span className="text-sm font-medium text-slate-300">Dead NZBs</span>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-500 to-orange-600 flex items-center justify-center shadow-md shadow-red-500/20">
+                <XCircle className="w-4 h-4 text-white" />
+              </div>
+              <span className="text-sm font-semibold text-slate-200">Dead NZBs</span>
             </div>
             <p className="text-xs text-slate-500">
               Known-bad NZBs that are skipped instantly on retry to avoid wasted time.
@@ -337,29 +408,60 @@ export function NzbDatabaseOverlay({
 
             {/* Expandable entry list */}
             <button
-              onClick={() => setFailedExpanded(v => !v)}
-              className="flex items-center justify-between w-full text-left pt-1"
+              onClick={() => setFailedExpanded(v => {
+                if (!v) setTimeout(() => failedListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 320);
+                return !v;
+              })}
+              aria-expanded={failedExpanded}
+              className="flex items-center justify-between w-full text-left pt-1 px-2 py-1.5 -mx-2 rounded-lg hover:bg-slate-800/50 transition-colors"
             >
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">
-                  {failedEntries.length} {failedEntries.length === 1 ? 'entry' : 'entries'} · ~{deadSizeMB} MB
+                <span className="text-xs text-slate-400">Dead NZBs</span>
+                <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-400/15 text-red-400 border border-red-400/20">
+                  {failedEntries.length}
                 </span>
+                <span className="text-[10px] text-slate-500">~{deadSizeMB} MB</span>
+                {deadNzbDbMode === 'storage' && (
+                  <div className="w-16 bg-slate-800 rounded-full h-1 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-red-400 to-orange-500 transition-all duration-500"
+                      style={{ width: `${Math.min((deadSizeMB / deadNzbDbMaxSizeMB) * 100, 100)}%` }}
+                    />
+                  </div>
+                )}
               </div>
-              <ChevronDown className={clsx("w-4 h-4 text-slate-500 transition-transform", failedExpanded && "rotate-180")} />
+              <ChevronDown className={clsx("w-4 h-4 text-slate-500 transition-transform duration-200", failedExpanded && "rotate-180")} />
             </button>
-            {failedExpanded && (
-              <div className="space-y-2">
+            <div ref={failedListRef} className={clsx(
+              "overflow-hidden transition-all duration-300 ease-in-out",
+              failedExpanded ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+            )}>
+              <div className="space-y-2 pt-1">
                 {failedEntries.length > 0 ? (
-                  <div className="bg-slate-800/40 rounded-lg border border-slate-700/20 max-h-48 overflow-y-auto">
-                    {failedEntries.map((entry, i) => (
-                      <div key={entry.key} className={clsx("flex items-center gap-2 px-3 py-2", i < failedEntries.length - 1 && "border-b border-slate-700/20")}>
+                  <div className="bg-slate-800/40 rounded-lg border border-slate-700/20 max-h-48 overflow-y-auto p-1 space-y-0.5">
+                    {failedEntries.map((entry) => (
+                      <div key={entry.key} className="group flex items-start gap-2.5 px-3 py-2.5 rounded-lg hover:bg-slate-700/30 transition-colors">
+                        <div className="mt-1.5 w-2 h-2 rounded-full bg-red-400 shadow-sm shadow-red-400/50 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm text-slate-300 truncate">{entry.title}</div>
-                          <div className="text-xs text-red-400/60 truncate">{entry.error}</div>
+                          <div className="text-sm text-slate-300 break-words">{entry.title}</div>
+                          <div className="flex items-center gap-1 text-xs text-red-400/60">
+                            <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                            <span className="break-words">{entry.error}</span>
+                          </div>
+                          <div className="flex items-center gap-1 mt-1 text-[10px] text-slate-500">
+                            <Clock className="w-3 h-3" />
+                            {formatExpiry(entry.expiresAt)}
+                          </div>
+                          {entry.indexerName && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/80 text-slate-300 mt-0.5 max-w-full truncate">
+                              {entry.indexerName}
+                            </span>
+                          )}
                         </div>
                         <button
                           onClick={() => deleteEntry(entry.key)}
-                          className="flex-shrink-0 p-1 text-slate-500 hover:text-red-400 transition-colors"
+                          aria-label="Remove entry"
+                          className="flex-shrink-0 p-1.5 rounded-md text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -367,17 +469,26 @@ export function NzbDatabaseOverlay({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500 italic">No dead NZBs in database</p>
+                  <div className="flex flex-col items-center justify-center py-6 text-center">
+                    <AlertTriangle className="w-8 h-8 text-slate-700 mb-2" />
+                    <p className="text-xs text-slate-500">No dead NZBs</p>
+                    <p className="text-[10px] text-slate-600 mt-0.5">Failed NZBs are tracked here to skip on retry</p>
+                  </div>
                 )}
                 <button
                   onClick={clearFailed}
                   disabled={failedEntries.length === 0}
-                  className={clsx("btn-secondary w-full !border-red-500/30 !text-red-400 hover:!bg-red-500/10", failedEntries.length === 0 && "opacity-40 cursor-not-allowed")}
+                  className={clsx(
+                    "flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                    "border border-red-500/25 text-red-400 hover:bg-red-500/10 hover:border-red-500/40",
+                    failedEntries.length === 0 && "opacity-40 cursor-not-allowed"
+                  )}
                 >
+                  <Trash2 className="w-3.5 h-3.5" />
                   Clear All Dead
                 </button>
               </div>
-            )}
+            </div>
           </div>
 
           {/* Reset All */}

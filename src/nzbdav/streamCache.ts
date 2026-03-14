@@ -46,7 +46,7 @@ function estimateReadyCacheSize(): number {
 function estimateDeadCacheSize(): number {
   let total = 0;
   for (const [key, entry] of deadNzbCache.entries()) {
-    total += key.length + (entry.title?.length ?? 0) + (entry.error.message?.length ?? 0) + 50;
+    total += key.length + (entry.title?.length ?? 0) + (entry.indexerName?.length ?? 0) + (entry.error.message?.length ?? 0) + 50;
   }
   return total;
 }
@@ -66,17 +66,18 @@ function enforceStorageLimit(cache: Map<string, any>, sizeFn: () => number, maxM
  * Used to short-circuit repeat requests for the same stream within the TTL window.
  * The first request runs the full prep pipeline; subsequent requests return the cached result.
  */
-interface ReadyEntry { data: StreamData; createdAt: number; expiresAt: number }
+interface ReadyEntry { data: StreamData; indexerName?: string; createdAt: number; expiresAt: number }
 const readyCache = new Map<string, ReadyEntry>();
 
 /** Dead NZBs — persisted to disk, survives restarts */
-interface DeadNzbEntry { title: string; error: Error; createdAt: number; expiresAt: number }
+interface DeadNzbEntry { title: string; indexerName?: string; error: Error; createdAt: number; expiresAt: number }
 const deadNzbCache = new Map<string, DeadNzbEntry>();
 
 // ── Disk persistence ──────────────────────────────────────────────────
 
 interface SerializedDeadEntry {
   title?: string;
+  indexerName?: string;
   error: { message: string; isNzbdavFailure: boolean };
   createdAt?: number;
   expiresAt: number;
@@ -103,7 +104,7 @@ function loadCacheFromDisk(): void {
         (error as any).isNzbdavFailure = entry.error.isNzbdavFailure;
         if (entry.title) {
           // New format — key is url or url::episodePattern, title stored in entry
-          deadNzbCache.set(key, { title: entry.title, error, createdAt: (entry as any).createdAt || now, expiresAt });
+          deadNzbCache.set(key, { title: entry.title, indexerName: entry.indexerName, error, createdAt: (entry as any).createdAt || now, expiresAt });
         } else {
           // Old format — key is url::title or url::title:episodePattern, migrate
           const title = extractTitle(key);
@@ -112,7 +113,7 @@ function loadCacheFromDisk(): void {
           const epMatch = afterSep.match(/:S\d+[\[. _-]/);
           const episodePattern = epMatch ? afterSep.substring(epMatch.index! + 1) : undefined;
           const newKey = getDeadCacheKey(url, episodePattern);
-          deadNzbCache.set(newKey, { title, error, createdAt: (entry as any).createdAt || now, expiresAt });
+          deadNzbCache.set(newKey, { title, indexerName: entry.indexerName, error, createdAt: (entry as any).createdAt || now, expiresAt });
         }
       }
     }
@@ -135,6 +136,7 @@ export function saveCacheToDisk(): void {
     if (entry.expiresAt > now) {
       deadData[key] = {
         title: entry.title,
+        indexerName: entry.indexerName,
         error: { message: entry.error.message, isNzbdavFailure: (entry.error as any).isNzbdavFailure ?? false },
         createdAt: entry.createdAt,
         expiresAt: Number.isFinite(entry.expiresAt) ? entry.expiresAt : 0,
@@ -212,6 +214,7 @@ export async function getOrCreateStream(
   episodePattern?: string,
   contentType?: string,
   episodesInSeason?: number,
+  indexerName?: string,
   verbose = true
 ): Promise<StreamData> {
   cleanupExpiredCache();
@@ -267,6 +270,7 @@ export async function getOrCreateStream(
     const createdAt = Date.now();
     readyCache.set(cacheKey, {
       data,
+      indexerName,
       createdAt,
       expiresAt: createdAt + getReadyTTLMs(),
     });
@@ -280,6 +284,7 @@ export async function getOrCreateStream(
       const deadCreatedAt = Date.now();
       deadNzbCache.set(deadKey, {
         title,
+        indexerName,
         error,
         createdAt: deadCreatedAt,
         expiresAt: deadCreatedAt + getDeadTTLMs(),
@@ -376,6 +381,7 @@ export function evictReadyByVideoPath(videoPath: string): string | null {
           (error as any).isNzbdavFailure = true;
           deadNzbCache.set(deadKey, {
             title: extractTitle(key),
+            indexerName: entry.indexerName,
             error,
             createdAt: now,
             expiresAt: now + getDeadTTLMs(),
@@ -409,21 +415,21 @@ function extractTitle(cacheKey: string): string {
  * Get detailed cache entries grouped by status
  */
 export function getCacheEntries(): {
-  ready: { key: string; title: string; videoPath: string; videoSize: number; createdAt: number; expiresAt: number }[];
-  failed: { key: string; title: string; error: string; createdAt: number; expiresAt: number }[];
+  ready: { key: string; title: string; indexerName?: string; videoPath: string; videoSize: number; createdAt: number; expiresAt: number }[];
+  failed: { key: string; title: string; indexerName?: string; error: string; createdAt: number; expiresAt: number }[];
 } {
   const now = Date.now();
-  const ready: { key: string; title: string; videoPath: string; videoSize: number; createdAt: number; expiresAt: number }[] = [];
-  const failed: { key: string; title: string; error: string; createdAt: number; expiresAt: number }[] = [];
+  const ready: { key: string; title: string; indexerName?: string; videoPath: string; videoSize: number; createdAt: number; expiresAt: number }[] = [];
+  const failed: { key: string; title: string; indexerName?: string; error: string; createdAt: number; expiresAt: number }[] = [];
 
   for (const [key, entry] of readyCache.entries()) {
     if (entry.expiresAt < now) continue;
-    ready.push({ key, title: extractTitle(key), videoPath: entry.data.videoPath, videoSize: entry.data.videoSize, createdAt: entry.createdAt, expiresAt: entry.expiresAt });
+    ready.push({ key, title: extractTitle(key), indexerName: entry.indexerName, videoPath: entry.data.videoPath, videoSize: entry.data.videoSize, createdAt: entry.createdAt, expiresAt: entry.expiresAt });
   }
 
   for (const [key, entry] of deadNzbCache.entries()) {
     if (entry.expiresAt < now) continue;
-    failed.push({ key, title: entry.title, error: entry.error.message, createdAt: entry.createdAt, expiresAt: entry.expiresAt });
+    failed.push({ key, title: entry.title, indexerName: entry.indexerName, error: entry.error.message, createdAt: entry.createdAt, expiresAt: entry.expiresAt });
   }
 
   return { ready, failed };
