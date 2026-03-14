@@ -1,13 +1,11 @@
 // What this does:
 //   Health checks overlay for configuring NNTP health check providers, inspection settings,
-//   per-indexer toggles, segment cache, and stream status options
+//   per-indexer toggles, and stream status options
 
 import { useState } from 'react';
 import { Heart, X, Plus, Server, GripVertical, Activity, Trash2, Save } from 'lucide-react';
 import clsx from 'clsx';
 import type { Config, HealthChecksState, UsenetProvider, Indexer, SyncedIndexer } from '../../types';
-import { SegmentCacheStats } from '../SegmentCacheStats';
-
 interface HealthChecksOverlayProps {
   onClose: () => void;
   config: Config | null;
@@ -46,8 +44,6 @@ export default function HealthChecksOverlay({
   const [draggedProvider, setDraggedProvider] = useState<string | null>(null);
   const [dragOverProvider, setDragOverProvider] = useState<string | null>(null);
   const [deleteProviderConfirm, setDeleteProviderConfirm] = useState<{ show: boolean; providerId: string }>({ show: false, providerId: '' });
-
-  const segmentCacheMaxSizeMB = healthChecks.segmentCache?.maxSizeMB ?? 50;
 
   // Provider handlers
   const testProviderConnection = async (provider: { host: string; port: number; useTLS: boolean; username: string; password: string }, id: string) => {
@@ -853,65 +849,6 @@ export default function HealthChecksOverlay({
               </div>
             )}
 
-            {/* Segment Cache */}
-            <div className={clsx("p-4 bg-slate-800/50 rounded-lg border border-slate-700 space-y-3 transition-opacity", !healthChecks.enabled && "opacity-40 pointer-events-none")}>
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-slate-300">Segment Cache</h4>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={healthChecks.segmentCache?.enabled ?? true}
-                    onChange={(e) => setHealthChecks({
-                      ...healthChecks,
-                      segmentCache: { ...(healthChecks.segmentCache || { ttlHours: 0, maxSizeMB: 50 }), enabled: e.target.checked }
-                    })}
-                    className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-pink-500 focus:ring-pink-500 focus:ring-offset-slate-800"
-                  />
-                  <span className="text-xs text-slate-400">Enabled</span>
-                </label>
-              </div>
-              <p className="text-xs text-slate-500">
-                Caches confirmed-missing segment IDs for instant rejection of known-dead NZBs on repeat searches.
-              </p>
-              {(healthChecks.segmentCache?.enabled ?? true) && (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1">Cache Duration (hours)</label>
-                      <input
-                        type="number"
-                        value={healthChecks.segmentCache?.ttlHours ?? 0}
-                        onChange={(e) => setHealthChecks({
-                          ...healthChecks,
-                          segmentCache: { ...(healthChecks.segmentCache || { enabled: true, maxSizeMB: 50 }), ttlHours: Math.max(0, parseInt(e.target.value) || 0) }
-                        })}
-                        onFocus={(e) => e.target.select()}
-                        min="0"
-                        className="input w-full text-sm"
-                      />
-                      <p className="text-[10px] text-slate-600 mt-1">0 = never expire</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1">Max Size (MB)</label>
-                      <input
-                        type="number"
-                        value={healthChecks.segmentCache?.maxSizeMB ?? 50}
-                        onChange={(e) => setHealthChecks({
-                          ...healthChecks,
-                          segmentCache: { ...(healthChecks.segmentCache || { enabled: true, ttlHours: 0 }), maxSizeMB: Math.max(1, parseInt(e.target.value) || 50) }
-                        })}
-                        onFocus={(e) => e.target.select()}
-                        min="1"
-                        max="500"
-                        className="input w-full text-sm"
-                      />
-                    </div>
-                  </div>
-                  <SegmentCacheStats apiFetch={apiFetch} maxSizeMB={segmentCacheMaxSizeMB} />
-                </>
-              )}
-            </div>
-
             {/* Reset Button */}
             <div className="pt-4 border-t border-slate-700">
               <button
@@ -930,7 +867,6 @@ export default function HealthChecksOverlay({
                     hideBlocked: true,
                     libraryPreCheck: true,
                     healthCheckIndexers: {},
-                    segmentCache: { enabled: true, ttlHours: 0, maxSizeMB: 50 },
                   }));
                   setProviderTestStatus({});
                   setProviderTestMessage({});

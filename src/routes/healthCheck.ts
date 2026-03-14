@@ -1,15 +1,13 @@
 /**
  * Health check routes — /api/health-check/*
  *
- * NNTP connection test, usenet provider CRUD, and segment cache endpoints:
+ * NNTP connection test and usenet provider CRUD:
  *   POST   /api/health-check/test                   — Test NNTP connection
  *   GET    /api/health-check/providers               — List providers
  *   POST   /api/health-check/providers               — Add provider
  *   PUT    /api/health-check/providers/:id           — Update provider
  *   DELETE /api/health-check/providers/:id           — Delete provider
  *   POST   /api/health-check/providers/reorder       — Reorder providers
- *   GET    /api/health-check/segment-cache/stats     — Segment cache stats
- *   POST   /api/health-check/segment-cache/clear     — Clear segment cache
  */
 
 import { Router } from 'express';
@@ -22,13 +20,11 @@ interface HealthCheckDeps {
   updateProvider: (id: string, updates: Partial<UsenetProvider>) => UsenetProvider;
   deleteProvider: (id: string) => void;
   reorderProviders: (orderedIds: string[]) => void;
-  getSegmentCacheStats: () => any;
-  clearSegmentCache: () => void;
 }
 
 export function createHealthCheckRoutes(deps: HealthCheckDeps): Router {
   const router = Router();
-  const { getProviders, addProvider, updateProvider, deleteProvider, reorderProviders, getSegmentCacheStats, clearSegmentCache } = deps;
+  const { getProviders, addProvider, updateProvider, deleteProvider, reorderProviders } = deps;
 
   // Usenet provider connection test endpoint
   router.post('/test', async (req, res) => {
@@ -184,17 +180,6 @@ export function createHealthCheckRoutes(deps: HealthCheckDeps): Router {
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
-  });
-
-  // Segment cache stats
-  router.get('/segment-cache/stats', requireAuth, (req, res) => {
-    res.json(getSegmentCacheStats());
-  });
-
-  // Clear segment cache
-  router.post('/segment-cache/clear', requireAuth, (req, res) => {
-    clearSegmentCache();
-    res.json({ success: true });
   });
 
   return router;

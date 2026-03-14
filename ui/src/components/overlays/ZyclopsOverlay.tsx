@@ -24,7 +24,11 @@ interface ZyclopsOverlayProps {
   setZyclopsConfirmDialog: React.Dispatch<React.SetStateAction<{ show: boolean; indexerName: string }>>;
   singleIpConfirmDialog: { show: boolean; indexerName: string };
   setSingleIpConfirmDialog: React.Dispatch<React.SetStateAction<{ show: boolean; indexerName: string }>>;
+  inflightToggle: Set<string>;
+  setInflightToggle: React.Dispatch<React.SetStateAction<Set<string>>>;
+  proxyIndexers: Record<string, boolean>;
   setProxyIndexers: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  healthChecks: HealthChecksState;
   setHealthChecks: React.Dispatch<React.SetStateAction<HealthChecksState>>;
 }
 
@@ -45,7 +49,11 @@ export function ZyclopsOverlay({
   setZyclopsConfirmDialog,
   singleIpConfirmDialog,
   setSingleIpConfirmDialog,
+  inflightToggle,
+  setInflightToggle,
+  proxyIndexers,
   setProxyIndexers,
+  healthChecks,
   setHealthChecks,
 }: ZyclopsOverlayProps) {
   return (
@@ -162,25 +170,44 @@ export function ZyclopsOverlay({
                               </div>
                             )}
                             <span className="text-sm font-medium text-slate-300">{indexer.name}</span>
-                            {isEnabled && <span className="text-sm" title="Zyclops verified">🤖</span>}
+                            {isEnabled && inflightToggle.has(indexer.name) && <span className="text-[10px] text-amber-400 animate-pulse">Disabling...</span>}
+                            {isEnabled && !inflightToggle.has(indexer.name) && <span className="text-sm" title="Zyclops verified">🤖</span>}
                           </div>
                           <label className="relative inline-flex items-center cursor-pointer">
                             <input
                               type="checkbox"
                               checked={isEnabled}
+                              disabled={inflightToggle.has(indexer.name)}
                               onChange={(e) => {
+                                if (inflightToggle.has(indexer.name)) return;
                                 if (e.target.checked) {
                                   // Show confirmation dialog
                                   setZyclopsConfirmDialog({ show: true, indexerName: indexer.name });
                                 } else {
-                                  // Disable immediately
-                                  const updated = { ...indexer, zyclops: { ...zyclopsConfig, enabled: false } };
+                                  // Disable — backend handles snapshot restore and safe defaults
+                                  setInflightToggle(s => new Set(s).add(indexer.name));
                                   apiFetch(`/api/indexers/${encodeURIComponent(indexer.name)}`, {
                                     method: 'PUT',
                                     headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ zyclops: updated.zyclops }),
-                                  }).then(() => {
-                                    setConfig(prev => prev ? { ...prev, indexers: prev.indexers.map(i => i.name === indexer.name ? updated : i) } : prev);
+                                    body: JSON.stringify({ zyclops: { ...zyclopsConfig, enabled: false } }),
+                                  }).then(async (res) => {
+                                    if (!res.ok) {
+                                      const err = await res.json().catch(() => ({}));
+                                      alert((err as any).error || 'Failed to disable Zyclops');
+                                      return;
+                                    }
+                                    const serverIndexer = await res.json();
+                                    const { _proxyEnabled, _healthCheckEnabled, ...indexerData } = serverIndexer;
+                                    setConfig(p => p ? { ...p, indexers: p.indexers.map(i => i.name === indexer.name ? indexerData : i) } : p);
+                                    setProxyIndexers(p => ({ ...p, [indexer.name]: _proxyEnabled ?? false }));
+                                    setHealthChecks(p => ({
+                                      ...p,
+                                      healthCheckIndexers: { ...p.healthCheckIndexers, [indexer.name]: _healthCheckEnabled ?? false }
+                                    }));
+                                  }).catch(() => {
+                                    alert('Failed to disable Zyclops — network error');
+                                  }).finally(() => {
+                                    setInflightToggle(s => { const n = new Set(s); n.delete(indexer.name); return n; });
                                   });
                                 }
                               }}
@@ -219,7 +246,7 @@ export function ZyclopsOverlay({
                                             body: JSON.stringify({ zyclops: newConfig }),
                                           }).then(() => {
                                             setConfig(prev => prev ? { ...prev, indexers: prev.indexers.map(i => i.name === indexer.name ? { ...i, zyclops: newConfig } : i) } : prev);
-                                          });
+                                          }).catch(() => { /* non-critical — errors logged server-side */ });
                                         }}
                                         className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-700 text-violet-500 focus:ring-violet-500 focus:ring-offset-slate-800"
                                       />
@@ -247,7 +274,7 @@ export function ZyclopsOverlay({
                                     body: JSON.stringify({ zyclops: newConfig }),
                                   }).then(() => {
                                     setConfig(prev => prev ? { ...prev, indexers: prev.indexers.map(i => i.name === indexer.name ? { ...i, zyclops: newConfig } : i) } : prev);
-                                  });
+                                  }).catch(() => { /* non-critical — errors logged server-side */ });
                                 }}
                                 placeholder="e.g. news.eweka.nl, news.example.com"
                                 className="input text-xs"
@@ -270,7 +297,7 @@ export function ZyclopsOverlay({
                                       body: JSON.stringify({ zyclops: newConfig }),
                                     }).then(() => {
                                       setConfig(prev => prev ? { ...prev, indexers: prev.indexers.map(i => i.name === indexer.name ? { ...i, zyclops: newConfig } : i) } : prev);
-                                    });
+                                    }).catch(() => { /* non-critical — errors logged server-side */ });
                                   }}
                                   className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-700 text-violet-500 focus:ring-violet-500 focus:ring-offset-slate-800"
                                 />
@@ -295,7 +322,7 @@ export function ZyclopsOverlay({
                                       body: JSON.stringify({ zyclops: newConfig }),
                                     }).then(() => {
                                       setConfig(prev => prev ? { ...prev, indexers: prev.indexers.map(i => i.name === indexer.name ? { ...i, zyclops: newConfig } : i) } : prev);
-                                    });
+                                    }).catch(() => { /* non-critical — errors logged server-side */ });
                                   }}
                                   className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-700 text-violet-500 focus:ring-violet-500 focus:ring-offset-slate-800"
                                 />
@@ -350,43 +377,56 @@ export function ZyclopsOverlay({
                   Cancel
                 </button>
                 <button
+                  disabled={inflightToggle.has(zyclopsConfirmDialog.indexerName)}
                   onClick={() => {
                     const indexerName = zyclopsConfirmDialog.indexerName;
                     const indexer = config?.indexers.find(i => i.name === indexerName);
-                    if (indexer) {
-                      const existing: Partial<ZyclopsIndexerConfig> = indexer.zyclops || {};
-                      const newConfig: ZyclopsIndexerConfig = {
-                        ...existing,
-                        enabled: true,
-                        backbone: existing.backbone ?? [],
-                      };
-                      apiFetch(`/api/indexers/${encodeURIComponent(indexerName)}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ zyclops: newConfig }),
-                      }).then(async (res) => {
-                        if (!res.ok) {
-                          const err = await res.json();
-                          alert(err.error || 'Failed to enable Zyclops');
-                          return;
-                        }
-                        setConfig(prev => prev ? {
-                          ...prev,
-                          indexers: prev.indexers.map(i => i.name === indexerName ? { ...i, zyclops: newConfig } : i)
-                        } : prev);
-                        // Also disable proxy and health check for this indexer (mutual exclusion)
-                        setProxyIndexers(prev => ({ ...prev, [indexerName]: false }));
-                        setHealthChecks(prev => ({
-                          ...prev,
-                          healthCheckIndexers: { ...prev.healthCheckIndexers, [indexerName]: false }
-                        }));
-                      });
-                    }
-                    setZyclopsConfirmDialog({ show: false, indexerName: '' });
+                    if (!indexer) return;
+                    const existing: Partial<ZyclopsIndexerConfig> = indexer.zyclops || {};
+                    // Send snapshot so backend can restore on disable
+                    const preZyclopsState = {
+                      enabled: indexer.enabled,
+                      proxy: proxyIndexers[indexerName] !== false,
+                      healthCheck: healthChecks.healthCheckIndexers[indexerName] !== false,
+                    };
+                    const newConfig: ZyclopsIndexerConfig = {
+                      ...existing,
+                      enabled: true,
+                      backbone: existing.backbone ?? [],
+                      preZyclopsState,
+                    };
+                    setInflightToggle(s => new Set(s).add(indexerName));
+                    apiFetch(`/api/indexers/${encodeURIComponent(indexerName)}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ zyclops: newConfig, enabled: true }),
+                    }).then(async (res) => {
+                      if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        alert((err as any).error || 'Failed to enable Zyclops');
+                        return;
+                      }
+                      const serverIndexer = await res.json();
+                      const { _proxyEnabled, _healthCheckEnabled, ...indexerData } = serverIndexer;
+                      setConfig(prev => prev ? {
+                        ...prev,
+                        indexers: prev.indexers.map(i => i.name === indexerName ? indexerData : i)
+                      } : prev);
+                      setProxyIndexers(prev => ({ ...prev, [indexerName]: _proxyEnabled ?? false }));
+                      setHealthChecks(prev => ({
+                        ...prev,
+                        healthCheckIndexers: { ...prev.healthCheckIndexers, [indexerName]: _healthCheckEnabled ?? false }
+                      }));
+                    }).catch(() => {
+                      alert('Failed to enable Zyclops — network error');
+                    }).finally(() => {
+                      setInflightToggle(s => { const n = new Set(s); n.delete(indexerName); return n; });
+                      setZyclopsConfirmDialog({ show: false, indexerName: '' });
+                    });
                   }}
-                  className="px-4 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors"
+                  className="px-4 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50"
                 >
-                  Enable Zyclops
+                  {inflightToggle.has(zyclopsConfirmDialog.indexerName) ? 'Enabling...' : 'Enable Zyclops'}
                 </button>
               </div>
             </div>
@@ -438,9 +478,12 @@ export function ZyclopsOverlay({
                         body: JSON.stringify({ zyclops: newConfig }),
                       }).then(() => {
                         setConfig(prev => prev ? { ...prev, indexers: prev.indexers.map(i => i.name === indexerName ? { ...i, zyclops: newConfig } : i) } : prev);
+                      }).catch(() => { /* non-critical — errors logged server-side */ }).finally(() => {
+                        setSingleIpConfirmDialog({ show: false, indexerName: '' });
                       });
+                    } else {
+                      setSingleIpConfirmDialog({ show: false, indexerName: '' });
                     }
-                    setSingleIpConfirmDialog({ show: false, indexerName: '' });
                   }}
                   className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg transition-colors"
                 >

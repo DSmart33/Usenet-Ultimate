@@ -44,3 +44,16 @@ export function nzbdavError(message: string): Error & { isNzbdavFailure: boolean
   err.isNzbdavFailure = true;
   return err;
 }
+
+/**
+ * Transport-layer error thrown when WebDAV returns 404/410 for a video file.
+ * Carries the videoPath so callers can evict the stale cache entry.
+ */
+export class WebDav404Error extends Error {
+  readonly videoPath: string;
+  constructor(videoPath: string) {
+    super(`WebDAV upstream returned 404 for video path`);
+    this.name = 'WebDav404Error';
+    this.videoPath = videoPath;
+  }
+}

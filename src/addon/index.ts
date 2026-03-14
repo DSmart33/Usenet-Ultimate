@@ -25,11 +25,11 @@ const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config } from '../config/index.js';
 import type { Stream } from '../types.js';
-import { createFallbackGroup, type FallbackCandidate } from '../nzbdav/index.js';
+import { createFallbackGroup, clearFallbackGroups, type FallbackCandidate } from '../nzbdav/index.js';
 import { resolveTitle } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { processResults } from './resultProcessor.js';
-import { coordinateHealthChecks, autoMarkRemainingResults, earlyAutoQueueToNzbdav, autoQueueToNzbdav } from './healthCheckCoordinator.js';
+import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav } from './healthCheckCoordinator.js';
 import { buildStreams } from './streamBuilder.js';
 
 // Create cache for search results
@@ -38,6 +38,7 @@ const cache = new NodeCache({ stdTTL: 0 });
 
 export function clearSearchCache(): void {
   cache.flushAll();
+  clearFallbackGroups();
 }
 
 // Define addon manifest - tells Stremio what we support
@@ -137,10 +138,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
     // === STEP 3: DEDUP, FILTER, SORT ===
     let allResults = processResults(allRawResults, type);
-
-    // Early auto-queue: start NZBDav download before health checks so the
-    // download overlaps with health checking, reducing wait time for binge mode
-    earlyAutoQueueToNzbdav(allResults, type, season, episode, titleInfo.episodesInSeason);
 
     // === STEP 4: HEALTH CHECKS ===
     const { healthResults, filteredResults } = await coordinateHealthChecks({

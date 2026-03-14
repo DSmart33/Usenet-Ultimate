@@ -73,7 +73,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [showApiKey, setShowApiKey] = useState<{ new: boolean; edit: boolean }>({ new: false, edit: false });
 
   // ─── Cache ──────────────────────────────────────────────────────────
-  const [cacheTTL, setCacheTTL] = useState<number>(43200);
+  const [cacheTTL, setCacheTTL] = useState<number>(0);
 
   // ─── Streaming & Index Manager ──────────────────────────────────────
   const [streamingMode, setStreamingMode] = useState<'nzbdav' | 'stremio'>('nzbdav');
@@ -124,14 +124,20 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavWebdavPassword, setNzbdavWebdavPassword] = useState('');
   const [nzbdavMoviesCategory, setNzbdavMoviesCategory] = useState('Usenet-Ultimate-Movies');
   const [nzbdavTvCategory, setNzbdavTvCategory] = useState('Usenet-Ultimate-TV');
-  const [nzbdavFallbackEnabled, setNzbdavFallbackEnabled] = useState(true);
+  const [nzbdavFallbackEnabled, setNzbdavFallbackEnabled] = useState(false);
   const [nzbdavLibraryCheckEnabled, setNzbdavLibraryCheckEnabled] = useState(true);
   const [nzbdavMaxFallbacks, setNzbdavMaxFallbacks] = useState(0);
   const [nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds] = useState(30);
   const [nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds] = useState(15);
   const [nzbdavFallbackOrder, setNzbdavFallbackOrder] = useState<'selected' | 'top'>('selected');
   const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
-  const [nzbdavProxyEnabled, setNzbdavProxyEnabled] = useState(false);
+  const [nzbdavProxyEnabled, setNzbdavProxyEnabled] = useState(true);
+  const [healthyNzbDbMode, setHealthyNzbDbMode] = useState<'time' | 'storage'>('time');
+  const [healthyNzbDbTTL, setHealthyNzbDbTTL] = useState(259200);
+  const [healthyNzbDbMaxSizeMB, setHealthyNzbDbMaxSizeMB] = useState(50);
+  const [deadNzbDbMode, setDeadNzbDbMode] = useState<'time' | 'storage'>('storage');
+  const [deadNzbDbTTL, setDeadNzbDbTTL] = useState(86400);
+  const [deadNzbDbMaxSizeMB, setDeadNzbDbMaxSizeMB] = useState(50);
   const [nzbdavConnectionStatus, setNzbdavConnectionStatus] = useState<'connected' | 'disconnected' | 'unconfigured' | 'checking' | null>(null);
   const [nzbdavTestNzbStatus, setNzbdavTestNzbStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [nzbdavTestNzbMessage, setNzbdavTestNzbMessage] = useState('');
@@ -154,6 +160,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [zyclopsTestMessage, setZyclopsTestMessage] = useState('');
   const [zyclopsConfirmDialog, setZyclopsConfirmDialog] = useState<{ show: boolean; indexerName: string }>({ show: false, indexerName: '' });
   const [singleIpConfirmDialog, setSingleIpConfirmDialog] = useState<{ show: boolean; indexerName: string }>({ show: false, indexerName: '' });
+  const [zyclopsInflightToggle, setZyclopsInflightToggle] = useState<Set<string>>(new Set());
 
   // ─── User-Agent ─────────────────────────────────────────────────────
   const defaultChromeUA = DEFAULT_CHROME_UA;
@@ -183,8 +190,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const [syncMessage, setSyncMessage] = useState('');
   const [selectedSyncedIndexer, setSelectedSyncedIndexer] = useState<string | null>(null);
-  const [connectionTestStatus, setConnectionTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [connectionTestMessage, setConnectionTestMessage] = useState('');
 
   // ─── Auto Play ──────────────────────────────────────────────────────
   const [autoPlay, setAutoPlay] = useState<AutoPlayState>({
@@ -210,9 +215,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const nzbdavFieldsChanged = useRef(false);
   const editFormRef = useRef(editForm);
   editFormRef.current = editForm;
-
-  // ─── Segment cache convenience value ────────────────────────────────
-  const segmentCacheMaxSizeMB = healthChecks.segmentCache?.maxSizeMB ?? 50;
 
   // ─── Internal auto-save helper ──────────────────────────────────────
   const saveSettings = useCallback(
@@ -273,7 +275,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     const timer = setTimeout(() => saveSettings({ healthChecks: { ...healthCheckSettings, providers: undefined } }), 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [healthChecks.enabled, healthChecks.archiveInspection, healthChecks.sampleCount, healthChecks.nzbsToInspect, healthChecks.inspectionMethod, healthChecks.smartBatchSize, healthChecks.smartAdditionalRuns, healthChecks.maxConnections, healthChecks.autoQueueMode, healthChecks.hideBlocked, healthChecks.libraryPreCheck, healthChecks.healthCheckIndexers, healthChecks.segmentCache, saveSettings]);
+  }, [healthChecks.enabled, healthChecks.archiveInspection, healthChecks.sampleCount, healthChecks.nzbsToInspect, healthChecks.inspectionMethod, healthChecks.smartBatchSize, healthChecks.smartAdditionalRuns, healthChecks.maxConnections, healthChecks.autoQueueMode, healthChecks.hideBlocked, healthChecks.libraryPreCheck, healthChecks.healthCheckIndexers, saveSettings]);
 
   // Auto-save: addon enabled/disabled
   useEffect(() => {
@@ -286,20 +288,30 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
-      streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory
+      streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB
     }), 500);
     return () => clearTimeout(timer);
-  }, [streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, saveSettings]);
+  }, [streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, saveSettings]);
 
   // Auto-save: NZB fallback settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
       nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder,
-      nzbdavMaxFallbacks, nzbdavStreamBufferMB, nzbdavProxyEnabled,
+      nzbdavMaxFallbacks, nzbdavProxyEnabled,
     }), 500);
     return () => clearTimeout(timer);
-  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavStreamBufferMB, nzbdavProxyEnabled, saveSettings]);
+  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavProxyEnabled, saveSettings]);
+
+  // Auto-save: NZB database settings
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    const timer = setTimeout(() => saveSettings({
+      healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB,
+      deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB,
+    }), 500);
+    return () => clearTimeout(timer);
+  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, saveSettings]);
 
   // Auto-save: index manager type
   useEffect(() => {
@@ -461,7 +473,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       const data = await response.json();
       setConfig(data);
       setAddonEnabled(data.addonEnabled !== false);
-      setCacheTTL(data.cacheTTL ?? 43200);
+      setCacheTTL(data.cacheTTL ?? 0);
       setStreamingMode(data.streamingMode || 'nzbdav');
       setIndexManager(data.indexManager || 'newznab');
       setProxyMode(data.proxyMode || 'disabled');
@@ -552,6 +564,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         order = zyclopsIdx !== -1
           ? [...order.slice(0, zyclopsIdx + 1), 'fallback', ...order.slice(zyclopsIdx + 1)]
           : [...order, 'fallback'];
+      }
+      if (!order.includes('nzbDatabase')) {
+        const healthIdx = order.indexOf('healthChecks');
+        order = healthIdx !== -1
+          ? [...order.slice(0, healthIdx + 1), 'nzbDatabase', ...order.slice(healthIdx + 1)]
+          : [...order, 'nzbDatabase'];
       }
       setCardOrder(order);
 
@@ -663,7 +681,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
             'Remastered': true,
           }
         };
-        tvDefaults.maxStreams = 10;
+        tvDefaults.maxStreams = undefined;
         setTvFilters(tvDefaults);
       } else {
         setTvFilters(data.tvFilters);
@@ -690,7 +708,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavWebdavPassword(data.nzbdavWebdavPassword || '');
       setNzbdavMoviesCategory(data.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies');
       setNzbdavTvCategory(data.nzbdavTvCategory || 'Usenet-Ultimate-TV');
-      setNzbdavFallbackEnabled(data.nzbdavFallbackEnabled !== false);
+      setNzbdavFallbackEnabled(data.nzbdavFallbackEnabled === true);
       setNzbdavLibraryCheckEnabled(data.nzbdavLibraryCheckEnabled !== false);
       setNzbdavMaxFallbacks(data.nzbdavMaxFallbacks ?? 0);
       // Legacy: nzbdavJobTimeoutSeconds is used as a fallback seed for per-type timeouts on old configs
@@ -699,7 +717,13 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavTvTimeoutSeconds(data.nzbdavTvTimeoutSeconds ?? legacyTimeout ?? 15);
       setNzbdavFallbackOrder(data.nzbdavFallbackOrder || 'selected');
       setNzbdavStreamBufferMB(data.nzbdavStreamBufferMB ?? 128);
-      setNzbdavProxyEnabled(data.nzbdavProxyEnabled === true);
+      setNzbdavProxyEnabled(data.nzbdavProxyEnabled !== false);
+      setHealthyNzbDbMode(data.healthyNzbDbMode || 'time');
+      setHealthyNzbDbTTL(data.healthyNzbDbTTL ?? 259200);
+      setHealthyNzbDbMaxSizeMB(data.healthyNzbDbMaxSizeMB ?? 50);
+      setDeadNzbDbMode(data.deadNzbDbMode || 'storage');
+      setDeadNzbDbTTL(data.deadNzbDbTTL ?? 86400);
+      setDeadNzbDbMaxSizeMB(data.deadNzbDbMaxSizeMB ?? 50);
       // Mark initial load as done so auto-save hooks don't fire on load.
       // setTimeout defers past React's useEffect cycle — effects from the setState
       // batch above see initialLoadDone.current === false and skip the save.
@@ -1139,6 +1163,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbdavFallbackOrder, setNzbdavFallbackOrder,
     nzbdavStreamBufferMB, setNzbdavStreamBufferMB,
     nzbdavProxyEnabled, setNzbdavProxyEnabled,
+    healthyNzbDbMode, setHealthyNzbDbMode,
+    healthyNzbDbTTL, setHealthyNzbDbTTL,
+    healthyNzbDbMaxSizeMB, setHealthyNzbDbMaxSizeMB,
+    deadNzbDbMode, setDeadNzbDbMode,
+    deadNzbDbTTL, setDeadNzbDbTTL,
+    deadNzbDbMaxSizeMB, setDeadNzbDbMaxSizeMB,
     nzbdavConnectionStatus, setNzbdavConnectionStatus,
     nzbdavTestNzbStatus, setNzbdavTestNzbStatus,
     nzbdavTestNzbMessage, setNzbdavTestNzbMessage,
@@ -1161,6 +1191,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     zyclopsTestMessage, setZyclopsTestMessage,
     zyclopsConfirmDialog, setZyclopsConfirmDialog,
     singleIpConfirmDialog, setSingleIpConfirmDialog,
+    zyclopsInflightToggle, setZyclopsInflightToggle,
 
     // User agents
     defaultChromeUA,
@@ -1184,8 +1215,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     syncStatus, setSyncStatus,
     syncMessage, setSyncMessage,
     selectedSyncedIndexer, setSelectedSyncedIndexer,
-    connectionTestStatus, setConnectionTestStatus,
-    connectionTestMessage, setConnectionTestMessage,
 
     // Auto play
     autoPlay, setAutoPlay,
@@ -1205,7 +1234,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     dragOverCard, setDragOverCard,
 
     // Computed
-    segmentCacheMaxSizeMB,
     rankedIndexers,
     categoryAwards,
 

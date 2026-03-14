@@ -63,6 +63,11 @@ export interface ZyclopsIndexerConfig {
   providerHosts?: string;              // NNTP provider hostnames (comma-separated) — takes priority over backbone
   showUnknown?: boolean;               // Show results with unknown health status (default false)
   singleIp?: boolean;                  // Single IP mode — only Zyclops IP touches upstream (default true)
+  preZyclopsState?: {                  // Snapshot of settings before Zyclops was enabled — restored on disable
+    enabled: boolean;
+    proxy: boolean;
+    healthCheck: boolean;
+  };
 }
 
 // Valid Zyclops backbone identifiers
@@ -123,7 +128,7 @@ export interface Config {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
-  nzbdavFallbackEnabled?: boolean; // Master toggle for fallback feature (default true)
+  nzbdavFallbackEnabled?: boolean; // Master toggle for fallback feature (default false)
   nzbdavLibraryCheckEnabled?: boolean; // Check WebDAV library before grabbing NZB (default true)
   nzbdavMaxFallbacks?: number;  // 0 = try all results (default), 1-20 = limit
   nzbdavJobTimeoutSeconds?: number;            // Legacy — use nzbdavMoviesTimeoutSeconds / nzbdavTvTimeoutSeconds
@@ -131,7 +136,13 @@ export interface Config {
   nzbdavTvTimeoutSeconds?: number;             // Max seconds to wait for TV streams (default 15)
   nzbdavFallbackOrder?: 'selected' | 'top';   // Start from clicked NZB or top of quality-sorted list
   nzbdavStreamBufferMB?: number;              // WebDAV proxy buffer size in MB (default 128)
-  nzbdavProxyEnabled?: boolean;               // Stream through local proxy (buffer+reconnect) or direct WebDAV redirect (default false)
+  nzbdavProxyEnabled?: boolean;               // Stream through local proxy (buffer+reconnect) or direct WebDAV redirect (default true)
+  healthyNzbDbMode?: 'time' | 'storage';      // Database limit mode for successful streams (default 'time')
+  healthyNzbDbTTL?: number;                   // TTL in seconds for successful streams when mode is 'time' (default 259200 / 3 days)
+  healthyNzbDbMaxSizeMB?: number;             // Max storage in MB for successful streams when mode is 'storage' (default 50)
+  deadNzbDbMode?: 'time' | 'storage';         // Database limit mode for dead NZBs (default 'storage')
+  deadNzbDbTTL?: number;                      // TTL in seconds for dead NZBs when mode is 'time' (default 86400)
+  deadNzbDbMaxSizeMB?: number;                // Max storage in MB for dead NZBs when mode is 'storage' (default 50)
   easynewsEnabled?: boolean;
   easynewsUsername?: string;
   easynewsPassword?: string;
@@ -198,7 +209,7 @@ export interface FilterConfig {
     edition?: Record<string, boolean>;       // Which editions are enabled
   };
   maxFileSize?: number;                      // Max file size in bytes (undefined = unlimited)
-  maxStreams?: number;                       // Max total streams to return (default 10)
+  maxStreams?: number;                       // Max total streams to return (default unlimited)
   maxStreamsPerQuality?: number;             // Max streams per quality level (undefined = unlimited)
   resolutionPriority?: string[];             // Resolution priority order for sorting
   videoPriority?: string[];                  // Video source priority order for sorting
@@ -239,11 +250,6 @@ export interface HealthCheckConfig {
   hideBlocked: boolean;          // Filter out blocked NZBs from results
   libraryPreCheck: boolean;      // Check NZBDav library before NNTP checks — skip checking content already downloaded
   healthCheckIndexers?: Record<string, boolean>; // Per-indexer health check enable/disable
-  segmentCache?: {               // Missing segment cache for instant rejection of known-dead NZBs
-    enabled: boolean;            // default true
-    ttlHours: number;            // default 0 (no expiry), 0 = never expire
-    maxSizeMB: number;           // default 50
-  };
 }
 
 // User account for authentication

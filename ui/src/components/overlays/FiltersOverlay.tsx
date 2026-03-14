@@ -519,7 +519,7 @@ export default function FiltersOverlay({
                     edition: {}
                   },
                   maxFileSize: undefined,
-                  maxStreams: 10,
+                  maxStreams: undefined,
                   maxStreamsPerQuality: undefined,
                   resolutionPriority: ['2160p', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'],
                   videoPriority: ['BluRay REMUX', 'BluRay', 'WEB-DL', 'WEBRip', 'HDRip', 'HC HD-Rip', 'DVDRip', 'HDTV', 'Unknown'],
@@ -535,7 +535,7 @@ export default function FiltersOverlay({
                   defaults.enabledSorts.edition = true;
                   defaults.preferNonStandardEdition = true;
                   defaults.enabledPriorities.edition = { 'IMAX Edition': true, 'Theatrical': true, 'Remastered': true };
-                  defaults.maxStreams = 10;
+                  defaults.maxStreams = undefined;
                 }
                 updateActiveFilters(defaults);
               }}

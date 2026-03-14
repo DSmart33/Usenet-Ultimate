@@ -14,9 +14,9 @@ import { getLatestVersions } from '../versionFetcher.js';
 import { performBatchHealthChecks, type HealthCheckResult, type HealthCheckOptions } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
 import { checkNzbLibrary } from '../nzbdav/videoDiscovery.js';
+import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import type { NZBDavConfig } from '../nzbdav/types.js';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:1337';
 // Internal self-requests (auto-queue) hit localhost directly to avoid
 // cross-origin redirect errors from reverse proxies / external BASE_URL.
 const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
@@ -207,6 +207,25 @@ export async function coordinateHealthChecks(
         }
       }
 
+      // NZB Database pre-check: skip NNTP for known-bad NZBs
+      if (toCheck.length > 0) {
+        let nzbDbHits = 0;
+        for (const r of toCheck) {
+          if (healthResults.has(r.link)) continue;
+          const url = easynewsLinkToNzbUrl.get(r.link) || r.link;
+          if (isDeadNzbByUrl(url)) {
+            healthResults.set(r.link, { status: 'blocked', message: 'NZB Database: previously failed', playable: false });
+            nzbDbHits++;
+          }
+        }
+        if (nzbDbHits > 0) {
+          console.log(`💾 ${nzbDbHits} result(s) found in NZB Database (batch ${batch + 1}), skipping NNTP`);
+          const remaining = toCheck.filter(r => !healthResults.has(r.link));
+          toCheck.length = 0;
+          toCheck.push(...remaining);
+        }
+      }
+
       console.log(`🔍 Smart batch ${batch + 1}/${maxBatches}: checking ${toCheck.length} NZB(s) across ${enabledProviders.length} provider(s)...`);
 
       if (toCheck.length > 0) {
@@ -282,6 +301,25 @@ export async function coordinateHealthChecks(
       }
     }
 
+    // NZB Database pre-check: skip NNTP for known-bad NZBs
+    if (nonEasynewsToCheck.length > 0) {
+      let nzbDbHits = 0;
+      for (const r of nonEasynewsToCheck) {
+        if (healthResults.has(r.link)) continue;
+        const url = easynewsLinkToNzbUrl.get(r.link) || r.link;
+        if (isDeadNzbByUrl(url)) {
+          healthResults.set(r.link, { status: 'blocked', message: 'NZB Database: previously failed', playable: false });
+          nzbDbHits++;
+        }
+      }
+      if (nzbDbHits > 0) {
+        console.log(`💾 ${nzbDbHits} result(s) found in NZB Database, skipping NNTP`);
+        const remaining = nonEasynewsToCheck.filter(r => !healthResults.has(r.link));
+        nonEasynewsToCheck.length = 0;
+        nonEasynewsToCheck.push(...remaining);
+      }
+    }
+
     console.log(`🔍 Health checking ${nonEasynewsToCheck.length} result(s) across ${enabledProviders.length} provider(s)...`);
 
     if (nonEasynewsToCheck.length > 0) {
@@ -337,6 +375,17 @@ export async function coordinateHealthChecks(
     console.log(`🤖 Auto-verified ${remainingZyclops} remaining Zyclops result(s) beyond inspection window`);
   }
 
+  // Write blocked NNTP results to dead NZB cache
+  let deadWrites = 0;
+  for (const [link, result] of healthResults) {
+    if (result.status === 'blocked' && result.message !== 'NZB Database: previously failed') {
+      const url = easynewsLinkToNzbUrl.get(link) || link;
+      const title = allResults.find(r => r.link === link)?.title;
+      if (title) { addDeadNzbByUrl(url, title); deadWrites++; }
+    }
+  }
+  if (deadWrites > 0) saveCacheToDisk();
+
   // Filter out blocked/error NZBs if hideBlocked is enabled
   if (config.healthChecks.hideBlocked) {
     const beforeCount = allResults.length;
@@ -373,55 +422,6 @@ export function autoMarkRemainingResults(
   }
 }
 
-/**
- * Early auto-queue: start NZBDav download BEFORE health checks complete.
- * Uses the top-ranked search result (without health verification) so the
- * NZBDav download overlaps with health checking, reducing wait time for
- * TV binge mode episode transitions.
- */
-export function earlyAutoQueueToNzbdav(
-  allResults: any[],
-  type: string,
-  season?: number,
-  episode?: number,
-  episodesInSeason?: number,
-): void {
-  const mode = config.healthChecks?.autoQueueMode;
-  if (!config.healthChecks?.enabled || !mode || mode === 'off' || config.streamingMode !== 'nzbdav' || allResults.length === 0) {
-    return;
-  }
-
-  // Find the first eligible result (skip EasyNews DDL — not NZBs)
-  const firstEligible = allResults.find(r => {
-    if (r.easynewsMeta && config.easynewsMode !== 'nzb') return false;
-    return true;
-  });
-
-  if (!firstEligible) return;
-
-  try {
-    console.log(`🚀 Early auto-queue (pre-health-check): ${firstEligible.title}`);
-    const autoEpParams = firstEligible.isSeasonPack && season !== undefined && episode !== undefined
-      ? `&season=${season}&episode=${episode}${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
-      : '';
-    const autoManifestKey = requestContext.getStore()?.manifestKey || '';
-
-    let nzbUrl = firstEligible.link;
-    if (firstEligible.easynewsMeta && config.easynewsMode === 'nzb') {
-      const meta = firstEligible.easynewsMeta;
-      const nzbParams = new URLSearchParams({
-        hash: meta.hash, filename: meta.filename, ext: meta.ext,
-      });
-      if (meta.sig) nzbParams.set('sig', meta.sig);
-      nzbUrl = `${SELF_URL}/${autoManifestKey}/easynews/nzb?${nzbParams.toString()}`;
-    }
-
-    const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbUrl)}&title=${encodeURIComponent(firstEligible.title)}&type=${type}&indexer=${encodeURIComponent(firstEligible.indexerName)}&auto=true${autoEpParams}`;
-    fetch(proxyUrl).catch(err => console.error('❌ Early auto-queue failed:', err));
-  } catch (error) {
-    console.error('❌ Early auto-queue failed:', error);
-  }
-}
 
 /**
  * Auto-queue verified results to NZBDav cache.
@@ -477,7 +477,8 @@ export function autoQueueToNzbdav(
   const isEligible = (r: any) => {
     if (r.easynewsMeta && config.easynewsMode !== 'nzb') return false;
     const health = healthResults.get(r.link);
-    return health && isVerifiedStatus(health.status);
+    if (!health || !isVerifiedStatus(health.status)) return false;
+    return true;
   };
 
   if (mode === 'all') {

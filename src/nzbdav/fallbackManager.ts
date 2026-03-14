@@ -9,8 +9,11 @@ import { config as globalConfig } from '../config/index.js';
 
 const fallbackGroups = new Map<string, FallbackGroup>();
 
+// Fallback groups live as long as the search cache.
+// When cacheTTL is 0 (cache disabled), fall back to 2 hours so groups
+// remain usable throughout a streaming session.
 function getFallbackGroupTTLMs(): number {
-  return (globalConfig.cacheTTL || 43200) * 1000;
+  return (globalConfig.cacheTTL || 7200) * 1000;
 }
 
 export function createFallbackGroup(

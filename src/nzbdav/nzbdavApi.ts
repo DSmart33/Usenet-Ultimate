@@ -184,14 +184,15 @@ export async function waitForJobCompletion(
   const category = resolveCategory(config, contentType);
   const startTime = Date.now();
 
-  console.log(`  \u23F3 Waiting for job completion (${Math.round(timeoutMs / 1000)}s budget)...`);
+  const unlimitedBudget = timeoutMs === 0;
+  console.log(`  \u23F3 Waiting for job completion (${unlimitedBudget ? 'no limit' : `${Math.round(timeoutMs / 1000)}s budget`})...`);
 
-  while (Date.now() - startTime < timeoutMs) {
+  while (unlimitedBudget || Date.now() - startTime < timeoutMs) {
     try {
       // Query history API
       const historyUrl = `${baseUrl}/api?mode=history&apikey=${config.apiKey}&start=0&limit=50&category=${encodeURIComponent(category)}&output=json`;
 
-      const perPollTimeoutMs = Math.min(10_000, Math.max(1000, timeoutMs - (Date.now() - startTime)));
+      const perPollTimeoutMs = unlimitedBudget ? 10_000 : Math.min(10_000, Math.max(1000, timeoutMs - (Date.now() - startTime)));
       const response = await fetch(historyUrl, {
         headers: { 'User-Agent': globalConfig.userAgents?.nzbdavOperations || getLatestVersions().chrome },
         signal: AbortSignal.timeout(perPollTimeoutMs),
@@ -229,7 +230,7 @@ export async function waitForJobCompletion(
 
         // Job exists but still processing
         const elapsed = Math.round((Date.now() - startTime) / 1000);
-        const remaining = Math.max(0, Math.round((timeoutMs - (Date.now() - startTime)) / 1000));
+        const remaining = unlimitedBudget ? '∞' : Math.max(0, Math.round((timeoutMs - (Date.now() - startTime)) / 1000));
         console.log(`  \u23F3 Job status: ${status} (${elapsed}s elapsed, ${remaining}s remaining)`);
       }
 

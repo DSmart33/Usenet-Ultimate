@@ -8,6 +8,26 @@
 import type { UsenetIndexer, SyncedIndexer } from '../types.js';
 import { configData, saveConfigFile } from './schema.js';
 
+/**
+ * Enforce Zyclops mutual exclusion for a single indexer:
+ * force enabled + disable proxy and health checks.
+ * Called from settingsUpdater on every save to guard against settings
+ * changes that would re-enable proxy/health checks for Zyclops indexers.
+ *
+ * Does NOT create a preZyclopsState snapshot — that is handled by
+ * updateIndexer when Zyclops is first enabled.
+ */
+export function enforceZyclopsEnabled(idx: UsenetIndexer, label?: string): void {
+  if (!idx.zyclops?.enabled) return;
+  console.log(`🤖 Zyclops mutual exclusion${label ? ` (${label})` : ''}: forcing enabled + disabling proxy/health checks for ${idx.name}`);
+  idx.enabled = true;
+  if (!configData.proxyIndexers) configData.proxyIndexers = {};
+  configData.proxyIndexers[idx.name] = false;
+  if (configData.healthChecks?.healthCheckIndexers) {
+    configData.healthChecks.healthCheckIndexers[idx.name] = false;
+  }
+}
+
 export function getIndexers(): UsenetIndexer[] {
   return [...configData.indexers];
 }
@@ -39,27 +59,44 @@ export function updateIndexer(name: string, updates: Partial<UsenetIndexer>): Us
     throw new Error('Indexer not found');
   }
 
-  // If renaming, check for duplicate
+  // If renaming, check for duplicate and block if Zyclops is active
   if (updates.name && updates.name !== name) {
+    if (configData.indexers[index].zyclops?.enabled) {
+      throw new Error('Cannot rename an indexer while Zyclops is enabled — disable Zyclops first');
+    }
     if (configData.indexers.some(i => i.name === updates.name)) {
       throw new Error('Indexer with this name already exists');
     }
   }
 
+  const previous = configData.indexers[index];
+  const wasZyclops = previous.zyclops?.enabled;
+
   configData.indexers[index] = {
-    ...configData.indexers[index],
+    ...previous,
     ...updates,
   };
 
-  // Mutual exclusion: force-disable health checks when Zyclops is enabled
-  // Note: proxy is NOT force-disabled — runtime already skips proxy for Zyclops indexers,
-  // and preserving the user's proxy preference allows it to restore when Zyclops is turned off.
   const updated = configData.indexers[index];
+
   if (updated.zyclops?.enabled) {
-    console.log(`🤖 Zyclops mutual exclusion: disabling health checks for ${updated.name}`);
+    enforceZyclopsEnabled(updated);
+  } else if (wasZyclops && !updated.zyclops?.enabled) {
+    // Zyclops just turned off: restore pre-Zyclops state (or safe defaults if no snapshot)
+    const snapshot = updated.zyclops?.preZyclopsState;
+    const restoredEnabled = snapshot?.enabled ?? false;
+    const restoredProxy = snapshot?.proxy ?? false;
+    const restoredHealthCheck = snapshot?.healthCheck ?? false;
+    const logFn = snapshot ? console.log : console.warn;
+    logFn(`🤖 Zyclops disabled for ${updated.name}: restoring state (enabled=${restoredEnabled}, proxy=${restoredProxy}, healthCheck=${restoredHealthCheck}${snapshot ? '' : ' [defaults — no snapshot]'})`);
+    updated.enabled = restoredEnabled;
+    if (!configData.proxyIndexers) configData.proxyIndexers = {};
+    configData.proxyIndexers[updated.name] = restoredProxy;
     if (configData.healthChecks?.healthCheckIndexers) {
-      configData.healthChecks.healthCheckIndexers[updated.name] = false;
+      configData.healthChecks.healthCheckIndexers[updated.name] = restoredHealthCheck;
     }
+    // Clear consumed snapshot so stale values can't be reused on a future disable
+    if (updated.zyclops) delete updated.zyclops.preZyclopsState;
   }
 
   saveConfigFile(configData);
@@ -74,6 +111,11 @@ export function deleteIndexer(name: string): void {
   }
 
   configData.indexers.splice(index, 1);
+
+  // Clean up orphaned proxy/healthCheck entries for the deleted indexer
+  if (configData.proxyIndexers) delete configData.proxyIndexers[name];
+  if (configData.healthChecks?.healthCheckIndexers) delete configData.healthChecks.healthCheckIndexers[name];
+
   saveConfigFile(configData);
 }
 

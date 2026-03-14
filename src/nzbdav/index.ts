@@ -7,13 +7,13 @@
 export type { NZBDavConfig, FallbackCandidate } from './types.js';
 
 // Fallback management
-export { createFallbackGroup, getFallbackGroup } from './fallbackManager.js';
+export { createFallbackGroup, getFallbackGroup, clearFallbackGroups } from './fallbackManager.js';
 
 // Stream cache
-export { getOrCreateStream, isStreamCached } from './streamCache.js';
+export { getOrCreateStream, getDeadCacheKey, isStreamCached, isDeadNzbByUrl, addDeadNzbByUrl, evictReadyByVideoPath } from './streamCache.js';
 
 // Cache utilities
-export { getCacheStats, clearStreamCache } from './cacheUtils.js';
+export { getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, saveCacheToDisk } from './cacheUtils.js';
 
 // Stream handler (Express endpoint)
 export { handleStream } from './streamHandler.js';

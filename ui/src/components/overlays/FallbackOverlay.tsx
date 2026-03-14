@@ -1,8 +1,36 @@
 // What this does:
-//   NZB Fallback configuration overlay with enable toggle, fallback order, wait times, and cache TTL display
+//   NZB Fallback configuration overlay with enable toggle, fallback order, wait times, and streaming method
 
+import { useRef, useCallback, useEffect } from 'react';
 import { RotateCcw, X, Film, Tv } from 'lucide-react';
 import clsx from 'clsx';
+
+function useHoldRepeat(action: () => void, initialDelay = 500, minDelay = 200) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const delay = useRef(initialDelay);
+
+  const stop = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    delay.current = initialDelay;
+  }, [initialDelay]);
+
+  const start = useCallback(() => {
+    action();
+    const tick = () => {
+      timer.current = setTimeout(() => {
+        action();
+        delay.current = Math.max(minDelay, delay.current * 0.95);
+        tick();
+      }, delay.current);
+    };
+    tick();
+  }, [action, minDelay]);
+
+  useEffect(() => stop, [stop]);
+
+  return { onPointerDown: start, onPointerUp: stop, onPointerLeave: stop, onPointerCancel: stop };
+}
 
 interface FallbackOverlayProps {
   onClose: () => void;
@@ -18,11 +46,8 @@ interface FallbackOverlayProps {
   setNzbdavFallbackOrder: React.Dispatch<React.SetStateAction<'selected' | 'top'>>;
   nzbdavMaxFallbacks: number;
   setNzbdavMaxFallbacks: React.Dispatch<React.SetStateAction<number>>;
-  nzbdavStreamBufferMB: number;
-  setNzbdavStreamBufferMB: React.Dispatch<React.SetStateAction<number>>;
   nzbdavProxyEnabled: boolean;
   setNzbdavProxyEnabled: React.Dispatch<React.SetStateAction<boolean>>;
-  cacheTTL: number;
 }
 
 export function FallbackOverlay({
@@ -39,15 +64,14 @@ export function FallbackOverlay({
   setNzbdavFallbackOrder,
   nzbdavMaxFallbacks,
   setNzbdavMaxFallbacks,
-  nzbdavStreamBufferMB,
-  setNzbdavStreamBufferMB,
   nzbdavProxyEnabled,
   setNzbdavProxyEnabled,
-  cacheTTL,
 }: FallbackOverlayProps) {
-  const fallbackGroupTTLDisplay = cacheTTL >= 3600
-    ? `${Math.round(cacheTTL / 3600 * 10) / 10}h`
-    : `${Math.round(cacheTTL / 60)} min`;
+  const movieDec = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavMoviesTimeoutSeconds]));
+  const movieInc = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.min(180, v + 1)), [setNzbdavMoviesTimeoutSeconds]));
+  const tvDec = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavTvTimeoutSeconds]));
+  const tvInc = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.min(180, v + 1)), [setNzbdavTvTimeoutSeconds]));
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
@@ -76,7 +100,7 @@ export function FallbackOverlay({
               <div>
                 <span className="text-sm font-medium text-slate-300">Enable Fallback</span>
                 <p className="text-xs text-slate-500 mt-1">
-                  Automatically try alternative NZBs when the primary download fails. When disabled, all streams use direct passthrough.
+                  Automatically try alternative NZBs when the primary download fails. When disabled, all streams use proxy without a redirect.
                 </p>
               </div>
             </label>
@@ -129,13 +153,13 @@ export function FallbackOverlay({
             </div>
             <p className="text-xs text-slate-500">
               {nzbdavProxyEnabled
-                ? 'Video streams through a local proxy with buffering and automatic reconnection. Recommended for mobile and TV.'
-                : 'Player is redirected directly to the WebDAV URL. Recommended for desktop players.'}
+                ? 'Video streams through a local proxy with buffering and automatic reconnection. Recommended for Android devices.'
+                : 'Player is redirected directly to the WebDAV URL. Recommended for Apple devices.'}
             </p>
           </div>
 
           {/* Wait Times — combined card */}
-          <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !nzbdavFallbackEnabled && "opacity-40 pointer-events-none")}>
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium text-slate-300">Stream Wait Times</div>
               <button
@@ -154,26 +178,39 @@ export function FallbackOverlay({
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setNzbdavMoviesTimeoutSeconds(v => Math.max(5, v - 5))}
+                    {...movieDec}
                     className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                   >−</button>
                   <div className="flex flex-col items-center">
-                    <input
-                      type="number"
-                      min={5}
-                      max={600}
-                      step={5}
-                      value={nzbdavMoviesTimeoutSeconds}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (!isNaN(v)) setNzbdavMoviesTimeoutSeconds(Math.min(600, Math.max(5, v)));
-                      }}
-                      className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
-                    />
-                    <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                    {nzbdavMoviesTimeoutSeconds >= 60 ? (
+                      <>
+                        <div className="text-2xl font-bold text-amber-400/90 leading-none tabular-nums">
+                          {Math.floor(nzbdavMoviesTimeoutSeconds / 60)}
+                          <span className="text-lg text-amber-400/40 mx-px">:</span>
+                          {String(nzbdavMoviesTimeoutSeconds % 60).padStart(2, '0')}
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">min : sec</span>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="number"
+                          min={1}
+                          max={180}
+                          step={1}
+                          value={nzbdavMoviesTimeoutSeconds}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            if (!isNaN(v)) setNzbdavMoviesTimeoutSeconds(Math.min(180, Math.max(1, v)));
+                          }}
+                          className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
+                        />
+                        <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                      </>
+                    )}
                   </div>
                   <button
-                    onClick={() => setNzbdavMoviesTimeoutSeconds(v => Math.min(600, v + 5))}
+                    {...movieInc}
                     className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                   >+</button>
                 </div>
@@ -186,33 +223,46 @@ export function FallbackOverlay({
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setNzbdavTvTimeoutSeconds(v => Math.max(5, v - 5))}
+                    {...tvDec}
                     className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                   >−</button>
                   <div className="flex flex-col items-center">
-                    <input
-                      type="number"
-                      min={5}
-                      max={600}
-                      step={5}
-                      value={nzbdavTvTimeoutSeconds}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (!isNaN(v)) setNzbdavTvTimeoutSeconds(Math.min(600, Math.max(5, v)));
-                      }}
-                      className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
-                    />
-                    <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                    {nzbdavTvTimeoutSeconds >= 60 ? (
+                      <>
+                        <div className="text-2xl font-bold text-amber-400/90 leading-none tabular-nums">
+                          {Math.floor(nzbdavTvTimeoutSeconds / 60)}
+                          <span className="text-lg text-amber-400/40 mx-px">:</span>
+                          {String(nzbdavTvTimeoutSeconds % 60).padStart(2, '0')}
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">min : sec</span>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="number"
+                          min={1}
+                          max={180}
+                          step={1}
+                          value={nzbdavTvTimeoutSeconds}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            if (!isNaN(v)) setNzbdavTvTimeoutSeconds(Math.min(180, Math.max(1, v)));
+                          }}
+                          className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
+                        />
+                        <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                      </>
+                    )}
                   </div>
                   <button
-                    onClick={() => setNzbdavTvTimeoutSeconds(v => Math.min(600, v + 5))}
+                    {...tvInc}
                     className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                   >+</button>
                 </div>
               </div>
             </div>
             <p className="text-xs text-slate-500">
-              How long to wait for a stream to become ready before trying the next NZB.
+              How long to wait for a stream to become ready before trying the next NZB. Hold the +/- buttons to accelerate. Min 1s, max 3 min.
             </p>
           </div>
 
@@ -229,7 +279,7 @@ export function FallbackOverlay({
               />
               <div>
                 <div className="text-sm text-slate-200 font-medium">From Selected</div>
-                <p className="text-xs text-slate-500">Start with the NZB you clicked, then try alternatives in quality order.</p>
+                <p className="text-xs text-slate-500">Start with the NZB you clicked, then try alternatives in displayed order.</p>
               </div>
             </label>
             <label className="flex items-start gap-3 cursor-pointer">
@@ -291,57 +341,17 @@ export function FallbackOverlay({
             )}
           </div>
 
-          {/* Cache TTL (read-only, matches search cache) */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !nzbdavFallbackEnabled && "opacity-40 pointer-events-none")}>
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-slate-300">Fallback & Failed NZB Cache</div>
-              <span className="text-sm text-slate-300">{fallbackGroupTTLDisplay}</span>
-            </div>
-            <p className="text-xs text-slate-500">
-              Matches your Search Cache TTL. Fallback candidates and failed NZB records are kept as long as search results are cached. Failed NZBs are skipped instantly on retry. Change this in the Search Cache TTL settings.
-            </p>
-          </div>
-
-          {/* Stream Buffer Size */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", (!nzbdavFallbackEnabled || !nzbdavProxyEnabled) && "opacity-40 pointer-events-none")}>
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-slate-300">Stream Buffer</div>
-              <button
-                onClick={() => setNzbdavStreamBufferMB(128)}
-                className="text-xs text-amber-400 hover:text-amber-300"
-              >
-                Reset
-              </button>
-            </div>
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={8}
-                max={256}
-                step={8}
-                value={nzbdavStreamBufferMB}
-                onChange={(e) => setNzbdavStreamBufferMB(parseInt(e.target.value, 10))}
-                className="flex-1 accent-amber-400"
-              />
-              <span className="text-sm text-slate-300 w-16 text-right">{nzbdavStreamBufferMB} MB</span>
-            </div>
-            <p className="text-xs text-slate-500">
-              Internal buffer between WebDAV and the player. Larger buffers absorb network jitter but use more memory per stream. If you experience buffering on large files, try increasing this.
-            </p>
-          </div>
-
           {/* Reset All */}
           <div className="pt-2">
             <button
               onClick={() => {
-                setNzbdavFallbackEnabled(true);
+                setNzbdavFallbackEnabled(false);
                 setNzbdavLibraryCheckEnabled(true);
                 setNzbdavMoviesTimeoutSeconds(30);
                 setNzbdavTvTimeoutSeconds(15);
                 setNzbdavFallbackOrder('selected');
                 setNzbdavMaxFallbacks(0);
-                setNzbdavStreamBufferMB(128);
-                setNzbdavProxyEnabled(false);
+                setNzbdavProxyEnabled(true);
               }}
               className="btn-secondary w-full"
             >

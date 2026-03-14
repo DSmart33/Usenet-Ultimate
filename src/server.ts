@@ -16,10 +16,9 @@ import { config, getIndexers, addIndexer, updateIndexer, deleteIndexer, reorderI
 import { getLogBuffer, subscribeToLogs } from './logBuffer.js';
 import { getAllStats, getIndexerStats, resetIndexerStats, resetAllStats, trackGrab } from './statsTracker.js';
 import { fetchLatestVersions, getLatestVersions } from './versionFetcher.js';
-import { handleStream, getCacheStats, clearStreamCache, isStreamCached } from './nzbdav/index.js';
+import { handleStream, getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, isStreamCached, saveCacheToDisk } from './nzbdav/index.js';
 import { proxyFetch, testProxyConnection } from './proxy.js';
 import { fetchIndexerCaps } from './parsers/newznabClient.js';
-import { getSegmentCacheStats, clearSegmentCache, configureSegmentCache, loadSegmentCache, shutdownSegmentCache } from './health/index.js';
 import { hasAnyUsers, createUser, authenticateUser, generateToken, verifyToken, getUserById } from './auth/auth.js';
 import { requireAuth, validateManifestKey } from './auth/authMiddleware.js';
 import { requestContext } from './requestContext.js';
@@ -97,6 +96,10 @@ const nzbdavDeps = {
   handleStream,
   getCacheStats,
   clearStreamCache,
+  clearReadyCache,
+  clearFailedCache,
+  deleteCacheEntry,
+  getCacheEntries,
   isStreamCached,
   trackGrab,
   getLatestVersions,
@@ -124,7 +127,6 @@ app.use('/api', createIntegrationRoutes({
 app.use('/api', createSettingsRoutes({
   config,
   updateSettings,
-  configureSegmentCache,
   fetchLatestVersions,
   getLatestVersions,
   testProxyConnection,
@@ -139,8 +141,6 @@ app.use('/api/health-check', createHealthCheckRoutes({
   updateProvider,
   deleteProvider,
   reorderProviders,
-  getSegmentCacheStats,
-  clearSegmentCache,
 }));
 
 app.use('/api/search-config', createExternalApiRoutes());
@@ -160,7 +160,7 @@ app.use('/api/logs', createLogRoutes({
 // --- Key-protected proxy routes (no JWT auth, validated by manifest key) ---
 
 // EasyNews resolve and NZB proxy — /:manifestKey/easynews/*
-app.use('/:manifestKey/easynews', validateManifestKey, createEasynewsProxyRoutes({ config }));
+app.use('/:manifestKey/easynews', validateManifestKey, createEasynewsProxyRoutes({ config, getLatestVersions }));
 
 // NZBDav stream proxy — /:manifestKey/nzbdav/*
 app.use('/:manifestKey/nzbdav', validateManifestKey, createNzbdavStreamRoutes(nzbdavDeps));
@@ -180,21 +180,19 @@ app.get('*', (req, res) => {
 });
 
 // Start server
-// Initialize segment cache from config and restore from disk
-if (config.healthChecks?.segmentCache) {
-  configureSegmentCache(config.healthChecks.segmentCache);
-}
-loadSegmentCache();
+// Clean up orphaned segment cache file from previous versions
+import fs from 'fs';
+try { fs.unlinkSync(path.join(__dirname, '..', 'config', 'segment-cache.json')); } catch {}
 
-// Graceful shutdown — persist segment cache before exit
+// Graceful shutdown — persist caches before exit
 process.on('SIGTERM', () => {
-  console.log('[shutdown] SIGTERM received, saving segment cache...');
-  shutdownSegmentCache();
+  console.log('[shutdown] SIGTERM received, saving caches...');
+  saveCacheToDisk();
   process.exit(0);
 });
 process.on('SIGINT', () => {
-  console.log('[shutdown] SIGINT received, saving segment cache...');
-  shutdownSegmentCache();
+  console.log('[shutdown] SIGINT received, saving caches...');
+  saveCacheToDisk();
   process.exit(0);
 });
 

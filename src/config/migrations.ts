@@ -32,7 +32,7 @@ if (configData.indexers.length === 0) {
 
     // Also migrate cache settings from .env
     if (process.env.CACHE_TTL) {
-      configData.cacheTTL = parseInt(process.env.CACHE_TTL) || 43200;
+      configData.cacheTTL = parseInt(process.env.CACHE_TTL) || 0;
     }
 
     saveConfigFile(configData);

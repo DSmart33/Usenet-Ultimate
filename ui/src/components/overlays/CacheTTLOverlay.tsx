@@ -40,12 +40,12 @@ export function CacheTTLOverlay({
                   const h = unit === 'hours' ? value : hours;
                   const m = unit === 'minutes' ? value : minutes;
                   const s = unit === 'seconds' ? value : seconds;
-                  setCacheTTL(composeTTL(d, h, m, s));
+                  setCacheTTL(Math.min(345600, composeTTL(d, h, m, s)));
                 };
                 return (
                   <div className="space-y-3">
                     {[
-                      { label: 'Days', unit: 'days' as const, value: days, max: 3, step: 1 },
+                      { label: 'Days', unit: 'days' as const, value: days, max: 4, step: 1 },
                       { label: 'Hours', unit: 'hours' as const, value: hours, max: 23, step: 1 },
                       { label: 'Minutes', unit: 'minutes' as const, value: minutes, max: 59, step: 1 },
                       { label: 'Seconds', unit: 'seconds' as const, value: seconds, max: 59, step: 1 },
@@ -59,15 +59,18 @@ export function CacheTTLOverlay({
                           step={step}
                           value={value}
                           onChange={(e) => updateUnit(unit, Number(e.target.value))}
-                          className="flex-1"
+                          className="flex-1 accent-amber-400"
                         />
                         <input
                           type="number"
                           min="0"
                           max={max}
                           value={value}
-                          onChange={(e) => updateUnit(unit, Math.max(0, Math.min(max, Number(e.target.value) || 0)))}
-                          className="input w-16 text-center text-yellow-400 font-bold"
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            if (!isNaN(v)) updateUnit(unit, Math.min(max, Math.max(0, v)));
+                          }}
+                          className="w-14 bg-slate-700/50 border border-slate-600/30 rounded px-2 py-1 text-sm text-slate-200 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       </div>
                     ))}
@@ -78,13 +81,16 @@ export function CacheTTLOverlay({
               <p className="text-xs text-slate-500 mt-1">
                 How long to cache search results. Set all values to 0 to disable caching. Maximum 4 days.
               </p>
+              <p className="text-xs text-slate-500 mt-1">
+                Fallback groups also expire with this TTL. When caching is disabled, fallback groups persist for 2 hours.
+              </p>
             </div>
             <div className="pt-4 border-t border-slate-700 space-y-2">
               <button
-                onClick={() => setCacheTTL(43200)}
+                onClick={() => setCacheTTL(0)}
                 className="btn-secondary w-full"
               >
-                Reset to Default (12 Hours)
+                Reset to Default (Disabled)
               </button>
               <button
                 onClick={async () => {

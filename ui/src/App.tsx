@@ -25,6 +25,7 @@ import { CacheTTLOverlay } from './components/overlays/CacheTTLOverlay';
 import { UserAgentOverlay } from './components/overlays/UserAgentOverlay';
 import { StreamingOverlay } from './components/overlays/StreamingOverlay';
 import { FallbackOverlay } from './components/overlays/FallbackOverlay';
+import { NzbDatabaseOverlay } from './components/overlays/NzbDatabaseOverlay';
 import { AutoPlayOverlay } from './components/overlays/AutoPlayOverlay';
 import { StatsOverlay } from './components/overlays/StatsOverlay';
 import FiltersOverlay from './components/overlays/FiltersOverlay';
@@ -610,10 +611,6 @@ function App() {
           setSyncMessage={ac.setSyncMessage}
           selectedSyncedIndexer={ac.selectedSyncedIndexer}
           setSelectedSyncedIndexer={ac.setSelectedSyncedIndexer}
-          connectionTestStatus={ac.connectionTestStatus}
-          setConnectionTestStatus={ac.setConnectionTestStatus}
-          connectionTestMessage={ac.connectionTestMessage}
-          setConnectionTestMessage={ac.setConnectionTestMessage}
           handleReorderSyncedIndexer={handleReorderSyncedIndexer}
           failedLogos={ac.failedLogos}
           setFailedLogos={ac.setFailedLogos}
@@ -662,6 +659,8 @@ function App() {
           nzbdavConnectionStatus={ac.nzbdavConnectionStatus}
           nzbdavTestNzbStatus={ac.nzbdavTestNzbStatus}
           nzbdavTestNzbMessage={ac.nzbdavTestNzbMessage}
+          nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
+          setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
           checkNzbdavConnection={ac.checkNzbdavConnection}
           sendNzbdavTestNzb={ac.sendNzbdavTestNzb}
         />
@@ -683,11 +682,28 @@ function App() {
           setNzbdavFallbackOrder={ac.setNzbdavFallbackOrder}
           nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
           setNzbdavMaxFallbacks={ac.setNzbdavMaxFallbacks}
-          nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
-          setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
           nzbdavProxyEnabled={ac.nzbdavProxyEnabled}
           setNzbdavProxyEnabled={ac.setNzbdavProxyEnabled}
-          cacheTTL={ac.cacheTTL}
+        />
+      )}
+
+      {/* NZB Database Overlay */}
+      {ac.activeOverlay === 'nzbDatabase' && (
+        <NzbDatabaseOverlay
+          onClose={() => ac.setActiveOverlay(null)}
+          healthyNzbDbMode={ac.healthyNzbDbMode}
+          setHealthyNzbDbMode={ac.setHealthyNzbDbMode}
+          healthyNzbDbTTL={ac.healthyNzbDbTTL}
+          setHealthyNzbDbTTL={ac.setHealthyNzbDbTTL}
+          healthyNzbDbMaxSizeMB={ac.healthyNzbDbMaxSizeMB}
+          setHealthyNzbDbMaxSizeMB={ac.setHealthyNzbDbMaxSizeMB}
+          deadNzbDbMode={ac.deadNzbDbMode}
+          setDeadNzbDbMode={ac.setDeadNzbDbMode}
+          deadNzbDbTTL={ac.deadNzbDbTTL}
+          setDeadNzbDbTTL={ac.setDeadNzbDbTTL}
+          deadNzbDbMaxSizeMB={ac.deadNzbDbMaxSizeMB}
+          setDeadNzbDbMaxSizeMB={ac.setDeadNzbDbMaxSizeMB}
+          apiFetch={apiFetch}
         />
       )}
 
@@ -832,7 +848,11 @@ function App() {
           setZyclopsConfirmDialog={ac.setZyclopsConfirmDialog}
           singleIpConfirmDialog={ac.singleIpConfirmDialog}
           setSingleIpConfirmDialog={ac.setSingleIpConfirmDialog}
+          inflightToggle={ac.zyclopsInflightToggle}
+          setInflightToggle={ac.setZyclopsInflightToggle}
+          proxyIndexers={ac.proxyIndexers}
           setProxyIndexers={ac.setProxyIndexers}
+          healthChecks={ac.healthChecks}
           setHealthChecks={ac.setHealthChecks}
         />
       )}
@@ -924,6 +944,7 @@ function App() {
             config={ac.config}
             addonEnabled={ac.addonEnabled}
             setAddonEnabled={ac.setAddonEnabled}
+            activeOverlay={ac.activeOverlay}
             setActiveOverlay={ac.setActiveOverlay}
             indexManager={ac.indexManager}
             easynewsEnabled={ac.easynewsEnabled}
@@ -950,6 +971,7 @@ function App() {
             handleCardDragOver={ac.handleCardDragOver}
             handleCardDrop={ac.handleCardDrop}
             handleCardDragEnd={ac.handleCardDragEnd}
+            apiFetch={apiFetch}
           />
         )}
 

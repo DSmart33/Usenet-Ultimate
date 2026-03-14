@@ -20,7 +20,9 @@ import {
   GripVertical,
   Plus,
   Settings,
+  ChevronDown,
 } from 'lucide-react';
+import { useState } from 'react';
 import clsx from 'clsx';
 import type { Config, Indexer, SyncedIndexer, IndexerCaps } from '../../types';
 
@@ -125,10 +127,6 @@ interface IndexManagerOverlayProps {
   setSyncMessage: React.Dispatch<React.SetStateAction<string>>;
   selectedSyncedIndexer: string | null;
   setSelectedSyncedIndexer: React.Dispatch<React.SetStateAction<string | null>>;
-  connectionTestStatus: 'idle' | 'testing' | 'success' | 'error';
-  setConnectionTestStatus: React.Dispatch<React.SetStateAction<'idle' | 'testing' | 'success' | 'error'>>;
-  connectionTestMessage: string;
-  setConnectionTestMessage: React.Dispatch<React.SetStateAction<string>>;
   handleReorderSyncedIndexer: (id: string, direction: 'up' | 'down') => void;
 
   // Failed logos
@@ -242,10 +240,6 @@ export function IndexManagerOverlay({
   setSyncMessage,
   selectedSyncedIndexer,
   setSelectedSyncedIndexer,
-  connectionTestStatus,
-  setConnectionTestStatus,
-  connectionTestMessage,
-  setConnectionTestMessage,
   handleReorderSyncedIndexer,
   failedLogos,
   setFailedLogos,
@@ -267,14 +261,14 @@ export function IndexManagerOverlay({
   handleReorderIndexer,
   fetchIndexers,
 }: IndexManagerOverlayProps) {
+  const [showNzbhydraAdvanced, setShowNzbhydraAdvanced] = useState(false);
+
   /** Reset all sync-related UI state (called when credentials change or manager switches) */
   const resetSyncState = () => {
     setSyncedIndexers([]);
     setSelectedSyncedIndexer(null);
     setSyncStatus('idle');
     setSyncMessage('');
-    setConnectionTestStatus('idle');
-    setConnectionTestMessage('');
   };
 
   return (
@@ -838,74 +832,40 @@ export function IndexManagerOverlay({
                     </div>
                   </div>
 
-                  {/* Test + Sync buttons */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={async () => {
-                        setConnectionTestStatus('testing');
-                        setConnectionTestMessage('');
-                        setSyncStatus('idle');
-                        setSyncMessage('');
-                        try {
-                          const resp = await apiFetch('/api/prowlarr/test', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url: prowlarrUrl, apiKey: prowlarrApiKey }),
-                          });
-                          const data = await resp.json();
-                          if (!resp.ok) throw new Error(data.message || data.error || `Server error (${resp.status})`);
-                          setConnectionTestStatus(data.success ? 'success' : 'error');
-                          setConnectionTestMessage(data.message);
-                        } catch (e: any) {
-                          setConnectionTestStatus('error');
-                          setConnectionTestMessage(e.message);
-                        }
-                      }}
-                      disabled={connectionTestStatus === 'testing' || !prowlarrUrl || !prowlarrApiKey}
-                      className="btn-secondary text-sm flex items-center gap-2"
-                    >
-                      {connectionTestStatus === 'testing' ? (
-                        <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Testing...</>
-                      ) : 'Test Connection'}
-                    </button>
-                    <button
-                      onClick={async () => {
-                        setSyncStatus('syncing');
-                        setSyncMessage('');
-                        setConnectionTestStatus('idle');
-                        setConnectionTestMessage('');
-                        setSelectedSyncedIndexer(null);
-                        try {
-                          const resp = await apiFetch('/api/prowlarr/sync', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url: prowlarrUrl, apiKey: prowlarrApiKey }),
-                          });
-                          const data = await resp.json();
-                          if (!resp.ok || data.error) throw new Error(data.error || data.message || `Server error (${resp.status})`);
-                          setSyncedIndexers(data.indexers || []);
-                          setSyncStatus('success');
-                          setSyncMessage(`Synced ${data.total} usenet indexer(s)`);
-                        } catch (e: any) {
-                          setSyncStatus('error');
-                          setSyncMessage(e.message);
-                        }
-                      }}
-                      disabled={syncStatus === 'syncing' || !prowlarrUrl || !prowlarrApiKey}
-                      className="btn-primary text-sm flex items-center gap-2"
-                    >
-                      {syncStatus === 'syncing' ? (
-                        <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Syncing...</>
-                      ) : (
-                        <><RefreshCw className="w-3.5 h-3.5" /> Sync Indexers</>
-                      )}
-                    </button>
-                  </div>
+                  <button
+                    data-prowlarr-sync
+                    onClick={async () => {
+                      setSyncStatus('syncing');
+                      setSyncMessage('');
+                      setSelectedSyncedIndexer(null);
+                      try {
+                        const resp = await apiFetch('/api/prowlarr/sync', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ url: prowlarrUrl, apiKey: prowlarrApiKey }),
+                        });
+                        const data = await resp.json();
+                        if (!resp.ok || data.error) throw new Error(data.error || data.message || `Server error (${resp.status})`);
+                        setSyncedIndexers(data.indexers || []);
+                        setSyncStatus('success');
+                        setSyncMessage(`Synced ${data.total} usenet indexer(s)`);
+                        setTimeout(() => document.querySelector('[data-prowlarr-sync]')?.closest('.overflow-y-auto')?.scrollTo({ top: 999999, behavior: 'smooth' }), 50);
+                      } catch (e: any) {
+                        setSyncedIndexers([]);
+                        setSyncStatus('error');
+                        setSyncMessage(e.message);
+                      }
+                    }}
+                    disabled={syncStatus === 'syncing' || !prowlarrUrl || !prowlarrApiKey}
+                    className="btn-primary text-sm flex items-center gap-2"
+                  >
+                    {syncStatus === 'syncing' ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Syncing...</>
+                    ) : (
+                      <><RefreshCw className="w-3.5 h-3.5" /> Sync Indexers</>
+                    )}
+                  </button>
 
-                  {/* Status messages */}
-                  {connectionTestMessage && (
-                    <p className={clsx('text-sm font-medium', connectionTestStatus === 'success' ? 'text-green-400' : 'text-red-400')}>{connectionTestMessage}</p>
-                  )}
                   {syncMessage && (
                     <p className={clsx('text-sm font-medium', syncStatus === 'success' ? 'text-green-400' : 'text-red-400')}>{syncMessage}</p>
                   )}
@@ -923,7 +883,7 @@ export function IndexManagerOverlay({
                         {syncedIndexers.map((indexer, idx) => (
                           <div key={indexer.id} className="flex flex-col items-center gap-0.5">
                             <button
-                              onClick={() => setSelectedSyncedIndexer(selectedSyncedIndexer === indexer.id ? null : indexer.id)}
+                              onClick={() => { const opening = selectedSyncedIndexer !== indexer.id; setSelectedSyncedIndexer(opening ? indexer.id : null); if (opening) setTimeout(() => document.querySelector('[data-indexer-detail]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50); }}
                               className={clsx(
                                 'relative flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-all w-16',
                                 selectedSyncedIndexer === indexer.id
@@ -988,7 +948,7 @@ export function IndexManagerOverlay({
                           setSyncedIndexers(prev => prev.map(i => i.id === selectedSyncedIndexer ? { ...i, ...updates } : i));
                         };
                         return (
-                          <div className="p-3 bg-slate-800/70 rounded-lg border border-slate-600 space-y-3">
+                          <div data-indexer-detail className="p-3 bg-slate-800/70 rounded-lg border border-slate-600 space-y-3">
                             <div className="flex items-center justify-between">
                               <span className="text-sm font-medium text-slate-300">{indexer.name}</span>
                               <button onClick={() => setSelectedSyncedIndexer(null)} className="text-slate-500 hover:text-slate-300">
@@ -1105,96 +1065,76 @@ export function IndexManagerOverlay({
                     </div>
                   </div>
 
-                  {/* Optional credentials for auth-protected instances */}
+                  {/* Collapsible credentials — needed when stats API access is disabled in NZBHydra */}
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Username <span className="text-slate-500 font-normal">(optional)</span></label>
-                    <input type="text" value={nzbhydraUsername} onChange={(e) => { setNzbhydraUsername(e.target.value); resetSyncState(); }} placeholder="NZBHydra2 username" className="input" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Password <span className="text-slate-500 font-normal">(optional)</span></label>
-                    <div className="relative">
-                      <input type={showNzbhydraPassword ? 'text' : 'password'} value={nzbhydraPassword} onChange={(e) => { setNzbhydraPassword(e.target.value); resetSyncState(); }} placeholder="NZBHydra2 password" className="input pr-9" />
-                      {nzbhydraPassword && (
-                        <button
-                          type="button"
-                          onClick={() => setShowNzbhydraPassword(v => !v)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-                        >
-                          {showNzbhydraPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1">Required only if NZBHydra2 has auth enabled</p>
+                    <button
+                      type="button"
+                      onClick={() => { setShowNzbhydraAdvanced(v => { if (!v) setTimeout(() => document.querySelector('[data-nzbhydra-sync]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50); return !v; }); }}
+                      className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                      <ChevronDown className={clsx('w-4 h-4 transition-transform', showNzbhydraAdvanced && 'rotate-180')} />
+                      Stats Access Disabled
+                    </button>
+                    {showNzbhydraAdvanced && (
+                      <div className="mt-3 space-y-3 pl-6 border-l border-slate-700/50">
+                        <p className="text-xs text-slate-500">Only needed if <code className="bg-slate-700/50 px-1 rounded text-slate-400">Allow access to stats via external API = Off</code> in NZBHydra. Works with both Form and Basic auth types.</p>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-300 mb-2">Username</label>
+                          <input type="text" value={nzbhydraUsername} onChange={(e) => { setNzbhydraUsername(e.target.value); resetSyncState(); }} placeholder="NZBHydra2 username" className="input" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-300 mb-2">Password</label>
+                          <div className="relative">
+                            <input type={showNzbhydraPassword ? 'text' : 'password'} value={nzbhydraPassword} onChange={(e) => { setNzbhydraPassword(e.target.value); resetSyncState(); }} placeholder="NZBHydra2 password" className="input pr-9" />
+                            {nzbhydraPassword && (
+                              <button
+                                type="button"
+                                onClick={() => setShowNzbhydraPassword(v => !v)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                              >
+                                {showNzbhydraPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Test + Sync buttons */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={async () => {
-                        setConnectionTestStatus('testing');
-                        setConnectionTestMessage('');
-                        setSyncStatus('idle');
-                        setSyncMessage('');
-                        try {
-                          const resp = await apiFetch('/api/nzbhydra/test', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url: nzbhydraUrl, apiKey: nzbhydraApiKey, username: nzbhydraUsername, password: nzbhydraPassword }),
-                          });
-                          const data = await resp.json();
-                          if (!resp.ok) throw new Error(data.message || data.error || `Server error (${resp.status})`);
-                          setConnectionTestStatus(data.success ? 'success' : 'error');
-                          setConnectionTestMessage(data.message);
-                        } catch (e: any) {
-                          setConnectionTestStatus('error');
-                          setConnectionTestMessage(e.message);
-                        }
-                      }}
-                      disabled={connectionTestStatus === 'testing' || !nzbhydraUrl || !nzbhydraApiKey}
-                      className="btn-secondary text-sm flex items-center gap-2"
-                    >
-                      {connectionTestStatus === 'testing' ? (
-                        <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Testing...</>
-                      ) : 'Test Connection'}
-                    </button>
-                    <button
-                      onClick={async () => {
-                        setSyncStatus('syncing');
-                        setSyncMessage('');
-                        setConnectionTestStatus('idle');
-                        setConnectionTestMessage('');
-                        setSelectedSyncedIndexer(null);
-                        try {
-                          const resp = await apiFetch('/api/nzbhydra/sync', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url: nzbhydraUrl, apiKey: nzbhydraApiKey, username: nzbhydraUsername, password: nzbhydraPassword }),
-                          });
-                          const data = await resp.json();
-                          if (!resp.ok || data.error) throw new Error(data.error || data.message || `Server error (${resp.status})`);
-                          setSyncedIndexers(data.indexers || []);
-                          setSyncStatus('success');
-                          setSyncMessage(`Synced ${data.total} indexer(s)`);
-                        } catch (e: any) {
-                          setSyncStatus('error');
-                          setSyncMessage(e.message);
-                        }
-                      }}
-                      disabled={syncStatus === 'syncing' || !nzbhydraUrl || !nzbhydraApiKey}
-                      className="btn-primary text-sm flex items-center gap-2"
-                    >
-                      {syncStatus === 'syncing' ? (
-                        <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Syncing...</>
-                      ) : (
-                        <><RefreshCw className="w-3.5 h-3.5" /> Sync Indexers</>
-                      )}
-                    </button>
-                  </div>
+                  <button
+                    data-nzbhydra-sync
+                    onClick={async () => {
+                      setSyncStatus('syncing');
+                      setSyncMessage('');
+                      setSelectedSyncedIndexer(null);
+                      try {
+                        const resp = await apiFetch('/api/nzbhydra/sync', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ url: nzbhydraUrl, apiKey: nzbhydraApiKey, username: nzbhydraUsername, password: nzbhydraPassword }),
+                        });
+                        const data = await resp.json();
+                        if (!resp.ok || data.error) throw new Error(data.error || data.message || `Server error (${resp.status})`);
+                        setSyncedIndexers(data.indexers || []);
+                        setSyncStatus('success');
+                        setSyncMessage(`Synced ${data.total} indexer(s)`);
+                        setTimeout(() => document.querySelector('[data-nzbhydra-sync]')?.closest('.overflow-y-auto')?.scrollTo({ top: 999999, behavior: 'smooth' }), 50);
+                      } catch (e: any) {
+                        setSyncedIndexers([]);
+                        setSyncStatus('error');
+                        setSyncMessage(e.message);
+                      }
+                    }}
+                    disabled={syncStatus === 'syncing' || !nzbhydraUrl || !nzbhydraApiKey}
+                    className="btn-primary text-sm flex items-center gap-2"
+                  >
+                    {syncStatus === 'syncing' ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Syncing...</>
+                    ) : (
+                      <><RefreshCw className="w-3.5 h-3.5" /> Sync Indexers</>
+                    )}
+                  </button>
 
-                  {/* Status messages */}
-                  {connectionTestMessage && (
-                    <p className={clsx('text-sm font-medium', connectionTestStatus === 'success' ? 'text-green-400' : 'text-red-400')}>{connectionTestMessage}</p>
-                  )}
                   {syncMessage && (
                     <p className={clsx('text-sm font-medium', syncStatus === 'success' ? 'text-green-400' : 'text-red-400')}>{syncMessage}</p>
                   )}
@@ -1212,7 +1152,7 @@ export function IndexManagerOverlay({
                         {syncedIndexers.map((indexer, idx) => (
                           <div key={indexer.id} className="flex flex-col items-center gap-0.5">
                             <button
-                              onClick={() => setSelectedSyncedIndexer(selectedSyncedIndexer === indexer.id ? null : indexer.id)}
+                              onClick={() => { const opening = selectedSyncedIndexer !== indexer.id; setSelectedSyncedIndexer(opening ? indexer.id : null); if (opening) setTimeout(() => document.querySelector('[data-indexer-detail]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50); }}
                               className={clsx(
                                 'relative flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-all w-16',
                                 selectedSyncedIndexer === indexer.id
@@ -1277,7 +1217,7 @@ export function IndexManagerOverlay({
                           setSyncedIndexers(prev => prev.map(i => i.id === selectedSyncedIndexer ? { ...i, ...updates } : i));
                         };
                         return (
-                          <div className="p-3 bg-slate-800/70 rounded-lg border border-slate-600 space-y-3">
+                          <div data-indexer-detail className="p-3 bg-slate-800/70 rounded-lg border border-slate-600 space-y-3">
                             <div className="flex items-center justify-between">
                               <span className="text-sm font-medium text-slate-300">{indexer.name}</span>
                               <button onClick={() => setSelectedSyncedIndexer(null)} className="text-slate-500 hover:text-slate-300">
@@ -1453,7 +1393,9 @@ export function IndexManagerOverlay({
                               <div className={clsx(
                                 'rounded-full transition-all',
                                 indexer.logo && !failedLogos.has(indexer.logo) ? 'absolute w-2 h-2 bottom-0 right-0' : 'w-3 h-3',
-                                indexer.enabled ? 'bg-green-400 shadow-lg shadow-green-400/50 animate-pulse' : 'bg-slate-600'
+                                indexer.zyclops?.enabled
+                                  ? 'bg-violet-400 shadow-lg shadow-violet-400/50 animate-pulse'
+                                  : indexer.enabled ? 'bg-green-400 shadow-lg shadow-green-400/50 animate-pulse' : 'bg-slate-600'
                               )} />
                             </div>
                             <div className="min-w-0 flex-1">
@@ -1463,6 +1405,7 @@ export function IndexManagerOverlay({
                           </div>
                           <div className="flex items-center gap-2">
                             <button
+                              disabled={!!indexer.zyclops?.enabled}
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 try {
@@ -1477,13 +1420,17 @@ export function IndexManagerOverlay({
                                 }
                               }}
                               className={clsx(
-                                'px-3 py-1 rounded-full text-xs font-medium flex-shrink-0 cursor-pointer transition-colors',
-                                indexer.enabled
-                                  ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30'
-                                  : 'bg-slate-600/20 text-slate-400 border border-slate-600/30 hover:bg-slate-600/30'
+                                'px-3 py-1 rounded-full text-xs font-medium flex-shrink-0 transition-colors',
+                                indexer.zyclops?.enabled
+                                  ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30 cursor-not-allowed opacity-60'
+                                  : indexer.enabled
+                                    ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30 cursor-pointer'
+                                    : 'bg-slate-600/20 text-slate-400 border border-slate-600/30 hover:bg-slate-600/30 cursor-pointer'
                               )}
+                              title={indexer.zyclops?.enabled ? `${indexer.name} — managed by Zyclops 🤖` : undefined}
+                              aria-label={indexer.zyclops?.enabled ? `${indexer.name} is managed by Zyclops` : `Toggle ${indexer.name} ${indexer.enabled ? 'off' : 'on'}`}
                             >
-                              {indexer.enabled ? 'Active' : 'Inactive'}
+                              {indexer.zyclops?.enabled ? 'Zyclops 🤖' : indexer.enabled ? 'Active' : 'Inactive'}
                             </button>
                             <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
                               <button

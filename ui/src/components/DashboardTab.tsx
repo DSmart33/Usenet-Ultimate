@@ -2,7 +2,7 @@
 //   Renders the Dashboard tab content: a grid of draggable cards for addon controls,
 //   indexer management, streaming, proxy, cache, filters, health checks, stats, and more.
 
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Power,
   Database,
@@ -39,6 +39,7 @@ export interface DashboardTabProps {
   config: Config;
   addonEnabled: boolean;
   setAddonEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  activeOverlay: OverlayType;
   setActiveOverlay: (overlay: OverlayType) => void;
   indexManager: 'newznab' | 'prowlarr' | 'nzbhydra';
   easynewsEnabled: boolean;
@@ -71,12 +72,14 @@ export interface DashboardTabProps {
   handleCardDragOver: (e: React.DragEvent, cardId: string) => void;
   handleCardDrop: (e: React.DragEvent, cardId: string) => void;
   handleCardDragEnd: () => void;
+  apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
 export function DashboardTab({
   config,
   addonEnabled,
   setAddonEnabled,
+  activeOverlay,
   setActiveOverlay,
   indexManager,
   easynewsEnabled,
@@ -103,7 +106,26 @@ export function DashboardTab({
   handleCardDragOver,
   handleCardDrop,
   handleCardDragEnd,
+  apiFetch,
 }: DashboardTabProps) {
+  const [nzbDbReady, setNzbDbReady] = useState(0);
+  const [nzbDbFailed, setNzbDbFailed] = useState(0);
+  const prevOverlayRef = useRef<typeof activeOverlay | undefined>(undefined);
+
+  useEffect(() => {
+    if (streamingMode !== 'nzbdav') return;
+    const prev = prevOverlayRef.current;
+    prevOverlayRef.current = activeOverlay;
+    // Only refetch on mount or when the nzbDatabase overlay closes
+    if (prev !== undefined && !(prev === 'nzbDatabase' && activeOverlay !== 'nzbDatabase')) return;
+    apiFetch('/api/nzbdav/cache').then(r => r.ok ? r.json() : null).then(stats => {
+      if (stats) {
+        setNzbDbReady(stats.ready ?? 0);
+        setNzbDbFailed(stats.failed ?? 0);
+      }
+    }).catch(() => {
+    });
+  }, [streamingMode, activeOverlay, apiFetch]);
   return (
     <div className="flex-1 overflow-y-auto p-4 md:p-6 animate-fade-in-up">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -126,8 +148,8 @@ export function DashboardTab({
                     className={clsx(
                       "card p-4 cursor-move group transition-all",
                       addonEnabled
-                        ? "hover:!border-green-400/50 hover:!shadow-green-400/30"
-                        : "hover:!border-red-400/50 hover:!shadow-red-400/30",
+                        ? "hover:!border-green-400/50 hover:!shadow-green-400/30 active:!border-green-400/50 active:!shadow-green-400/30"
+                        : "hover:!border-red-400/50 hover:!shadow-red-400/30 active:!border-red-400/50 active:!shadow-red-400/30",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-green-400 scale-105"
                     )}
@@ -137,13 +159,13 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Power className={clsx("w-5 h-5 transition-colors", addonEnabled ? "text-green-400 group-hover:scale-110" : "text-red-400 group-hover:scale-110")} />
+                      <Power className={clsx("w-5 h-5 transition-colors", addonEnabled ? "text-green-400 group-hover:scale-110 group-active:scale-110" : "text-red-400 group-hover:scale-110 group-active:scale-110")} />
                       <span className="text-slate-400 text-sm">Addon</span>
                     </div>
-                    <div className={clsx("text-3xl font-bold transition-colors", addonEnabled ? "text-green-400 group-hover:text-green-300" : "text-red-400 group-hover:text-red-300")}>
+                    <div className={clsx("text-3xl font-bold transition-colors", addonEnabled ? "text-green-400 group-hover:text-green-300 group-active:text-green-300" : "text-red-400 group-hover:text-red-300 group-active:text-red-300")}>
                       {addonEnabled ? 'Enabled' : 'Disabled'}
                     </div>
-                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">Click to {addonEnabled ? 'disable' : 'enable'} &rarr;</div>
+                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to {addonEnabled ? 'disable' : 'enable'} &rarr;</div>
                   </div>
                 ),
                 indexManager: (
@@ -155,7 +177,7 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'indexManager')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-blue-400/50 hover:!shadow-blue-400/30 transition-all",
+                      "card p-4 cursor-move group hover:!border-blue-400/50 hover:!shadow-blue-400/30 active:!border-blue-400/50 active:!shadow-blue-400/30 transition-all",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-blue-400 scale-105"
                     )}
@@ -165,16 +187,16 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Database className="w-5 h-5 text-blue-400 group-hover:scale-110 transition-transform" />
+                      <Database className="w-5 h-5 text-blue-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Index Manager</span>
                     </div>
-                    <div className="text-3xl font-bold group-hover:text-blue-400 transition-colors">
+                    <div className="text-3xl font-bold group-hover:text-blue-400 group-active:text-blue-400 transition-colors">
                       {indexManager === 'newznab' && 'Newznab'}
                       {indexManager === 'prowlarr' && 'Prowlarr'}
                       {indexManager === 'nzbhydra' && 'NZBHydra2'}
                       {easynewsEnabled && <span className="text-lg font-normal text-emerald-400 ml-2">+ EasyNews</span>}
                     </div>
-                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">
+                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
                       {indexManager === 'newznab' && (() => {
                         const total = config.indexers.length;
                         const enabled = enabledIndexersCount;
@@ -201,7 +223,7 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'streaming')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-purple-400/50 hover:!shadow-purple-400/30 transition-all",
+                      "card p-4 cursor-move group hover:!border-purple-400/50 hover:!shadow-purple-400/30 active:!border-purple-400/50 active:!shadow-purple-400/30 transition-all",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-purple-400 scale-105"
                     )}
@@ -211,10 +233,10 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Play className="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" />
+                      <Play className="w-5 h-5 text-purple-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Streaming Mode</span>
                     </div>
-                    <div className="text-3xl font-bold group-hover:text-purple-400 transition-colors">{config.streamingMode === 'nzbdav' ? 'NZBDav' : 'Native'}</div>
+                    <div className="text-3xl font-bold group-hover:text-purple-400 group-active:text-purple-400 transition-colors">{config.streamingMode === 'nzbdav' ? 'NZBDav' : 'Native'}</div>
                     <div className="flex items-center gap-2 mt-1">
                       {config.streamingMode === 'nzbdav' && nzbdavConnectionStatus && (
                         <>
@@ -245,7 +267,7 @@ export function DashboardTab({
                         </>
                       )}
                       {config.streamingMode === 'stremio' && (
-                        <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">Click to configure &rarr;</span>
+                        <span className="text-xs text-slate-500 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to configure &rarr;</span>
                       )}
                     </div>
                   </div>
@@ -259,7 +281,7 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'fallback')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-amber-400/50 hover:!shadow-amber-400/30 transition-all",
+                      "card p-4 cursor-move group hover:!border-amber-400/50 hover:!shadow-amber-400/30 active:!border-amber-400/50 active:!shadow-amber-400/30 transition-all",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-amber-400 scale-105",
                       streamingMode !== 'nzbdav' && "opacity-50 pointer-events-none"
@@ -270,14 +292,14 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <RotateCcw className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
+                      <RotateCcw className="w-5 h-5 text-amber-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">NZB Fallback</span>
                     </div>
-                    <div className="text-3xl font-bold group-hover:text-amber-400 transition-colors">
+                    <div className="text-3xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
                       {nzbdavFallbackEnabled ? 'Enabled' : 'Disabled'}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">
+                      <span className="text-xs text-slate-500 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
                         {!nzbdavFallbackEnabled
                           ? 'Click to configure \u2192'
                           : nzbdavMaxFallbacks === 0
@@ -287,6 +309,41 @@ export function DashboardTab({
                     </div>
                     {streamingMode !== 'nzbdav' && (
                       <span className="text-xs text-slate-600 mt-1">NZB Fallback is only available in NZBDav streaming mode</span>
+                    )}
+                  </div>
+                ),
+                nzbDatabase: (
+                  <div
+                    key="nzbDatabase"
+                    draggable
+                    onDragStart={() => handleCardDragStart('nzbDatabase')}
+                    onDragOver={(e) => handleCardDragOver(e, 'nzbDatabase')}
+                    onDrop={(e) => handleCardDrop(e, 'nzbDatabase')}
+                    onDragEnd={handleCardDragEnd}
+                    className={clsx(
+                      "card p-4 cursor-move group hover:!border-amber-400/50 hover:!shadow-amber-400/30 active:!border-amber-400/50 active:!shadow-amber-400/30 transition-all",
+                      isDragging && "opacity-50 scale-95",
+                      isOver && "ring-2 ring-amber-400 scale-105",
+                      streamingMode !== 'nzbdav' && "opacity-50 pointer-events-none"
+                    )}
+                    onClick={() => {
+                      if (!draggedCard && streamingMode === 'nzbdav') setActiveOverlay('nzbDatabase');
+                    }}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <GripVertical className="w-4 h-4 text-slate-600" />
+                      <Database className="w-5 h-5 text-amber-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
+                      <span className="text-slate-400 text-sm">NZB Database</span>
+                    </div>
+                    <div className="text-2xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
+                      <span className="text-emerald-400">{nzbDbReady}</span>
+                      <span className="text-slate-500 text-lg mx-1">healthy</span>
+                      <span className="text-slate-600 text-lg">·</span>
+                      <span className="text-red-400 ml-1">{nzbDbFailed}</span>
+                      <span className="text-slate-500 text-lg ml-1">dead</span>
+                    </div>
+                    {streamingMode !== 'nzbdav' && (
+                      <span className="text-xs text-slate-600 mt-1">NZB Database is only available in NZBDav streaming mode</span>
                     )}
                   </div>
                 ),
@@ -302,7 +359,7 @@ export function DashboardTab({
                       "card p-4 group transition-all",
                       indexManager !== 'newznab'
                         ? "opacity-50 cursor-not-allowed"
-                        : "cursor-move hover:!border-teal-400/50 hover:!shadow-teal-400/30",
+                        : "cursor-move hover:!border-teal-400/50 hover:!shadow-teal-400/30 active:!border-teal-400/50 active:!shadow-teal-400/30",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-teal-400 scale-105"
                     )}
@@ -312,7 +369,7 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Shield className="w-5 h-5 text-teal-400 group-hover:scale-110 transition-transform" />
+                      <Shield className="w-5 h-5 text-teal-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Proxy</span>
                     </div>
                     {indexManager !== 'newznab' ? (
@@ -326,7 +383,7 @@ export function DashboardTab({
                       </>
                     ) : (
                       <>
-                        <div className="text-3xl font-bold group-hover:text-teal-400 transition-colors">
+                        <div className="text-3xl font-bold group-hover:text-teal-400 group-active:text-teal-400 transition-colors">
                           {proxyMode === 'disabled' && 'Disabled'}
                           {proxyMode === 'http' && 'HTTP Proxy'}
                         </div>
@@ -346,12 +403,12 @@ export function DashboardTab({
                                 </div>
                               )}
                               {(proxyStatus === 'checking' || !proxyStatus) && (
-                                <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">Click to configure &rarr;</span>
+                                <span className="text-xs text-slate-500 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to configure &rarr;</span>
                               )}
                             </>
                           )}
                           {proxyMode === 'disabled' && (
-                            <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">Click to configure &rarr;</span>
+                            <span className="text-xs text-slate-500 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to configure &rarr;</span>
                           )}
                         </div>
                       </>
@@ -367,7 +424,7 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'cache')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-yellow-400/50 hover:!shadow-yellow-400/30 transition-all",
+                      "card p-4 cursor-move group hover:!border-yellow-400/50 hover:!shadow-yellow-400/30 active:!border-yellow-400/50 active:!shadow-yellow-400/30 transition-all",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-yellow-400 scale-105"
                     )}
@@ -377,11 +434,11 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Zap className="w-5 h-5 text-yellow-400 group-hover:scale-110 transition-transform" />
+                      <Zap className="w-5 h-5 text-yellow-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Search Cache TTL</span>
                     </div>
-                    <div className="text-3xl font-bold group-hover:text-yellow-400 transition-colors">{formatTTL(config.cacheTTL)}</div>
-                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">Click to configure &rarr;</div>
+                    <div className="text-3xl font-bold group-hover:text-yellow-400 group-active:text-yellow-400 transition-colors">{formatTTL(config.cacheTTL)}</div>
+                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to configure &rarr;</div>
                   </div>
                 ),
                 userAgent: (
@@ -393,7 +450,7 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'userAgent')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-indigo-400/50 hover:!shadow-indigo-400/30 transition-all",
+                      "card p-4 cursor-move group hover:!border-indigo-400/50 hover:!shadow-indigo-400/30 active:!border-indigo-400/50 active:!shadow-indigo-400/30 transition-all",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-indigo-400 scale-105"
                     )}
@@ -403,13 +460,13 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Globe className="w-5 h-5 text-indigo-400 group-hover:scale-110 transition-transform" />
+                      <Globe className="w-5 h-5 text-indigo-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">User-Agent</span>
                     </div>
-                    <div className="text-xs font-mono text-indigo-300 truncate group-hover:text-indigo-400 transition-colors">
+                    <div className="text-xs font-mono text-indigo-300 truncate group-hover:text-indigo-400 group-active:text-indigo-400 transition-colors">
                       {userAgents.indexerSearch}
                     </div>
-                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">Click to configure &rarr;</div>
+                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to configure &rarr;</div>
                   </div>
                 ),
                 filters: (
@@ -421,7 +478,7 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'filters')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-purple-400/50 hover:!shadow-purple-400/30 transition-all",
+                      "card p-4 cursor-move group hover:!border-purple-400/50 hover:!shadow-purple-400/30 active:!border-purple-400/50 active:!shadow-purple-400/30 transition-all",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-purple-400 scale-105"
                     )}
@@ -431,13 +488,13 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Filter className="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" />
+                      <Filter className="w-5 h-5 text-purple-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Filters & Sorting</span>
                     </div>
-                    <div className="text-xs text-purple-300 group-hover:text-purple-400 transition-colors">
+                    <div className="text-xs text-purple-300 group-hover:text-purple-400 group-active:text-purple-400 transition-colors">
                       {filters.sortOrder?.[0] === 'quality' ? 'Resolution First' : filters.sortOrder?.[0] === 'size' ? 'Size First' : filters.sortOrder?.[0] === 'videoTag' ? 'Quality First' : 'Resolution First'}
                     </div>
-                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">Click to configure &rarr;</div>
+                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to configure &rarr;</div>
                   </div>
                 ),
                 autoPlay: (
@@ -449,7 +506,7 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'autoPlay')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-orange-400/50 hover:!shadow-orange-400/30 transition-all",
+                      "card p-4 cursor-move group hover:!border-orange-400/50 hover:!shadow-orange-400/30 active:!border-orange-400/50 active:!shadow-orange-400/30 transition-all",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-orange-400 scale-105"
                     )}
@@ -459,13 +516,13 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <FastForward className="w-5 h-5 text-orange-400 group-hover:scale-110 transition-transform" />
+                      <FastForward className="w-5 h-5 text-orange-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Auto Play</span>
                     </div>
-                    <div className="text-3xl font-bold group-hover:text-orange-400 transition-colors">
+                    <div className="text-3xl font-bold group-hover:text-orange-400 group-active:text-orange-400 transition-colors">
                       {autoPlay.enabled ? 'Enabled' : 'Disabled'}
                     </div>
-                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">
+                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
                       {autoPlay.enabled
                         ? autoPlay.method === 'matchingFile' ? 'Matching File' : autoPlay.method === 'matchingIndex' ? 'Matching Index' : 'First File'
                         : 'Click to configure →'}
@@ -483,7 +540,7 @@ export function DashboardTab({
                       onDrop={(e) => handleCardDrop(e, 'streamDisplay')}
                       onDragEnd={handleCardDragEnd}
                       className={clsx(
-                        "card p-4 cursor-move group hover:!border-indigo-400/50 hover:!shadow-indigo-400/30 transition-all",
+                        "card p-4 cursor-move group hover:!border-indigo-400/50 hover:!shadow-indigo-400/30 active:!border-indigo-400/50 active:!shadow-indigo-400/30 transition-all",
                         isDragging && "opacity-50 scale-95",
                         isOver && "ring-2 ring-indigo-400 scale-105"
                       )}
@@ -493,7 +550,7 @@ export function DashboardTab({
                     >
                       <div className="flex items-center gap-3 mb-2">
                         <GripVertical className="w-4 h-4 text-slate-600" />
-                        <Monitor className="w-5 h-5 text-indigo-400 group-hover:scale-110 transition-transform" />
+                        <Monitor className="w-5 h-5 text-indigo-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                         <span className="text-slate-400 text-sm">Stream Display</span>
                       </div>
                       {/* Miniature Stremio-like preview */}
@@ -511,7 +568,7 @@ export function DashboardTab({
                           </div>
                         </div>
                       </div>
-                      <div className="text-xs text-slate-500 mt-1.5 group-hover:text-slate-400 transition-colors">
+                      <div className="text-xs text-slate-500 mt-1.5 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
                         Click to customize &rarr;
                       </div>
                     </div>
@@ -526,7 +583,7 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'status')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-emerald-400/50 hover:!shadow-emerald-400/30 transition-all",
+                      "card p-4 cursor-move group hover:!border-emerald-400/50 hover:!shadow-emerald-400/30 active:!border-emerald-400/50 active:!shadow-emerald-400/30 transition-all",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-emerald-400 scale-105"
                     )}
@@ -536,11 +593,11 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <ScrollText className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                      <ScrollText className="w-5 h-5 text-emerald-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Logs</span>
                     </div>
-                    <div className="text-lg font-bold text-emerald-400 group-hover:text-emerald-300 transition-colors">Live View</div>
-                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">Click to view logs &rarr;</div>
+                    <div className="text-lg font-bold text-emerald-400 group-hover:text-emerald-300 group-active:text-emerald-300 transition-colors">Live View</div>
+                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to view logs &rarr;</div>
                   </div>
                 ),
                 zyclops: (
@@ -555,7 +612,7 @@ export function DashboardTab({
                       "card p-4 group transition-all",
                       indexManager !== 'newznab'
                         ? "opacity-50 cursor-not-allowed"
-                        : "cursor-move hover:!border-violet-400/50 hover:!shadow-violet-400/30",
+                        : "cursor-move hover:!border-violet-400/50 hover:!shadow-violet-400/30 active:!border-violet-400/50 active:!shadow-violet-400/30",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-violet-400 scale-105"
                     )}
@@ -565,7 +622,7 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Bot className="w-5 h-5 text-violet-400 group-hover:scale-110 transition-transform" />
+                      <Bot className="w-5 h-5 text-violet-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Zyclops</span>
                     </div>
                     {indexManager !== 'newznab' ? (
@@ -579,10 +636,10 @@ export function DashboardTab({
                       const zyclopsCount = config?.indexers.filter(i => i.zyclops?.enabled).length || 0;
                       return (
                         <>
-                          <div className="text-3xl font-bold group-hover:text-violet-400 transition-colors">
+                          <div className="text-3xl font-bold group-hover:text-violet-400 group-active:text-violet-400 transition-colors">
                             {zyclopsCount > 0 ? `${zyclopsCount} Active` : 'Disabled'}
                           </div>
-                          <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">
+                          <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
                             {zyclopsCount > 0
                               ? `${zyclopsCount} indexer${zyclopsCount !== 1 ? 's' : ''} via Zyclops proxy`
                               : 'Click to configure →'}
@@ -601,7 +658,7 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'stats')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-amber-400/50 hover:!shadow-amber-400/30 transition-all",
+                      "card p-4 cursor-move group hover:!border-amber-400/50 hover:!shadow-amber-400/30 active:!border-amber-400/50 active:!shadow-amber-400/30 transition-all",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-amber-400 scale-105"
                     )}
@@ -614,13 +671,13 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Trophy className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
+                      <Trophy className="w-5 h-5 text-amber-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Indexer Performance Metrics</span>
                     </div>
-                    <div className="text-3xl font-bold group-hover:text-amber-400 transition-colors">
+                    <div className="text-3xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
                       {statsData ? Object.keys(statsData.indexers || {}).length : '-'}
                     </div>
-                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">Click to view analytics &rarr;</div>
+                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to view analytics &rarr;</div>
                   </div>
                 ),
                 healthChecks: (
@@ -632,7 +689,7 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'healthChecks')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 cursor-move group hover:!border-pink-400/50 hover:!shadow-pink-400/30 transition-all",
+                      "card p-4 cursor-move group hover:!border-pink-400/50 hover:!shadow-pink-400/30 active:!border-pink-400/50 active:!shadow-pink-400/30 transition-all",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-pink-400 scale-105"
                     )}
@@ -642,13 +699,13 @@ export function DashboardTab({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <GripVertical className="w-4 h-4 text-slate-600" />
-                      <Heart className="w-5 h-5 text-pink-400 group-hover:scale-110 transition-transform" />
+                      <Heart className="w-5 h-5 text-pink-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Health Checks</span>
                     </div>
-                    <div className="text-3xl font-bold group-hover:text-pink-400 transition-colors">
+                    <div className="text-3xl font-bold group-hover:text-pink-400 group-active:text-pink-400 transition-colors">
                       {healthChecks.enabled ? 'Enabled' : 'Disabled'}
                     </div>
-                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">
+                    <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
                       {healthChecks.enabled
                         ? (() => {
                             const total = healthChecks.providers.length;

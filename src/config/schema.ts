@@ -44,6 +44,12 @@ export interface ConfigData {
   nzbdavFallbackOrder?: 'selected' | 'top';
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
+  healthyNzbDbMode?: 'time' | 'storage';
+  healthyNzbDbTTL?: number;
+  healthyNzbDbMaxSizeMB?: number;
+  deadNzbDbMode?: 'time' | 'storage';
+  deadNzbDbTTL?: number;
+  deadNzbDbMaxSizeMB?: number;
   easynewsEnabled?: boolean;
   easynewsUsername?: string;
   easynewsPassword?: string;
@@ -93,7 +99,6 @@ export interface ConfigData {
     hideBlocked: boolean;
     libraryPreCheck?: boolean;
     healthCheckIndexers?: Record<string, boolean>;
-    segmentCache?: { enabled: boolean; ttlHours: number; maxSizeMB: number };
     // Legacy single-provider fields (auto-migrated to providers array)
     usenetHost?: string;
     usenetPort?: number;
@@ -119,7 +124,7 @@ function loadConfigFile(): ConfigData {
   return {
     indexers: [],
     cacheEnabled: true,
-    cacheTTL: 43200,
+    cacheTTL: 0,
     streamingMode: 'nzbdav',
     indexManager: 'newznab',
   };
@@ -161,7 +166,7 @@ const ENV_OVERRIDES: readonly string[] = [
   'NZBDAV_URL', 'NZBDAV_API_KEY', 'NZBDAV_WEBDAV_URL', 'NZBDAV_WEBDAV_USER', 'NZBDAV_WEBDAV_PASS',
   'NZBDAV_FALLBACK_ENABLED', 'NZBDAV_MAX_FALLBACKS', 'NZBDAV_FALLBACK_ORDER',
   'NZBDAV_LIBRARY_CHECK', 'NZBDAV_PROXY_ENABLED',
-  'NZBDAV_STREAM_BUFFER_MB', 'STREAM_BUFFER_MB', 'NZBDAV_STREAM_MAX_RECONNECTS', 'STREAM_MAX_RECONNECTS',
+  'NZBDAV_STREAM_BUFFER_MB', 'STREAM_BUFFER_MB', 'NZBDAV_STREAM_MAX_RECONNECTS', 'STREAM_MAX_RECONNECTS', 'NZBDAV_MAX_SELF_REDIRECTS',
   'NZBDAV_JOB_TIMEOUT', 'NZBDAV_MOVIES_TIMEOUT', 'NZBDAV_TV_TIMEOUT',
   'PROWLARR_URL', 'PROWLARR_API_KEY',
   'NZBHYDRA_URL', 'NZBHYDRA_API_KEY', 'NZBHYDRA_USERNAME', 'NZBHYDRA_PASSWORD',

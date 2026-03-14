@@ -116,7 +116,6 @@ export const DEFAULT_HEALTH_CHECKS = {
   hideBlocked: true,
   libraryPreCheck: true,
   healthCheckIndexers: {} as Record<string, boolean>,
-  segmentCache: { enabled: true, ttlHours: 0, maxSizeMB: 50 },
 };
 
 export const DEFAULT_FILTERS = {
@@ -141,7 +140,7 @@ export const DEFAULT_FILTERS = {
     edition: {} as Record<string, boolean>
   },
   maxFileSize: undefined as number | undefined,
-  maxStreams: 10 as number | undefined,
+  maxStreams: undefined as number | undefined,
   maxStreamsPerQuality: undefined as number | undefined,
   resolutionPriority: ['2160p', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'] as string[],
   videoPriority: ['BluRay REMUX', 'BluRay', 'WEB-DL', 'WEBRip', 'HDRip', 'HC HD-Rip', 'DVDRip', 'HDTV', 'Unknown'] as string[],
@@ -153,4 +152,4 @@ export const DEFAULT_FILTERS = {
   preferNonStandardEdition: false
 };
 
-export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'fallback', 'healthChecks', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
+export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'fallback', 'healthChecks', 'nzbDatabase', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];

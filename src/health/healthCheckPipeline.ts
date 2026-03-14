@@ -3,7 +3,7 @@
  *
  * Main orchestration for NZB health checks. Downloads and parses the NZB,
  * classifies files, optionally inspects archive headers, samples segments,
- * checks segment cache, and verifies article availability across providers.
+ * and verifies article availability across providers.
  */
 
 import * as net from 'net';
@@ -15,7 +15,6 @@ import { downloadAndParseNzb, CircuitChangedError } from './nzbParser.js';
 import { extractFilename, isVideoFile, isCompressedArchive } from './fileClassifier.js';
 import { findFirstArchivePart, selectMultiPartSamples, collectAllArchiveSegments } from './archiveGrouper.js';
 import { NntpConnectionPool } from './nntpConnection.js';
-import { checkSegmentCache, addToSegmentCache } from './segmentCache.js';
 import { checkArticlesMultiProvider } from './articleChecker.js';
 
 /**
@@ -273,19 +272,6 @@ export async function performHealthCheck(
 
     log(`Checking ${samplesToCheck.length} segments across ${providers.filter(p => p.enabled).length} provider(s)`);
 
-    // Check segment cache before opening any NNTP connections
-    const cachedMissing = checkSegmentCache(samplesToCheck);
-    if (cachedMissing) {
-      log(`[cache] HIT — skipping NNTP check`);
-      return {
-        status: 'blocked',
-        message: 'Cached: segment(s) previously confirmed missing',
-        playable: false,
-        password
-      };
-    }
-    log(`[cache] MISS`);
-
     // Multi-provider check with fallback
     const result = await checkArticlesMultiProvider(providers, samplesToCheck, pool);
     const usedBackup = result.providersUsed.some(p => p.type === 'backup');
@@ -338,9 +324,8 @@ export async function performHealthCheck(
       }
     }
 
-    // Some missing - blocked — cache the confirmed-missing IDs for future lookups
+    // Some missing — blocked
     if (result.totalMissing > 0) {
-      addToSegmentCache(result.missingIds);
 
       const providerInfo = providerNames.length > 1
         ? ` (checked ${providerNames.length} providers)`

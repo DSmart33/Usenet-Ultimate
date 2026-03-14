@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/gkwR8xyW"><img src="https://img.shields.io/badge/Discord-Join%20the%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://discord.gg/6RPVSeg56v"><img src="https://img.shields.io/badge/Discord-Join%20the%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" /></a>
   &nbsp;&nbsp;
   <a href="https://ko-fi.com/dsmart33"><img src="https://img.shields.io/badge/Ko--fi-Support%20Development-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Ko-fi" /></a>
 </p>
@@ -32,7 +32,7 @@
 
 Have questions, need help, or want to follow development?
 
-- **Discord** — [Join the community](https://discord.gg/gkwR8xyW) for help, feature discussion, and updates
+- **Discord** — [Join the community](https://discord.gg/6RPVSeg56v) for help, feature discussion, and updates
 - **Ko-fi** — [Support development](https://ko-fi.com/dsmart33) if you find this project useful
 - **Issues** — [Open an issue](../../issues) to report bugs or request features
 
@@ -161,9 +161,9 @@ Two health check modes are available:
 
 Per-indexer Zyclops proxy support for backbone-level pre-verification. When enabled, search requests are routed through the Zyclops API, which pre-checks article availability across major Usenet backbones (usenetexpress, eweka, etc.). Results come back pre-marked as verified, reducing the need for your own NNTP health checks.
 
-**Segment Cache**
+**NZB Database Pre-Check**
 
-Known-missing article message IDs are cached persistently to disk (`config/segment-cache.json`). On repeat searches, NZBs containing cached-dead segments are instantly rejected without any NNTP connection. The cache supports configurable TTL (or no expiry), size-based eviction (default 50MB), and survives restarts. It auto-saves every 5 minutes and performs a final save during graceful shutdown. Corrupt cache files are detected and rebuilt automatically.
+Before running NNTP checks, health checks consult the NZB Database (the same caches used by the streaming pipeline). NZBs previously streamed successfully are instantly marked as verified, and NZBs that previously failed are instantly blocked — skipping expensive NNTP connections entirely. Blocked results from health checks are also written back to the dead NZB database so future searches skip them instantly.
 
 **NZBDav Library Pre-Check**
 
@@ -218,8 +218,7 @@ Stremio's native binge watching is fully supported. When an episode ends, Stremi
 
 For seamless binge watching, the addon can pre-download content to NZBDav before you need it:
 
-- **Early auto-queue**: Starts the NZBDav download of the top-ranked result *during* health checks, overlapping download time with verification
-- **Standard auto-queue**: After health checks complete, queues the verified result(s) so they're ready before the current episode ends
+- **Auto-queue**: After health checks complete, queues the verified result(s) so they're ready before the current episode ends
 - Two modes: queue only the top result, or queue all verified results in order
 
 ---
@@ -418,7 +417,7 @@ These are migrated into `config/config.json` on first startup. After that, manag
 |----------|---------|-------------|
 | `INDEXER_URL` | — | Newznab-compatible indexer URL. Comma-separated for multiple indexers |
 | `INDEXER_API_KEY` | — | API key(s) matching each indexer URL. Comma-separated for multiple |
-| `CACHE_TTL` | `43200` (12h) | Search result cache TTL in seconds. `0` disables caching |
+| `CACHE_TTL` | `0` (disabled) | Search result cache TTL in seconds. `0` disables caching |
 
 #### Index Manager
 
@@ -460,14 +459,24 @@ These are migrated into `config/config.json` on first startup. After that, manag
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NZBDAV_FALLBACK_ENABLED` | `true` | Enable automatic fallback to alternative NZBs on failure |
+| `NZBDAV_FALLBACK_ENABLED` | `false` | Enable automatic fallback to alternative NZBs on failure |
 | `NZBDAV_FALLBACK_ORDER` | `selected` | Candidate ordering: `selected` (start from clicked NZB) or `top` (start from highest-ranked) |
 | `NZBDAV_MAX_FALLBACKS` | `0` | Max fallback attempts. `0` = unlimited (try all search results), `1-20` = limit |
-| `NZBDAV_MOVIES_TIMEOUT` | `30` | Seconds to wait for a movie stream before trying the next fallback (5-600) |
-| `NZBDAV_TV_TIMEOUT` | `15` | Seconds to wait for a TV episode stream before trying the next fallback (5-600) |
-| `NZBDAV_JOB_TIMEOUT` | `120` | Legacy: sets both movie and TV timeouts if the specific ones aren't configured (clamped to 5-600) |
+| `NZBDAV_LIBRARY_CHECK` | `true` | Check WebDAV library for existing files before grabbing a new NZB |
+| `NZBDAV_MOVIES_TIMEOUT` | `30` | Seconds to wait for a movie stream before trying the next fallback (1-180) |
+| `NZBDAV_TV_TIMEOUT` | `15` | Seconds to wait for a TV episode stream before trying the next fallback (1-180) |
+| `NZBDAV_JOB_TIMEOUT` | `120` | Legacy: sets both movie and TV timeouts if the specific ones aren't configured (clamped to 1-180) |
+| `NZBDAV_MAX_SELF_REDIRECTS` | `100` | Max Stremio self-redirects during fallback chains before giving up |
 
-#### Proxy
+#### Stream Proxy
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NZBDAV_PROXY_ENABLED` | `true` | Stream through a local proxy with buffering and reconnection. When disabled, players are redirected directly to the WebDAV URL |
+| `NZBDAV_STREAM_BUFFER_MB` | `128` | Internal proxy buffer size in MB. Larger buffers absorb network jitter but use more memory (min: 8) |
+| `NZBDAV_STREAM_MAX_RECONNECTS` | `30` | Max upstream reconnect attempts before giving up on a proxied stream |
+
+#### HTTP Proxy
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -751,7 +760,8 @@ All persistent data lives in the `config/` directory (single Docker volume):
 |------|---------|
 | `config.json` | All settings, indexers, filters, display preferences |
 | `users.json` | User accounts with bcrypt password hashes and manifest keys |
-| `segment-cache.json` | Persistent cache of known-missing NNTP article IDs |
+| `healthy-nzbs.json` | NZB Database: successfully streamed NZBs (ready cache) |
+| `dead-nzbs.json` | NZB Database: failed NZBs from streaming and health checks |
 | `stats.json` | Per-indexer query counts, response times, grab statistics |
 | `version-cache.json` | Cached latest versions of Prowlarr, SABnzbd, Chrome, Alpine |
 

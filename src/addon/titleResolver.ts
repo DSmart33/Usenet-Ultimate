@@ -78,7 +78,7 @@ export async function resolveTitle(
   // Step 1: Cinemeta
   const resolved = await resolveFromCinemeta(type, imdbId, season);
   const cinemetaTitle = resolved.title;
-  const year = resolved.year;
+  let year = resolved.year;
   const country = resolved.country;
   const genres = resolved.genres;
 
@@ -106,9 +106,16 @@ export async function resolveTitle(
   if (isAnime && skipAnimeResolve) {
     console.log(`🎌 Anime detected — using Cinemeta title "${cinemetaTitle}" (skipping TVDB/TMDB resolution)`);
   } else {
-    resolvedTitle = type === 'series'
-      ? await resolveTitleFromTvdb(imdbId, 'series')
-      : await resolveTitleFromTmdb(imdbId, 'movie');
+    if (type === 'series') {
+      resolvedTitle = await resolveTitleFromTvdb(imdbId, 'series');
+    } else {
+      const tmdbResult = await resolveTitleFromTmdb(imdbId, 'movie');
+      resolvedTitle = tmdbResult?.title ?? null;
+      if (tmdbResult?.year && tmdbResult.year !== year) {
+        console.log(`📅 Using TMDB year ${tmdbResult.year} (Cinemeta: ${year})`);
+        year = tmdbResult.year;
+      }
+    }
   }
   const title = resolvedTitle || cinemetaTitle;
   const additionalTitles = cinemetaTitle && cinemetaTitle !== title ? [cinemetaTitle] : undefined;

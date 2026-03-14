@@ -3,6 +3,8 @@
  *      content - Tells Tailwind which files to scan for class names
  *      Custom color palette (blue/sky theme)
  *      Custom animations for smooth UI transitions
+ *      future.hoverOnlyWhenSupported - Wraps hover: utilities in @media (hover: hover)
+ *        so touch devices don't get sticky hover states
  */
 
 /** @type {import('tailwindcss').Config} */
@@ -11,6 +13,9 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  future: {
+    hoverOnlyWhenSupported: true,
+  },
   theme: {
     extend: {
       colors: {

@@ -13,11 +13,11 @@
 
 import { Router } from 'express';
 import type { Config } from '../types.js';
+import { recalculateTTLExpirations } from '../nzbdav/streamCache.js';
 
 interface SettingsDeps {
   config: Config;
   updateSettings: (settings: Record<string, any>) => void;
-  configureSegmentCache: (cacheConfig: { enabled: boolean; ttlHours: number; maxSizeMB: number }) => void;
   fetchLatestVersions: (force: boolean) => Promise<void>;
   getLatestVersions: () => { chrome: string; prowlarr: string; sabnzbd: string };
   testProxyConnection: (proxyUrl?: string) => Promise<any>;
@@ -68,6 +68,12 @@ function buildConfigResponse(config: Config) {
     nzbdavFallbackOrder: config.nzbdavFallbackOrder,
     nzbdavStreamBufferMB: config.nzbdavStreamBufferMB,
     nzbdavProxyEnabled: config.nzbdavProxyEnabled,
+    healthyNzbDbMode: config.healthyNzbDbMode,
+    healthyNzbDbTTL: config.healthyNzbDbTTL,
+    healthyNzbDbMaxSizeMB: config.healthyNzbDbMaxSizeMB,
+    deadNzbDbMode: config.deadNzbDbMode,
+    deadNzbDbTTL: config.deadNzbDbTTL,
+    deadNzbDbMaxSizeMB: config.deadNzbDbMaxSizeMB,
     easynewsEnabled: config.easynewsEnabled,
     easynewsUsername: config.easynewsUsername,
     easynewsPassword: config.easynewsPassword,
@@ -97,7 +103,7 @@ function buildConfigResponse(config: Config) {
 
 export function createSettingsRoutes(deps: SettingsDeps): Router {
   const router = Router();
-  const { config, updateSettings, configureSegmentCache, fetchLatestVersions, getLatestVersions, testProxyConnection, clearSearchCache } = deps;
+  const { config, updateSettings, fetchLatestVersions, getLatestVersions, testProxyConnection, clearSearchCache } = deps;
 
   // Configuration API endpoint for frontend
   router.get('/config', (req, res) => {
@@ -108,9 +114,11 @@ export function createSettingsRoutes(deps: SettingsDeps): Router {
   function handleSettingsUpdate(req: any, res: any) {
     try {
       updateSettings(req.body);
-      // Reconfigure segment cache if health check settings changed
-      if (config.healthChecks?.segmentCache) {
-        configureSegmentCache(config.healthChecks.segmentCache);
+      // Recalculate NZB database expirations when TTL, mode, or storage limit changes
+      if (req.body.healthyNzbDbTTL !== undefined || req.body.deadNzbDbTTL !== undefined ||
+          req.body.healthyNzbDbMode !== undefined || req.body.deadNzbDbMode !== undefined ||
+          req.body.healthyNzbDbMaxSizeMB !== undefined || req.body.deadNzbDbMaxSizeMB !== undefined) {
+        recalculateTTLExpirations();
       }
       res.json(buildConfigResponse(config));
     } catch (error) {

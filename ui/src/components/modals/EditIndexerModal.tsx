@@ -46,6 +46,8 @@ export function EditIndexerModal({
   setDeleteConfirmation,
   setExpandedIndexer,
 }: EditIndexerModalProps) {
+  const currentIndexer = config?.indexers.find(i => i.name === expandedIndexer);
+  const zyclopsActive = currentIndexer?.zyclops?.enabled === true;
   return (
     <div className="fixed inset-0 z-[55] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-lg w-full animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
@@ -64,13 +66,21 @@ export function EditIndexerModal({
           </div>
         </div>
         <div className="p-4 md:p-6 space-y-4">
+          {zyclopsActive && (
+            <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3">
+              <p className="text-xs text-violet-300">
+                <span className="font-semibold">🤖 Zyclops Active</span> — Name, URL, and enabled status are locked while Zyclops is enabled. Disable Zyclops first to edit these fields.
+              </p>
+            </div>
+          )}
           <div>
             <label className="block text-sm text-slate-400 mb-2">Name</label>
             <input
               type="text"
               value={editForm.name}
               onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
-              className="input"
+              disabled={zyclopsActive}
+              className={clsx('input', zyclopsActive && 'opacity-50 cursor-not-allowed')}
             />
           </div>
           <div>
@@ -79,7 +89,8 @@ export function EditIndexerModal({
               type="text"
               value={editForm.url}
               onChange={(e) => setEditForm(prev => ({ ...prev, url: e.target.value }))}
-              className="input"
+              disabled={zyclopsActive}
+              className={clsx('input', zyclopsActive && 'opacity-50 cursor-not-allowed')}
             />
           </div>
           <div>
@@ -107,10 +118,11 @@ export function EditIndexerModal({
               id="edit-enabled"
               checked={editForm.enabled}
               onChange={(e) => setEditForm(prev => ({ ...prev, enabled: e.target.checked }))}
-              className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500"
+              disabled={zyclopsActive}
+              className={clsx('w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500', zyclopsActive && 'opacity-50 cursor-not-allowed')}
             />
-            <label htmlFor="edit-enabled" className="text-sm text-slate-300">
-              Enabled
+            <label htmlFor="edit-enabled" className={clsx('text-sm text-slate-300', zyclopsActive && 'opacity-50')}>
+              Enabled {zyclopsActive && '(managed by Zyclops)'}
             </label>
           </div>
           <div className="space-y-2">

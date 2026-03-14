@@ -85,8 +85,8 @@ export const config: Config = {
     const env = envBool('NZBDAV_FALLBACK_ENABLED');
     if (env !== undefined) return env;
     if (configData.nzbdavFallbackEnabled !== undefined) return configData.nzbdavFallbackEnabled;
-    // Migration: old configs used maxFallbacks=0 for disabled (no nzbdavFallbackEnabled field)
-    return configData.nzbdavMaxFallbacks !== 0;
+    // Default: disabled — user must explicitly enable fallback
+    return false;
   },
   get nzbdavLibraryCheckEnabled() {
     const env = envBool('NZBDAV_LIBRARY_CHECK');
@@ -101,11 +101,11 @@ export const config: Config = {
   },
   get nzbdavMoviesTimeoutSeconds() {
     const raw = envInt('NZBDAV_MOVIES_TIMEOUT') ?? configData.nzbdavMoviesTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 30;
-    return Math.max(5, Math.min(600, raw));
+    return Math.max(1, Math.min(180, raw));
   },
   get nzbdavTvTimeoutSeconds() {
     const raw = envInt('NZBDAV_TV_TIMEOUT') ?? configData.nzbdavTvTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 15;
-    return Math.max(5, Math.min(600, raw));
+    return Math.max(1, Math.min(180, raw));
   },
   get nzbdavFallbackOrder() {
     return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'selected';
@@ -118,7 +118,25 @@ export const config: Config = {
   get nzbdavProxyEnabled() {
     const env = envBool('NZBDAV_PROXY_ENABLED');
     if (env !== undefined) return env;
-    return configData.nzbdavProxyEnabled === true;
+    return configData.nzbdavProxyEnabled !== false;
+  },
+  get healthyNzbDbMode(): 'time' | 'storage' {
+    return configData.healthyNzbDbMode || 'time';
+  },
+  get healthyNzbDbTTL() {
+    return configData.healthyNzbDbTTL ?? 259200;
+  },
+  get healthyNzbDbMaxSizeMB() {
+    return Math.min(50, Math.max(1, configData.healthyNzbDbMaxSizeMB ?? 50));
+  },
+  get deadNzbDbMode(): 'time' | 'storage' {
+    return configData.deadNzbDbMode || 'storage';
+  },
+  get deadNzbDbTTL() {
+    return configData.deadNzbDbTTL ?? 86400;
+  },
+  get deadNzbDbMaxSizeMB() {
+    return Math.min(50, Math.max(1, configData.deadNzbDbMaxSizeMB ?? 50));
   },
   get proxyMode() {
     return envEnum('PROXY_MODE', ['disabled', 'http']) || configData.proxyMode || 'disabled';
@@ -191,7 +209,7 @@ export const config: Config = {
         edition: {}
       },
       maxFileSize: undefined,
-      maxStreams: 10,
+      maxStreams: undefined,
       maxStreamsPerQuality: undefined,
       resolutionPriority: ['2160p', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'],
       videoPriority: ['BluRay REMUX', 'BluRay', 'WEB-DL', 'WEBRip', 'HDRip', 'HC HD-Rip', 'DVDRip', 'HDTV', 'Unknown'],
@@ -226,7 +244,6 @@ export const config: Config = {
         autoQueueMode: 'all' as const,
         hideBlocked: true,
         libraryPreCheck: true,
-        segmentCache: { enabled: true, ttlHours: 0, maxSizeMB: 50 },
       };
       // Inject env-based NNTP provider if configured
       const envHost = envStr('HEALTH_CHECK_NNTP_HOST');
@@ -265,8 +282,7 @@ export const config: Config = {
       smartBatchSize: hc.smartBatchSize ?? 3,
       smartAdditionalRuns: hc.smartAdditionalRuns ?? 1,
       maxConnections: hc.maxConnections ?? 12,
-      segmentCache: hc.segmentCache ?? { enabled: true, ttlHours: 0, maxSizeMB: 50 },
-      autoQueueMode: hc.autoQueueMode || 'all',
+      autoQueueMode: hc.autoQueueMode ?? 'all',
       libraryPreCheck: hc.libraryPreCheck !== false,
     };
 
