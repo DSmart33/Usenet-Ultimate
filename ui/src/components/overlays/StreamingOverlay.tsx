@@ -1,5 +1,5 @@
 // What this does:
-//   Streaming configuration overlay with NZBDav connection settings and categories
+//   Streaming configuration overlay with NZBDav connection settings, stream buffer, and categories
 
 import { Play, X, Activity } from 'lucide-react';
 import clsx from 'clsx';
@@ -25,6 +25,8 @@ interface StreamingOverlayProps {
   setNzbdavMoviesCategory: React.Dispatch<React.SetStateAction<string>>;
   nzbdavTvCategory: string;
   setNzbdavTvCategory: React.Dispatch<React.SetStateAction<string>>;
+  nzbdavStreamBufferMB: number;
+  setNzbdavStreamBufferMB: React.Dispatch<React.SetStateAction<number>>;
   nzbdavConnectionStatus: 'connected' | 'disconnected' | 'unconfigured' | 'checking' | null;
   nzbdavTestNzbStatus: 'idle' | 'sending' | 'success' | 'error';
   nzbdavTestNzbMessage: string;
@@ -52,6 +54,8 @@ export function StreamingOverlay({
   setNzbdavMoviesCategory,
   nzbdavTvCategory,
   setNzbdavTvCategory,
+  nzbdavStreamBufferMB,
+  setNzbdavStreamBufferMB,
   nzbdavConnectionStatus,
   nzbdavTestNzbStatus,
   nzbdavTestNzbMessage,
@@ -138,6 +142,33 @@ export function StreamingOverlay({
                     <input type="text" value={nzbdavTvCategory} onChange={(e) => setNzbdavTvCategory(e.target.value)} placeholder="Usenet-Ultimate-TV" className="input" />
                   </div>
                 </div>
+              </div>
+              {/* Stream Buffer Size */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium text-slate-300">Proxy Stream Buffer</div>
+                  <button
+                    onClick={() => setNzbdavStreamBufferMB(128)}
+                    className="text-xs text-primary-400 hover:text-primary-300"
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={8}
+                    max={256}
+                    step={8}
+                    value={nzbdavStreamBufferMB}
+                    onChange={(e) => setNzbdavStreamBufferMB(parseInt(e.target.value, 10))}
+                    className="flex-1 accent-purple-400"
+                  />
+                  <span className="text-sm text-slate-300 w-16 text-right">{nzbdavStreamBufferMB} MB</span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Internal buffer between WebDAV and the player. Larger buffers absorb network jitter but use more memory per stream. If you experience buffering on large files, try increasing this.
+                </p>
               </div>
               <div className={clsx(
                 "flex items-center justify-between p-4 rounded-lg border",

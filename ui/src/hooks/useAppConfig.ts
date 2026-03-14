@@ -288,20 +288,20 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
-      streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory
+      streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB
     }), 500);
     return () => clearTimeout(timer);
-  }, [streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, saveSettings]);
+  }, [streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, saveSettings]);
 
   // Auto-save: NZB fallback settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
       nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder,
-      nzbdavMaxFallbacks, nzbdavStreamBufferMB, nzbdavProxyEnabled,
+      nzbdavMaxFallbacks, nzbdavProxyEnabled,
     }), 500);
     return () => clearTimeout(timer);
-  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavStreamBufferMB, nzbdavProxyEnabled, saveSettings]);
+  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavProxyEnabled, saveSettings]);
 
   // Auto-save: NZB database settings
   useEffect(() => {

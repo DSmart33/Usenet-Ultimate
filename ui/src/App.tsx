@@ -659,6 +659,8 @@ function App() {
           nzbdavConnectionStatus={ac.nzbdavConnectionStatus}
           nzbdavTestNzbStatus={ac.nzbdavTestNzbStatus}
           nzbdavTestNzbMessage={ac.nzbdavTestNzbMessage}
+          nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
+          setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
           checkNzbdavConnection={ac.checkNzbdavConnection}
           sendNzbdavTestNzb={ac.sendNzbdavTestNzb}
         />
@@ -680,8 +682,6 @@ function App() {
           setNzbdavFallbackOrder={ac.setNzbdavFallbackOrder}
           nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
           setNzbdavMaxFallbacks={ac.setNzbdavMaxFallbacks}
-          nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
-          setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
           nzbdavProxyEnabled={ac.nzbdavProxyEnabled}
           setNzbdavProxyEnabled={ac.setNzbdavProxyEnabled}
         />
