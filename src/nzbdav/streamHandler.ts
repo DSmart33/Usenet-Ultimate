@@ -13,9 +13,9 @@ import fs from 'fs';
 import path from 'path';
 import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
 import { waitForVideoFile, checkNzbLibrary } from './videoDiscovery.js';
-import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, setPrepareFn, cleanupExpiredCache } from './streamCache.js';
+import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
-import { encodeWebdavPath, nzbdavError, getDeliveryLog } from './utils.js';
+import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error } from './utils.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
 
 const pipelineAsync = promisify(pipeline);
@@ -423,7 +423,7 @@ export async function handleStream(
 
     // Skip candidates already known to be dead
     const deadKey = getDeadCacheKey(candidate.nzbUrl, episodePattern);
-    if (isDeadNzb(deadKey)) {
+    if (isDeadNzb(deadKey) || isDeadNzbByUrl(candidate.nzbUrl)) {
       if (verbose) console.log(`\u23ED\uFE0F NZB Database (skipping dead) [${i + 1}/${maxCandidates}]: ${candidate.title}`);
       continue;
     }
@@ -511,12 +511,14 @@ export async function handleStream(
           // Redirect to /v endpoint which adds auth + buffering + transparent reconnect
           const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
           proxyUrl.searchParams.set('path', streamData.videoPath);
+          proxyUrl.searchParams.set('_fb', req.originalUrl);
           res.redirect(302, proxyUrl.href);
         }
       } else {
         // Direct: redirect to WebDAV URL with embedded credentials (desktop players)
         const webdavBase = (config.webdavUrl || config.url || '').replace(/\/+$/, '');
         const safePath = encodeWebdavPath(streamData.videoPath);
+
         const directUrl = new URL(`${webdavBase}${safePath}`);
         if (config.webdavUser) {
           directUrl.username = config.webdavUser;
@@ -544,6 +546,11 @@ export async function handleStream(
       if (isClientDisconnect(error)) {
         shouldLogStreamRequest(candidate.title, 'disconnect');
         return;
+      }
+
+      // WebDAV 404 during inline proxy — evict stale cache, loop continues to next candidate
+      if (error instanceof WebDav404Error) {
+        evictReadyByVideoPath((error as WebDav404Error).videoPath);
       }
 
       const err = error as Error & { isNzbdavFailure?: boolean };

@@ -354,6 +354,45 @@ export function deleteCacheEntry(cacheKey: string): boolean {
 }
 
 /**
+ * Evict a ready cache entry by its videoPath (reverse lookup).
+ * Creates an episode-specific dead entry for TV (so other episodes from the
+ * same season pack remain accessible), or a URL-only dead entry for movies.
+ * Returns the evicted cache key, or null if no match found.
+ */
+export function evictReadyByVideoPath(videoPath: string): string | null {
+  for (const [key, entry] of readyCache.entries()) {
+    if (entry.data.videoPath === videoPath) {
+      readyCache.delete(key);
+      const sepIdx = key.indexOf('::');
+      if (sepIdx !== -1) {
+        const nzbUrl = key.substring(0, sepIdx);
+        // Extract episode pattern from cache key suffix (e.g. ":S04[. _-]?E08")
+        const epMatch = key.match(/:S\d+(\[.*?\]\??)?E\d+$/);
+        const episodePattern = epMatch ? epMatch[0].substring(1) : undefined;
+        const deadKey = getDeadCacheKey(nzbUrl, episodePattern);
+        if (!deadNzbCache.has(deadKey)) {
+          const now = Date.now();
+          const error = new Error('Video file no longer available (404)');
+          (error as any).isNzbdavFailure = true;
+          deadNzbCache.set(deadKey, {
+            title: extractTitle(key),
+            error,
+            createdAt: now,
+            expiresAt: now + getDeadTTLMs(),
+          });
+          if (globalConfig.deadNzbDbMode === 'storage') {
+            enforceStorageLimit(deadNzbCache, estimateDeadCacheSize, globalConfig.deadNzbDbMaxSizeMB ?? 50);
+          }
+        }
+      }
+      saveCacheToDisk();
+      return key;
+    }
+  }
+  return null;
+}
+
+/**
  * Extract title from a ready cache key (format: `${nzbUrl}::${title}` optionally with `:${episodePattern}`).
  * Dead cache entries store title in the entry value instead.
  */
@@ -361,8 +400,9 @@ function extractTitle(cacheKey: string): string {
   const separatorIdx = cacheKey.indexOf('::');
   if (separatorIdx === -1) return cacheKey;
   const afterSep = cacheKey.substring(separatorIdx + 2);
-  // Strip episode pattern suffix (e.g. ":S01E02") but preserve colons in titles
-  return afterSep.replace(/:S\d+E\d+$/, '');
+  // Strip episode pattern suffix — handles both literal (":S01E02") and
+  // regex-pattern form (":S04[. _-]?E08") used by season pack file selection
+  return afterSep.replace(/:S\d+(\[.*?\]\??)?E\d+$/, '');
 }
 
 /**
