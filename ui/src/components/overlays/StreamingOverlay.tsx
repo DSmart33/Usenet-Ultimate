@@ -104,6 +104,7 @@ export function StreamingOverlay({
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">WebDAV URL</label>
+                <p className="text-xs text-slate-500 mb-1">Must be a publicly reachable URL when using direct passthrough behind a reverse proxy (e.g. Authelia)</p>
                 <input type="text" value={nzbdavWebdavUrl} onChange={(e) => setNzbdavWebdavUrl(e.target.value)} placeholder="http://localhost:3000" className="input" />
               </div>
               <div className="grid grid-cols-2 gap-4">
