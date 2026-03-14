@@ -185,13 +185,16 @@ export function cleanupExpiredCache(): void {
  * Called when TTL or mode changes so existing entries reflect the new policy.
  */
 export function recalculateTTLExpirations(): void {
+  const now = Date.now();
   const readyTTL = getReadyTTLMs();
   for (const entry of readyCache.values()) {
-    entry.expiresAt = entry.createdAt + readyTTL;
+    entry.createdAt = now;
+    entry.expiresAt = now + readyTTL;
   }
   const deadTTL = getDeadTTLMs();
   for (const entry of deadNzbCache.values()) {
-    entry.expiresAt = entry.createdAt + deadTTL;
+    entry.createdAt = now;
+    entry.expiresAt = now + deadTTL;
   }
   cleanupExpiredCache();
   // Enforce storage limits when in storage mode (handles mode switch or reduced MaxSizeMB)
