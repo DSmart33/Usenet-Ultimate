@@ -258,10 +258,14 @@ export async function getOrCreateStream(
 
   const promise = prepareFn(nzbUrl, title, config, episodePattern, contentType, episodesInSeason);
 
-  // Set as pending with a short TTL — if the promise hangs, the entry
-  // expires and subsequent requests can retry instead of hanging forever.
-  const maxTimeout = Math.max(globalConfig.nzbdavMoviesTimeoutSeconds ?? 30, globalConfig.nzbdavTvTimeoutSeconds ?? 15);
-  const pendingTTLMs = (maxTimeout + 30) * 1000;
+  // Set as pending with a TTL — if the promise hangs, the entry expires and
+  // subsequent requests can retry instead of hanging forever.  When fallback is
+  // off (no budget), the promise handlers (.then/.catch) clean up the entry so
+  // no TTL-based expiry is needed.
+  const maxTimeout = globalConfig.nzbdavFallbackEnabled === true
+    ? Math.max(globalConfig.nzbdavMoviesTimeoutSeconds ?? 30, globalConfig.nzbdavTvTimeoutSeconds ?? 15)
+    : 0;
+  const pendingTTLMs = maxTimeout > 0 ? (maxTimeout + 30) * 1000 : Infinity;
   pendingCache.set(cacheKey, {
     status: 'pending',
     promise,

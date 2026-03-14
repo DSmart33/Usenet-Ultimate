@@ -159,7 +159,7 @@ export function FallbackOverlay({
           </div>
 
           {/* Wait Times — combined card */}
-          <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !nzbdavFallbackEnabled && "opacity-40 pointer-events-none")}>
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium text-slate-300">Stream Wait Times</div>
               <button

@@ -122,8 +122,9 @@ function isClientDisconnect(error: unknown): boolean {
     || message.includes('aborted');
 }
 
-/** Get the per-attempt budget in ms based on content type (movie vs TV) */
+/** Per-attempt budget in ms. Returns 0 (no limit) when fallback is off. */
 function getAttemptBudgetMs(contentType?: string): number {
+  if (globalConfig.nzbdavFallbackEnabled !== true) return 0;
   return (contentType === 'series'
     ? (globalConfig.nzbdavTvTimeoutSeconds ?? 15)
     : (globalConfig.nzbdavMoviesTimeoutSeconds ?? 30)) * 1000;
@@ -149,11 +150,11 @@ export async function prepareStream(
   episodesInSeason?: number
 ): Promise<StreamData> {
   const totalBudgetMs = getAttemptBudgetMs(contentType);
-  const totalBudgetS = Math.round(totalBudgetMs / 1000);
+  const unlimited = totalBudgetMs === 0;
   const budgetStart = Date.now();
-  const remaining = () => Math.max(0, Math.round((totalBudgetMs - (Date.now() - budgetStart)) / 1000));
+  const remaining = () => unlimited ? '∞' : Math.max(0, Math.round((totalBudgetMs - (Date.now() - budgetStart)) / 1000));
 
-  console.log(`\n\u{1F3AC} Preparing stream: ${title}${episodePattern ? ` (selecting ${episodePattern})` : ''} [${contentType || 'unknown'}] \u23F1\uFE0F ${totalBudgetS}s budget`);
+  console.log(`\n\u{1F3AC} Preparing stream: ${title}${episodePattern ? ` (selecting ${episodePattern})` : ''} [${contentType || 'unknown'}] \u23F1\uFE0F ${unlimited ? 'no limit' : `${Math.round(totalBudgetMs / 1000)}s budget`}`);
 
   // Step 0: Check NZB library first - avoid grabbing from indexer if already downloaded
   if (globalConfig.nzbdavLibraryCheckEnabled) {
@@ -168,18 +169,15 @@ export async function prepareStream(
 
   // Step 1: Submit NZB
   console.log(`  \u23F1\uFE0F Submitting NZB... (${remaining()}s remaining)`);
-  const submitBudgetMs = totalBudgetMs - (Date.now() - budgetStart);
-  const nzoId = await submitNzb(nzbUrl, title, config, contentType, submitBudgetMs);
+  const nzoId = await submitNzb(nzbUrl, title, config, contentType, unlimited ? undefined : totalBudgetMs - (Date.now() - budgetStart));
   console.log(`  \u23F1\uFE0F NZB submitted → ${remaining()}s remaining`);
 
   // Step 2: Wait for job to complete (or fail) — remaining budget
-  const jobBudgetMs = totalBudgetMs - (Date.now() - budgetStart);
-  await waitForJobCompletion(nzoId, config, jobBudgetMs, undefined, contentType);
+  await waitForJobCompletion(nzoId, config, unlimited ? 0 : totalBudgetMs - (Date.now() - budgetStart), undefined, contentType);
   console.log(`  \u23F1\uFE0F Job done → ${remaining()}s remaining`);
 
   // Step 3: Find the video file — remaining budget
-  const videoBudgetMs = totalBudgetMs - (Date.now() - budgetStart);
-  const video = await waitForVideoFile(nzoId, title, config, videoBudgetMs, undefined, episodePattern, contentType, episodesInSeason);
+  const video = await waitForVideoFile(nzoId, title, config, unlimited ? undefined : totalBudgetMs - (Date.now() - budgetStart), undefined, episodePattern, contentType, episodesInSeason);
 
   // Step 4: Verify the video is actually servable via WebDAV (GET first byte).
   // HEAD isn't reliable — NZBDav returns 200 for HEAD even when content is gone.
@@ -198,9 +196,9 @@ export async function prepareStream(
   let probeSuccess = false;
   while (probeAttempt < PROBE_MAX_RETRIES) {
     const elapsed = Date.now() - budgetStart;
-    if (elapsed >= totalBudgetMs) break; // out of budget
+    if (!unlimited && elapsed >= totalBudgetMs) break; // out of budget
     try {
-      const timeoutMs = Math.min(PROBE_TIMEOUT_MS, totalBudgetMs - elapsed);
+      const timeoutMs = unlimited ? PROBE_TIMEOUT_MS : Math.min(PROBE_TIMEOUT_MS, totalBudgetMs - elapsed);
       const probeResp = await fetch(probeUrl, { headers: probeHeaders, signal: AbortSignal.timeout(timeoutMs) });
       if (probeResp.status === 404 || probeResp.status === 410) {
         await probeResp.body?.cancel().catch(() => {});
@@ -222,7 +220,7 @@ export async function prepareStream(
     } catch (err) {
       if ((err as any).isNzbdavFailure) throw err;
       probeAttempt++;
-      if (probeAttempt >= PROBE_MAX_RETRIES || (Date.now() - budgetStart) >= totalBudgetMs) {
+      if (probeAttempt >= PROBE_MAX_RETRIES || (!unlimited && (Date.now() - budgetStart) >= totalBudgetMs)) {
         console.warn(`  ⚠️ Probe failed after ${probeAttempt} attempts: ${(err as Error).message}`);
         break;
       }
