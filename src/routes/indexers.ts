@@ -166,7 +166,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
 
       // Parse XML to extract titles from within <item> tags only
       const titles: string[] = [];
-      const itemMatches = text.matchAll(/<item>([\s\S]*?)<\/item>/g);
+      const itemMatches = text.matchAll(/<item[^>]*>([\s\S]*?)<\/item>/g);
 
       for (const itemMatch of itemMatches) {
         const itemContent = itemMatch[1];
@@ -177,7 +177,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
       }
 
       // Count total results
-      const resultCount = (text.match(/<item>/g) || []).length;
+      const resultCount = (text.match(/<item[^>]*>/g) || []).length;
 
       res.json({
         success: true,
@@ -218,7 +218,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
 
       // Parse XML to extract titles from within <item> tags only
       const titles: string[] = [];
-      const itemMatches = text.matchAll(/<item>([\s\S]*?)<\/item>/g);
+      const itemMatches = text.matchAll(/<item[^>]*>([\s\S]*?)<\/item>/g);
 
       for (const itemMatch of itemMatches) {
         const itemContent = itemMatch[1];
@@ -229,7 +229,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
       }
 
       // Count total results
-      const resultCount = (text.match(/<item>/g) || []).length;
+      const resultCount = (text.match(/<item[^>]*>/g) || []).length;
 
       res.json({
         success: true,
