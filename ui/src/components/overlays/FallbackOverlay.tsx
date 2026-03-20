@@ -261,9 +261,10 @@ export function FallbackOverlay({
                 </div>
               </div>
             </div>
-            <p className="text-xs text-slate-500">
-              How long to wait for a stream to become ready before trying the next NZB. Hold the +/- buttons to accelerate. Min 1s, max 3 min. Timed-out NZBs can be excluded from the Dead NZBs Database in the NZB Database menu.
-            </p>
+            <ul className="text-xs text-slate-500 space-y-1 list-disc list-inside">
+              <li>How long to wait for a stream to become ready before trying the next NZB. Hold the +/- buttons to accelerate. Min 1s, max 3 min.</li>
+              <li>Timed-out NZBs can be excluded from the Dead NZBs Database in the NZB Database menu.</li>
+            </ul>
           </div>
 
           {/* Fallback Order */}
