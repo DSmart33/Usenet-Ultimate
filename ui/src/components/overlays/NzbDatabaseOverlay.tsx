@@ -44,6 +44,8 @@ interface NzbDatabaseOverlayProps {
   setDeadNzbDbTTL: React.Dispatch<React.SetStateAction<number>>;
   deadNzbDbMaxSizeMB: number;
   setDeadNzbDbMaxSizeMB: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavCacheTimeouts: boolean;
+  setNzbdavCacheTimeouts: React.Dispatch<React.SetStateAction<boolean>>;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
@@ -129,6 +131,7 @@ export function NzbDatabaseOverlay({
   deadNzbDbMode, setDeadNzbDbMode,
   deadNzbDbTTL, setDeadNzbDbTTL,
   deadNzbDbMaxSizeMB, setDeadNzbDbMaxSizeMB,
+  nzbdavCacheTimeouts, setNzbdavCacheTimeouts,
   apiFetch,
 }: NzbDatabaseOverlayProps) {
   const [readyEntries, setReadyEntries] = useState<CacheEntryReady[]>([]);
@@ -197,6 +200,13 @@ export function NzbDatabaseOverlay({
       await apiFetch('/api/nzbdav/cache/failed', { method: 'DELETE' });
       setFailedEntries([]);
       setDeadSizeMB(0);
+    } catch {}
+  };
+
+  const clearTimeouts = async () => {
+    try {
+      await apiFetch('/api/nzbdav/cache/timeouts', { method: 'DELETE' });
+      fetchEntries();
     } catch {}
   };
 
@@ -370,6 +380,34 @@ export function NzbDatabaseOverlay({
             <p className="text-xs text-slate-500">
               Known-bad NZBs that are skipped instantly on retry to avoid wasted time.
             </p>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={nzbdavCacheTimeouts}
+                onChange={(e) => setNzbdavCacheTimeouts(e.target.checked)}
+                className="w-5 h-5 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800"
+              />
+              <div>
+                <span className="text-sm font-medium text-slate-300">Include Timed-Out NZBs</span>
+                <p className="text-xs text-slate-500 mt-1">
+                  Adds timed-out NZBs to the Dead Database to skip them in future searches. Disable this to allow retries.
+                </p>
+              </div>
+            </label>
+
+            <button
+              onClick={clearTimeouts}
+              disabled={failedEntries.length === 0}
+              className={clsx(
+                "flex items-center justify-center gap-2 w-full px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+                "border border-red-500/25 text-red-400 hover:bg-red-500/10 hover:border-red-500/40",
+                failedEntries.length === 0 && "opacity-40 cursor-not-allowed"
+              )}
+            >
+              <Trash2 className="w-3 h-3" />
+              Clear Timed-Out Entries
+            </button>
 
             {/* Mode Toggle */}
             <div className="flex gap-2">

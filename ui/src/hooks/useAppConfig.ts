@@ -130,6 +130,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds] = useState(30);
   const [nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds] = useState(15);
   const [nzbdavFallbackOrder, setNzbdavFallbackOrder] = useState<'selected' | 'top'>('selected');
+  const [nzbdavCacheTimeouts, setNzbdavCacheTimeouts] = useState(true);
   const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
   const [nzbdavProxyEnabled, setNzbdavProxyEnabled] = useState(true);
   const [healthyNzbDbMode, setHealthyNzbDbMode] = useState<'time' | 'storage'>('time');
@@ -308,10 +309,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
       healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB,
-      deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB,
+      deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, nzbdavCacheTimeouts,
     }), 500);
     return () => clearTimeout(timer);
-  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, saveSettings]);
+  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, nzbdavCacheTimeouts, saveSettings]);
 
   // Auto-save: index manager type
   useEffect(() => {
@@ -716,6 +717,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavMoviesTimeoutSeconds(data.nzbdavMoviesTimeoutSeconds ?? legacyTimeout ?? 30);
       setNzbdavTvTimeoutSeconds(data.nzbdavTvTimeoutSeconds ?? legacyTimeout ?? 15);
       setNzbdavFallbackOrder(data.nzbdavFallbackOrder || 'selected');
+      setNzbdavCacheTimeouts(data.nzbdavCacheTimeouts !== false);
       setNzbdavStreamBufferMB(data.nzbdavStreamBufferMB ?? 128);
       setNzbdavProxyEnabled(data.nzbdavProxyEnabled !== false);
       setHealthyNzbDbMode(data.healthyNzbDbMode || 'time');
@@ -1161,6 +1163,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds,
     nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds,
     nzbdavFallbackOrder, setNzbdavFallbackOrder,
+    nzbdavCacheTimeouts, setNzbdavCacheTimeouts,
     nzbdavStreamBufferMB, setNzbdavStreamBufferMB,
     nzbdavProxyEnabled, setNzbdavProxyEnabled,
     healthyNzbDbMode, setHealthyNzbDbMode,
