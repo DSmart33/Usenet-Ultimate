@@ -339,7 +339,7 @@ export function NzbDatabaseOverlay({
                         <button
                           onClick={() => deleteEntry(entry.key)}
                           aria-label="Remove entry"
-                          className="flex-shrink-0 p-1.5 rounded-md text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          className="flex-shrink-0 p-1.5 rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -499,7 +499,7 @@ export function NzbDatabaseOverlay({
                         <button
                           onClick={() => deleteEntry(entry.key)}
                           aria-label="Remove entry"
-                          className="flex-shrink-0 p-1.5 rounded-md text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          className="flex-shrink-0 p-1.5 rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
