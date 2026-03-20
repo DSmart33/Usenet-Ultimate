@@ -21,6 +21,7 @@ interface AddIndexerModalProps {
   setShowApiKey: React.Dispatch<React.SetStateAction<{ new: boolean; edit: boolean }>>;
   capsLoading: 'new' | 'edit' | null;
   testResults: Record<string, { loading: boolean; success?: boolean; message?: string; results?: number; titles?: string[] }>;
+  setTestResults: React.Dispatch<React.SetStateAction<Record<string, { loading: boolean; success?: boolean; message?: string; results?: number; titles?: string[] }>>>;
   testQuery: Record<string, string>;
   setTestQuery: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   handlePresetChange: (presetName: string) => void;
@@ -44,6 +45,7 @@ export function AddIndexerModal({
   setShowApiKey,
   capsLoading,
   testResults,
+  setTestResults,
   testQuery,
   setTestQuery,
   handlePresetChange,
@@ -72,8 +74,10 @@ export function AddIndexerModal({
       onClose();
       setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
       setSelectedPreset('');
+      setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
+      setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
     }}>
-      <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-lg w-full animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 bg-slate-900/95 backdrop-blur-sm p-4 md:p-6 border-b border-slate-700/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -85,6 +89,8 @@ export function AddIndexerModal({
                 onClose();
                 setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
                 setSelectedPreset('');
+                setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
+                setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
               }}
               className="text-slate-400 hover:text-slate-200 transition-colors"
             >

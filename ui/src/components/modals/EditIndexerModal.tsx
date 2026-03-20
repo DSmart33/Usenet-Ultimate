@@ -1,6 +1,7 @@
 // What this does:
 //   Modal for editing an existing indexer with capability discovery and test search
 
+import { useEffect } from 'react';
 import { Settings, X, Eye, EyeOff, Search, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import type { Config, IndexerCaps, EditIndexerForm } from '../../types';
@@ -15,6 +16,7 @@ interface EditIndexerModalProps {
   capsLoading: 'new' | 'edit' | null;
   config: Config | null;
   testResults: Record<string, { loading: boolean; success?: boolean; message?: string; results?: number; titles?: string[] }>;
+  setTestResults: React.Dispatch<React.SetStateAction<Record<string, { loading: boolean; success?: boolean; message?: string; results?: number; titles?: string[] }>>>;
   testQuery: Record<string, string>;
   setTestQuery: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   discoverCaps: (url: string, apiKey: string, target: 'new' | 'edit') => void;
@@ -36,6 +38,7 @@ export function EditIndexerModal({
   capsLoading,
   config,
   testResults,
+  setTestResults,
   testQuery,
   setTestQuery,
   discoverCaps,
@@ -48,9 +51,18 @@ export function EditIndexerModal({
 }: EditIndexerModalProps) {
   const currentIndexer = config?.indexers.find(i => i.name === expandedIndexer);
   const zyclopsActive = currentIndexer?.zyclops?.enabled === true;
+
+  // Clear test state when modal unmounts
+  useEffect(() => {
+    return () => {
+      setTestResults(prev => { const next = { ...prev }; delete next[expandedIndexer]; return next; });
+      setTestQuery(prev => { const next = { ...prev }; delete next[expandedIndexer]; return next; });
+    };
+  }, [expandedIndexer, setTestResults, setTestQuery]);
+
   return (
     <div className="fixed inset-0 z-[55] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
-      <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-lg w-full animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 bg-slate-900/95 backdrop-blur-sm p-4 md:p-6 border-b border-slate-700/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">

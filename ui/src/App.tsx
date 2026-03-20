@@ -262,6 +262,8 @@ function App() {
       });
       if (response.ok) {
         ac.setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+        ac.setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
+        ac.setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
         ac.setShowAddIndexer(false);
         await ac.fetchIndexers();
       } else {
@@ -488,6 +490,7 @@ function App() {
           setShowApiKey={ac.setShowApiKey}
           capsLoading={ac.capsLoading}
           testResults={ac.testResults}
+          setTestResults={ac.setTestResults}
           testQuery={ac.testQuery}
           setTestQuery={ac.setTestQuery}
           handlePresetChange={handlePresetChange}
@@ -512,6 +515,7 @@ function App() {
           capsLoading={ac.capsLoading}
           config={ac.config}
           testResults={ac.testResults}
+          setTestResults={ac.setTestResults}
           testQuery={ac.testQuery}
           setTestQuery={ac.setTestQuery}
           discoverCaps={discoverCaps}
