@@ -48,6 +48,7 @@ const { getRouter } = addonSDK;
 const PORT = process.env.PORT || 1337;
 
 const app = express();
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(cors());
