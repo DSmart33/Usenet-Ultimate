@@ -68,6 +68,7 @@ function buildConfigResponse(config: Config) {
     nzbdavFallbackOrder: config.nzbdavFallbackOrder,
     nzbdavStreamBufferMB: config.nzbdavStreamBufferMB,
     nzbdavProxyEnabled: config.nzbdavProxyEnabled,
+    nzbdavCacheTimeouts: config.nzbdavCacheTimeouts,
     healthyNzbDbMode: config.healthyNzbDbMode,
     healthyNzbDbTTL: config.healthyNzbDbTTL,
     healthyNzbDbMaxSizeMB: config.healthyNzbDbMaxSizeMB,

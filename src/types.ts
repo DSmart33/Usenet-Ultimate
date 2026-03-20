@@ -135,6 +135,7 @@ export interface Config {
   nzbdavMoviesTimeoutSeconds?: number;         // Max seconds to wait for movie streams (default 30)
   nzbdavTvTimeoutSeconds?: number;             // Max seconds to wait for TV streams (default 15)
   nzbdavFallbackOrder?: 'selected' | 'top';   // Start from clicked NZB or top of quality-sorted list
+  nzbdavCacheTimeouts?: boolean;              // Store timed-out NZBs in dead cache (default true)
   nzbdavStreamBufferMB?: number;              // WebDAV proxy buffer size in MB (default 128)
   nzbdavProxyEnabled?: boolean;               // Stream through local proxy (buffer+reconnect) or direct WebDAV redirect (default true)
   healthyNzbDbMode?: 'time' | 'storage';      // Database limit mode for successful streams (default 'time')

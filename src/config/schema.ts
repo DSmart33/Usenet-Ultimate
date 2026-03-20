@@ -42,6 +42,7 @@ export interface ConfigData {
   nzbdavMoviesTimeoutSeconds?: number;
   nzbdavTvTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
+  nzbdavCacheTimeouts?: boolean;
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
   healthyNzbDbMode?: 'time' | 'storage';

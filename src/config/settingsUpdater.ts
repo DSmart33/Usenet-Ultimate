@@ -38,6 +38,7 @@ export function updateSettings(settings: {
   nzbdavFallbackOrder?: 'selected' | 'top';
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
+  nzbdavCacheTimeouts?: boolean;
   healthyNzbDbMode?: 'time' | 'storage';
   healthyNzbDbTTL?: number;
   healthyNzbDbMaxSizeMB?: number;
@@ -171,6 +172,9 @@ export function updateSettings(settings: {
   }
   if (settings.nzbdavProxyEnabled !== undefined) {
     configData.nzbdavProxyEnabled = settings.nzbdavProxyEnabled;
+  }
+  if (settings.nzbdavCacheTimeouts !== undefined) {
+    configData.nzbdavCacheTimeouts = settings.nzbdavCacheTimeouts;
   }
   if (settings.healthyNzbDbMode !== undefined) {
     configData.healthyNzbDbMode = settings.healthyNzbDbMode;

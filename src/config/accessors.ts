@@ -110,6 +110,9 @@ export const config: Config = {
   get nzbdavFallbackOrder() {
     return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'selected';
   },
+  get nzbdavCacheTimeouts() {
+    return configData.nzbdavCacheTimeouts !== false;
+  },
   get nzbdavStreamBufferMB() {
     const envMB = envInt('NZBDAV_STREAM_BUFFER_MB') ?? envInt('STREAM_BUFFER_MB');
     if (envMB != null && envMB > 0) return Math.max(8, envMB);
