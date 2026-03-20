@@ -26,6 +26,7 @@ interface NzbdavDeps {
   clearStreamCache: () => void;
   clearReadyCache: () => number;
   clearFailedCache: () => number;
+  clearTimeoutDeadEntries: () => number;
   deleteCacheEntry: (cacheKey: string) => boolean;
   getCacheEntries: () => any;
   isStreamCached: (nzbUrl: string, title: string) => boolean;
@@ -35,7 +36,7 @@ interface NzbdavDeps {
 
 export function createNzbdavRoutes(deps: NzbdavDeps): Router {
   const router = Router();
-  const { config, getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, getLatestVersions } = deps;
+  const { config, getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, clearTimeoutDeadEntries, deleteCacheEntry, getCacheEntries, getLatestVersions } = deps;
 
   const TEST_CONNECTION_TIMEOUT_MS = 15_000;
 
@@ -174,6 +175,12 @@ export function createNzbdavRoutes(deps: NzbdavDeps): Router {
   // Clear only failed cache entries
   router.delete('/cache/failed', (req, res) => {
     const cleared = clearFailedCache();
+    res.json({ success: true, cleared });
+  });
+
+  // Clear only timed-out dead entries
+  router.delete('/cache/timeouts', (req, res) => {
+    const cleared = clearTimeoutDeadEntries();
     res.json({ success: true, cleared });
   });
 

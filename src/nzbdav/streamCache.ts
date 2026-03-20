@@ -78,7 +78,7 @@ const deadNzbCache = new Map<string, DeadNzbEntry>();
 interface SerializedDeadEntry {
   title?: string;
   indexerName?: string;
-  error: { message: string; isNzbdavFailure: boolean };
+  error: { message: string; isNzbdavFailure: boolean; isTimeout?: boolean };
   createdAt?: number;
   expiresAt: number;
 }
@@ -102,6 +102,7 @@ function loadCacheFromDisk(): void {
       if (expiresAt > now) {
         const error = new Error(entry.error.message);
         (error as any).isNzbdavFailure = entry.error.isNzbdavFailure;
+        (error as any).isTimeout = entry.error.isTimeout ?? false;
         if (entry.title) {
           // New format — key is url or url::episodePattern, title stored in entry
           deadNzbCache.set(key, { title: entry.title, indexerName: entry.indexerName, error, createdAt: (entry as any).createdAt || now, expiresAt });
@@ -134,10 +135,11 @@ export function saveCacheToDisk(): void {
   const deadData: Record<string, SerializedDeadEntry> = {};
   for (const [key, entry] of deadNzbCache.entries()) {
     if (entry.expiresAt > now) {
+      if ((entry.error as any).isTimeout && globalConfig.nzbdavCacheTimeouts === false) continue;
       deadData[key] = {
         title: entry.title,
         indexerName: entry.indexerName,
-        error: { message: entry.error.message, isNzbdavFailure: (entry.error as any).isNzbdavFailure ?? false },
+        error: { message: entry.error.message, isNzbdavFailure: (entry.error as any).isNzbdavFailure ?? false, isTimeout: (entry.error as any).isTimeout ?? false },
         createdAt: entry.createdAt,
         expiresAt: Number.isFinite(entry.expiresAt) ? entry.expiresAt : 0,
       };
@@ -289,17 +291,21 @@ export async function getOrCreateStream(
     pendingCache.delete(cacheKey);
     if (error.isNzbdavFailure) {
       const deadCreatedAt = Date.now();
+      const persist = !error.isTimeout || globalConfig.nzbdavCacheTimeouts !== false;
+      const ttl = persist ? getDeadTTLMs() : (globalConfig.cacheTTL || 7200) * 1000;
       deadNzbCache.set(deadKey, {
         title,
         indexerName,
         error,
         createdAt: deadCreatedAt,
-        expiresAt: deadCreatedAt + getDeadTTLMs(),
+        expiresAt: deadCreatedAt + ttl,
       });
-      if (globalConfig.deadNzbDbMode === 'storage') {
-        enforceStorageLimit(deadNzbCache, estimateDeadCacheSize, globalConfig.deadNzbDbMaxSizeMB ?? 50);
+      if (persist) {
+        if (globalConfig.deadNzbDbMode === 'storage') {
+          enforceStorageLimit(deadNzbCache, estimateDeadCacheSize, globalConfig.deadNzbDbMaxSizeMB ?? 50);
+        }
+        saveCacheToDisk();
       }
-      saveCacheToDisk();
     }
   });
 
@@ -318,6 +324,13 @@ export function getStreamCache(): Map<string, CacheEntry> {
  */
 export function isDeadNzb(cacheKey: string): boolean {
   return deadNzbCache.has(cacheKey);
+}
+
+/** Clear timeout-only entries from the in-memory dead cache */
+export function clearTimeoutEntries(): void {
+  for (const [key, entry] of deadNzbCache) {
+    if ((entry.error as any).isTimeout) deadNzbCache.delete(key);
+  }
 }
 
 /** Clear fallback state and delivery log */
@@ -348,6 +361,21 @@ export function clearFailedCache(): number {
   deadNzbCache.clear();
   if (count) {
     console.log(`\u{1F9F9} Cleared ${count} dead NZB cache entries`);
+    saveCacheToDisk();
+  }
+  return count;
+}
+
+/** Clear only timed-out entries from the dead NZB cache */
+export function clearTimeoutDeadEntries(): number {
+  let count = 0;
+  for (const [key, entry] of deadNzbCache) {
+    if ((entry.error as any).isTimeout) {
+      deadNzbCache.delete(key);
+      count++;
+    }
+  }
+  if (count) {
     saveCacheToDisk();
   }
   return count;
@@ -415,7 +443,7 @@ function extractTitle(cacheKey: string): string {
   const afterSep = cacheKey.substring(separatorIdx + 2);
   // Strip episode pattern suffix — handles both literal (":S01E02") and
   // regex-pattern form (":S04[. _-]?E08") used by season pack file selection
-  return afterSep.replace(/:S\d+(\[.*?\]\??)?E\d+$/, '');
+  return afterSep.replace(/:S\d+(\[.*?\]\??)?E\d+(\(.*\))?$/, '');
 }
 
 /**
@@ -436,6 +464,7 @@ export function getCacheEntries(): {
 
   for (const [key, entry] of deadNzbCache.entries()) {
     if (entry.expiresAt < now) continue;
+    if ((entry.error as any).isTimeout && globalConfig.nzbdavCacheTimeouts === false) continue;
     failed.push({ key, title: entry.title, indexerName: entry.indexerName, error: entry.error.message, createdAt: entry.createdAt, expiresAt: entry.expiresAt });
   }
 
@@ -481,7 +510,10 @@ export function getCacheStats(): {
   const pending = pendingCache.size;
   let failed = 0;
   for (const entry of deadNzbCache.values()) {
-    if (entry.expiresAt > now) failed++;
+    if (entry.expiresAt > now) {
+      if ((entry.error as any).isTimeout && globalConfig.nzbdavCacheTimeouts === false) continue;
+      failed++;
+    }
   }
   const readySizeMB = Math.round(estimateReadyCacheSize() / 1024 / 1024 * 100) / 100;
   const deadSizeMB = Math.round(estimateDeadCacheSize() / 1024 / 1024 * 100) / 100;
