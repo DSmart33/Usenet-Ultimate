@@ -39,9 +39,10 @@ export function clearDeliveryLog(): void {
   lastDeliveryLog.clear();
 }
 
-export function nzbdavError(message: string): Error & { isNzbdavFailure: boolean } {
-  const err = new Error(message) as Error & { isNzbdavFailure: boolean };
+export function nzbdavError(message: string, isTimeout = false): Error & { isNzbdavFailure: boolean; isTimeout: boolean } {
+  const err = new Error(message) as Error & { isNzbdavFailure: boolean; isTimeout: boolean };
   err.isNzbdavFailure = true;
+  err.isTimeout = isTimeout;
   return err;
 }
 
