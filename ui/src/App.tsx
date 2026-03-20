@@ -928,14 +928,14 @@ function App() {
                   key={tab.id}
                   onClick={() => ac.setActiveTab(tab.id)}
                   className={clsx(
-                    'flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+                    'flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg text-sm font-medium',
                     ac.activeTab === tab.id
-                      ? 'bg-gradient-to-r from-amber-500/15 to-yellow-500/15 text-white border border-amber-500/25 shadow-sm shadow-amber-500/10'
+                      ? 'bg-amber-500/15 text-white border border-amber-500/25 shadow-sm shadow-amber-500/10'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                   )}
                 >
                   <tab.icon className={clsx(
-                    'w-4 h-4 transition-all',
+                    'w-4 h-4',
                     ac.activeTab === tab.id && 'text-amber-400 drop-shadow-[0_0_6px_rgba(245,158,11,0.6)]'
                   )} />
                   <span>{tab.label}</span>
