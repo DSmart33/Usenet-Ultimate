@@ -54,6 +54,7 @@ interface StreamLogState {
 }
 
 const streamLogState = new Map<string, StreamLogState>();
+const deadSkipLoggedGroups = new Map<string, number>(); // key → timestamp for TTL cleanup
 
 // Delivery log lives in utils.ts to avoid circular dep between streamCache and streamHandler.
 const lastDeliveryLog = getDeliveryLog();
@@ -99,6 +100,9 @@ function shouldLogStreamRequest(title: string, event: 'request' | 'disconnect'):
     }
     for (const [key, entry] of lastDeliveryLog) {
       if (now - entry.at > STREAM_LOG_STATE_TTL_MS) lastDeliveryLog.delete(key);
+    }
+    for (const [key, ts] of deadSkipLoggedGroups) {
+      if (now - ts > STREAM_LOG_STATE_TTL_MS) deadSkipLoggedGroups.delete(key);
     }
     return false;
   }
@@ -410,6 +414,9 @@ export async function handleStream(
   // Evict expired entries once before the loop so isDeadNzb() trusts existence
   cleanupExpiredCache();
 
+  const deadSkipKey = fallbackGroupId || nzbUrl;
+  const logDeadSkips = !deadSkipLoggedGroups.has(deadSkipKey);
+
   for (let i = candidateStart; i < maxCandidates; i++) {
     // Stop processing if the client disconnected (user backed out)
     if (req.socket.destroyed) {
@@ -422,9 +429,12 @@ export async function handleStream(
     // Skip candidates already known to be dead
     const deadKey = getDeadCacheKey(candidate.nzbUrl, episodePattern);
     if (isDeadNzb(deadKey) || isDeadNzbByUrl(candidate.nzbUrl)) {
-      if (verbose) console.log(`\u23ED\uFE0F NZB Database (skipping dead) [${i + 1}/${maxCandidates}]: ${candidate.title}`);
+      if (logDeadSkips) console.log(`\u23ED\uFE0F NZB Database (skipping dead) [${i + 1}/${maxCandidates}]: ${candidate.title}`);
       continue;
     }
+
+    // Mark dead-skip logs as shown for this group so subsequent requests don't repeat
+    if (logDeadSkips) deadSkipLoggedGroups.set(deadSkipKey, Date.now());
 
     // Self-redirect to reset Stremio's 60s timer before it expires.
     // Pre-start the candidate so it's warming in cache during redirect round-trip.
