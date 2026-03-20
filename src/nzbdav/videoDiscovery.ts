@@ -85,8 +85,17 @@ export async function findVideoFile(
             if (exact) return exact;
           }
 
-          // Season pack with episode pattern but can't identify the file --
-          // return null so waitForVideoFile keeps polling instead of playing the wrong episode
+          // Check if target episode only exists in a combined multi-episode file
+          const te = targetEp.toString().padStart(2, '0');
+          const multiEpRegex = new RegExp(
+            `E${te}[. _-]?E\\d+|E\\d+[. _-]?E${te}`, 'i'
+          );
+          if (videos.some(v => multiEpRegex.test(v.path.split('/').pop() || ''))) {
+            throw nzbdavError('Episode only found in combined multi-episode file');
+          }
+
+          // Season pack with multiple episodes but can't identify the file --
+          // return null to signal ambiguity; waitForVideoFile will throw "not found"
           if (videos.length > 1) {
             return null;
           }
@@ -109,6 +118,7 @@ export async function findVideoFile(
       }
     }
   } catch (err) {
+    if ((err as any).isNzbdavFailure) throw err;
     // Directory doesn't exist yet, that's ok
   }
 
@@ -116,50 +126,36 @@ export async function findVideoFile(
 }
 
 /**
- * Wait for video file to appear in WebDAV
+ * Find video file in WebDAV after job completion.
+ * Single scan — job completion is confirmed before this runs.
  */
 export async function waitForVideoFile(
   nzoId: string,
   title: string,
   config: NZBDavConfig,
-  timeoutMs = 30000,
-  pollIntervalMs = 2000,
   episodePattern?: string,
   contentType?: string,
   episodesInSeason?: number
 ): Promise<{ path: string; size: number }> {
   const client = getWebdavClient(config);
-
   const category = resolveCategory(config, contentType);
   const paths = [
     `/content/${category}/${title}`,
     `/.ids/${nzoId}`,
   ];
 
-  const startTime = Date.now();
-  console.log(`  \u{1F50D} Looking for video file (${Math.round(timeoutMs / 1000)}s budget)...`);
+  console.log(`  \u{1F50D} Looking for video file...`);
 
-  let scanCount = 0;
-  while (Date.now() - startTime < timeoutMs) {
-    scanCount++;
-    for (const p of paths) {
-      const video = await findVideoFile(client, p, 0, episodePattern, episodesInSeason);
-      if (video) {
-        const sizeMB = Math.round(video.size / 1024 / 1024);
-        console.log(`  \u2705 Video found: ${video.path} (${sizeMB}MB)`);
-        return video;
-      }
+  for (const p of paths) {
+    const video = await findVideoFile(client, p, 0, episodePattern, episodesInSeason);
+    if (video) {
+      const sizeMB = Math.round(video.size / 1024 / 1024);
+      console.log(`  \u2705 Video found: ${video.path} (${sizeMB}MB)`);
+      return video;
     }
-
-    const remaining = Math.max(0, Math.round((timeoutMs - (Date.now() - startTime)) / 1000));
-    if (scanCount > 1) {
-      console.log(`  \u{1F50D} Video not found yet — scan #${scanCount} (${remaining}s remaining)`);
-    }
-
-    await new Promise(r => setTimeout(r, pollIntervalMs));
   }
 
-  throw nzbdavError('Video file not found after job completed');
+  throw nzbdavError('Video file not found in WebDAV after job completed');
 }
 
 /**
@@ -215,6 +211,7 @@ export async function checkNzbLibrary(
       };
     }
   } catch (err) {
+    if ((err as any).isNzbdavFailure) throw err;
     console.log(`\u{1F4DA} Library check error (non-fatal): ${(err as Error).message}`);
   }
 

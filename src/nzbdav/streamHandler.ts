@@ -177,7 +177,7 @@ export async function prepareStream(
   console.log(`  \u23F1\uFE0F Job done → ${remaining()}s remaining`);
 
   // Step 3: Find the video file — remaining budget
-  const video = await waitForVideoFile(nzoId, title, config, unlimited ? undefined : totalBudgetMs - (Date.now() - budgetStart), undefined, episodePattern, contentType, episodesInSeason);
+  const video = await waitForVideoFile(nzoId, title, config, episodePattern, contentType, episodesInSeason);
 
   // Step 4: Verify the video is actually servable via WebDAV (GET first byte).
   // HEAD isn't reliable — NZBDav returns 200 for HEAD even when content is gone.
