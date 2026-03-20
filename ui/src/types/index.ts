@@ -1,6 +1,13 @@
 // What this does:
 //   Shared TypeScript interfaces and types for the Usenet Ultimate UI
 
+export interface Manifest {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
 export interface IndexerCaps {
   movieSearchParams: string[];
   tvSearchParams: string[];

@@ -984,8 +984,10 @@ function App() {
         {/* Tab Content - Install */}
         {ac.activeTab === 'install' && ac.config && (
           <InstallTab
-            manifestKey={auth.manifestKey}
+            manifests={auth.manifests}
+            setManifests={auth.setManifests}
             hasIndexers={!!hasIndexers}
+            apiFetch={apiFetch}
           />
         )}
       </div>

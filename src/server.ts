@@ -19,7 +19,8 @@ import { fetchLatestVersions, getLatestVersions } from './versionFetcher.js';
 import { handleStream, getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, clearTimeoutDeadEntries, deleteCacheEntry, getCacheEntries, isStreamCached, saveCacheToDisk } from './nzbdav/index.js';
 import { proxyFetch, testProxyConnection } from './proxy.js';
 import { fetchIndexerCaps } from './parsers/newznabClient.js';
-import { hasAnyUsers, createUser, authenticateUser, generateToken, verifyToken, getUserById } from './auth/auth.js';
+import { hasAnyUsers, createUser, authenticateUser, generateToken, verifyToken, getUserById, getManifests, createManifest, updateManifest, regenerateManifest, deleteManifest } from './auth/auth.js';
+import { createManifestRoutes } from './routes/manifests.js';
 import { requireAuth, validateManifestKey } from './auth/authMiddleware.js';
 import { requestContext } from './requestContext.js';
 import path from 'path';
@@ -87,6 +88,15 @@ app.use('/api', createAuthRoutes({
 
 // --- Auth middleware for all remaining /api/* routes ---
 app.use('/api', requireAuth);
+
+// --- Manifest management (protected) ---
+app.use('/api/manifests', createManifestRoutes({
+  getManifests,
+  createManifest,
+  updateManifest,
+  regenerateManifest,
+  deleteManifest,
+}));
 
 // --- Protected API routes ---
 

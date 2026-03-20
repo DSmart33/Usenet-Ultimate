@@ -253,12 +253,21 @@ export interface HealthCheckConfig {
   healthCheckIndexers?: Record<string, boolean>; // Per-indexer health check enable/disable
 }
 
+// Device manifest — each represents a Stremio installation
+export interface Manifest {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
 // User account for authentication
 export interface User {
   id: string;
   username: string;
   passwordHash: string;
-  manifestKey: string;
+  manifestKey?: string;   // Legacy — kept for rollback compatibility
+  manifests: Manifest[];
   createdAt: string;
 }
 

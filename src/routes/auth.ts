@@ -9,7 +9,7 @@
  */
 
 import { Router } from 'express';
-import type { Config, User } from '../types.js';
+import type { Config, User, Manifest } from '../types.js';
 
 interface AuthDeps {
   config: Config;
@@ -18,7 +18,7 @@ interface AuthDeps {
   authenticateUser: (username: string, password: string) => Promise<User | null>;
   generateToken: (user: User) => string;
   verifyToken: (token: string) => { userId: string; username: string } | null;
-  getUserById: (id: string) => { username: string; manifestKey: string } | null;
+  getUserById: (id: string) => User | null;
   getLatestVersions: () => { chrome: string };
 }
 
@@ -47,7 +47,7 @@ export function createAuthRoutes(deps: AuthDeps): Router {
       return res.json({ status: 'login_required' });
     }
 
-    res.json({ status: 'authenticated', username: user.username, manifestKey: user.manifestKey });
+    res.json({ status: 'authenticated', username: user.username, manifests: user.manifests });
   });
 
   router.post('/auth/setup', async (req, res) => {
@@ -66,7 +66,7 @@ export function createAuthRoutes(deps: AuthDeps): Router {
     try {
       const user = await createUser(username, password);
       const token = generateToken(user);
-      res.json({ token, username: user.username, manifestKey: user.manifestKey });
+      res.json({ token, username: user.username, manifests: user.manifests });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
@@ -85,7 +85,7 @@ export function createAuthRoutes(deps: AuthDeps): Router {
       }
 
       const token = generateToken(user);
-      res.json({ token, username: user.username, manifestKey: user.manifestKey });
+      res.json({ token, username: user.username, manifests: user.manifests });
     } catch (error) {
       res.status(500).json({ error: 'Login failed' });
     }
