@@ -58,6 +58,10 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
       const { name } = req.params;
       const updates = req.body;
 
+      if (updates.name !== undefined && !updates.name.trim()) {
+        return res.status(400).json({ error: 'Name cannot be empty' });
+      }
+
       // SAFETY: Check for duplicate indexer URLs when Zyclops is toggled
       if (updates.zyclops !== undefined || updates.url !== undefined) {
         const currentIndexer = getIndexers().find(i => i.name === name);

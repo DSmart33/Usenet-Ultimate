@@ -418,6 +418,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // Auto-save: indexer edit form
   useEffect(() => {
     if (!expandedIndexer || !initialLoadDone.current) return;
+    if (!editFormRef.current.name?.trim()) return;
     const savedName = expandedIndexer;
     const timer = setTimeout(async () => {
       const updates: Partial<typeof editFormRef.current> = { ...editFormRef.current };
