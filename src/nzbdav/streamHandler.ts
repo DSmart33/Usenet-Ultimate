@@ -339,7 +339,7 @@ export async function handleStream(
   if (seasonParam && episodeParam) {
     const s = parseInt(seasonParam, 10).toString().padStart(2, '0');
     const e = parseInt(episodeParam, 10).toString().padStart(2, '0');
-    episodePattern = `S${s}[. _-]?E${e}`;
+    episodePattern = `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d)`;
   }
 
   // Build the list of candidates to try (primary first, then fallbacks)

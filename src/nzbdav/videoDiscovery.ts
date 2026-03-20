@@ -76,7 +76,7 @@ export async function findVideoFile(
           }
 
           // Try to extract episode numbers from all filenames and pick the right one
-          const epRegex = /S\d+E(\d+)/i;
+          const epRegex = /S\d+E(\d+)(?!\d|[. _-]?E\d)/i;
           const numbered = videos
             .map(v => ({ ...v, ep: parseInt((v.path.match(epRegex)?.[1] || '0'), 10) }))
             .filter(v => v.ep > 0);
