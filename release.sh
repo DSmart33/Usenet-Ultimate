@@ -17,12 +17,14 @@
 #   --no-docker   Skip Docker build (just version bump + git tag)
 #   --dry-run     Preview what would happen without changing anything
 #   --clean       Run scripts/docker-clean.sh before building
+#   --beta        Beta build: Docker only, no latest tag, no git tag/release
 #
 # Examples:
 #   ./release.sh patch                     # quick patch release
 #   ./release.sh minor --push              # feature release → GitHub
 #   ./release.sh patch --dry-run           # see what would happen
 #   ./release.sh major --clean --push      # full major release
+#   ./release.sh minor --beta --push       # push beta Docker image to GHCR
 #
 # ============================================================================
 
@@ -39,6 +41,7 @@ DO_PUSH=false
 DO_DOCKER=true
 DRY_RUN=false
 DO_CLEAN=false
+DO_BETA=false
 
 # ── Colors ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -111,12 +114,14 @@ usage() {
   echo "    --no-docker    Skip Docker image build"
   echo "    --dry-run      Preview actions without executing"
   echo "    --clean        Clean Docker resources before build"
+  echo "    --beta         Beta build (Docker only, no latest tag, no git/release)"
   echo ""
   echo "  Examples:"
   echo "    $0 patch                  Quick bug-fix release"
   echo "    $0 minor --push           Feature release to GitHub"
   echo "    $0 patch --dry-run        Preview what would happen"
   echo "    $0 major --clean --push   Full major release"
+  echo "    $0 minor --beta --push    Push beta Docker image to GHCR"
 }
 
 # ── Parse Arguments ─────────────────────────────────────────────────────────
@@ -127,6 +132,7 @@ while [[ $# -gt 0 ]]; do
     --no-docker) DO_DOCKER=false; shift ;;
     --dry-run)   DRY_RUN=true; shift ;;
     --clean)     DO_CLEAN=true; shift ;;
+    --beta)      DO_BETA=true; shift ;;
     -h|--help)   usage; exit 0 ;;
     *)
       # Check if it's an explicit version
@@ -155,6 +161,11 @@ NEW_VERSION=$(bump_version "$CURRENT_VERSION" "$BUMP")
 if [ -z "$NEW_VERSION" ]; then
   err "Invalid version bump: $BUMP"
   exit 1
+fi
+
+# Append beta suffix
+if [ "$DO_BETA" = true ]; then
+  NEW_VERSION="${NEW_VERSION}-beta"
 fi
 
 if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
@@ -188,9 +199,14 @@ echo -e "${BOLD}============================================${NC}"
 echo -e "${BOLD}  Usenet Ultimate Release${NC}"
 echo -e "${BOLD}============================================${NC}"
 echo -e "  Version:   ${RED}v${CURRENT_VERSION}${NC} → ${GREEN}v${NEW_VERSION}${NC}"
+if [ "$DO_BETA" = true ]; then
+  echo -e "  Beta:      ${YELLOW}yes (Docker only — no git tag, no release)${NC}"
+fi
 echo -e "  Docker:    $([ "$DO_DOCKER" = true ] && echo "${GREEN}build${NC}" || echo "${DIM}skip${NC}")"
-echo -e "  Git tag:   ${GREEN}v${NEW_VERSION}${NC}"
-echo -e "  Push:      $([ "$DO_PUSH" = true ] && echo "${GREEN}yes (GitHub release)${NC}" || echo "${DIM}no (local only)${NC}")"
+if [ "$DO_BETA" = false ]; then
+  echo -e "  Git tag:   ${GREEN}v${NEW_VERSION}${NC}"
+  echo -e "  Push:      $([ "$DO_PUSH" = true ] && echo "${GREEN}yes (GitHub release)${NC}" || echo "${DIM}no (local only)${NC}")"
+fi
 echo -e "  Clean:     $([ "$DO_CLEAN" = true ] && echo "${GREEN}yes${NC}" || echo "${DIM}no${NC}")"
 if [ "$DRY_RUN" = true ]; then
   echo -e "  Mode:      ${YELLOW}DRY RUN${NC}"
@@ -205,15 +221,19 @@ if [ "$DRY_RUN" = true ]; then
   [ "$DO_CLEAN" = true ] && dry "Run scripts/docker-clean.sh"
   if [ "$DO_DOCKER" = true ] && [ "$DO_PUSH" = true ]; then
     dry "Build multi-arch Docker:  ${GHCR_IMAGE}:v${NEW_VERSION} (amd64 + arm64)"
-    dry "Push to GHCR:             ${GHCR_IMAGE}:latest"
+    [ "$DO_BETA" = false ] && dry "Push to GHCR:             ${GHCR_IMAGE}:latest"
   elif [ "$DO_DOCKER" = true ]; then
     dry "Build Docker image:       ${IMAGE_NAME}:v${NEW_VERSION} (local arch only)"
-    dry "Tag Docker image:         ${IMAGE_NAME}:latest"
+    [ "$DO_BETA" = false ] && dry "Tag Docker image:         ${IMAGE_NAME}:latest"
   fi
-  dry "Git commit:               release: v${NEW_VERSION}"
-  dry "Git tag:                  v${NEW_VERSION}"
-  [ "$DO_PUSH" = true ] && dry "Push tag to origin"
-  [ "$DO_PUSH" = true ] && dry "Create GitHub release:    v${NEW_VERSION}"
+  if [ "$DO_BETA" = false ]; then
+    dry "Git commit:               release: v${NEW_VERSION}"
+    dry "Git tag:                  v${NEW_VERSION}"
+    [ "$DO_PUSH" = true ] && dry "Push tag to origin"
+    [ "$DO_PUSH" = true ] && dry "Create GitHub release:    v${NEW_VERSION}"
+  else
+    dry "Revert package.json:      v${NEW_VERSION} → v${CURRENT_VERSION}"
+  fi
   echo ""
   ok "Dry run complete. Remove --dry-run to execute."
   exit 0
@@ -260,11 +280,12 @@ if [ "$DO_DOCKER" = true ]; then
     # Multi-arch build + push to GHCR
     PLATFORMS="linux/amd64,linux/arm64"
     info "Building multi-arch (${PLATFORMS}) and pushing to GHCR..."
+    DOCKER_TAGS="-t ${GHCR_IMAGE}:v${NEW_VERSION}"
+    [ "$DO_BETA" = false ] && DOCKER_TAGS="${DOCKER_TAGS} -t ${GHCR_IMAGE}:latest"
     docker buildx build \
       --platform "${PLATFORMS}" \
       --build-arg VERSION="${NEW_VERSION}" \
-      -t "${GHCR_IMAGE}:v${NEW_VERSION}" \
-      -t "${GHCR_IMAGE}:latest" \
+      ${DOCKER_TAGS} \
       --push \
       .
     ok "Pushed ${GHCR_IMAGE}:v${NEW_VERSION} (amd64 + arm64)"
@@ -272,64 +293,86 @@ if [ "$DO_DOCKER" = true ]; then
     # Local build — single arch, load into Docker
     PLATFORM="linux/$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')"
     info "Building for ${PLATFORM} (local only)..."
+    DOCKER_TAGS="-t ${IMAGE_NAME}:v${NEW_VERSION}"
+    [ "$DO_BETA" = false ] && DOCKER_TAGS="${DOCKER_TAGS} -t ${IMAGE_NAME}:latest"
     docker buildx build \
       --platform "${PLATFORM}" \
       --build-arg VERSION="${NEW_VERSION}" \
-      -t "${IMAGE_NAME}:v${NEW_VERSION}" \
-      -t "${IMAGE_NAME}:latest" \
+      ${DOCKER_TAGS} \
       --load \
       .
-    ok "Built ${IMAGE_NAME}:v${NEW_VERSION} + ${IMAGE_NAME}:latest"
+    if [ "$DO_BETA" = true ]; then
+      ok "Built ${IMAGE_NAME}:v${NEW_VERSION}"
+    else
+      ok "Built ${IMAGE_NAME}:v${NEW_VERSION} + ${IMAGE_NAME}:latest"
+    fi
   fi
 fi
 
-# ── Step 4: Git commit + tag ───────────────────────────────────────────────
-step "Creating git commit and tag"
+# ── Step 4: Git commit + tag (skip for beta) ──────────────────────────────
+if [ "$DO_BETA" = false ]; then
+  step "Creating git commit and tag"
 
-git add package.json package-lock.json ui/package.json ui/package-lock.json
-git commit -m "release: v${NEW_VERSION}"
-ok "Committed version bump"
+  git add package.json package-lock.json ui/package.json ui/package-lock.json
+  git commit -m "release: v${NEW_VERSION}"
+  ok "Committed version bump"
 
-git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}"
-ok "Created tag v${NEW_VERSION}"
+  git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}"
+  ok "Created tag v${NEW_VERSION}"
 
-# ── Step 5: Push + GitHub release (optional) ───────────────────────────────
-if [ "$DO_PUSH" = true ]; then
-  step "Publishing to GitHub"
+  # ── Step 5: Push + GitHub release (optional) ─────────────────────────────
+  if [ "$DO_PUSH" = true ]; then
+    step "Publishing to GitHub"
 
-  git push origin "$(git branch --show-current)"
-  ok "Pushed commits"
+    git push origin "$(git branch --show-current)"
+    ok "Pushed commits"
 
-  git push origin "v${NEW_VERSION}"
-  ok "Pushed tag v${NEW_VERSION}"
+    git push origin "v${NEW_VERSION}"
+    ok "Pushed tag v${NEW_VERSION}"
 
-  # Generate changelog from commits since last tag
-  PREV_TAG=$(git tag --sort=-v:refname | grep -v "v${NEW_VERSION}" | head -1)
-  if [ -n "$PREV_TAG" ]; then
-    CHANGELOG=$(git log "${PREV_TAG}..v${NEW_VERSION}" --pretty=format:"- %s" --no-merges | grep -v "^- release:")
-  else
-    CHANGELOG=$(git log --pretty=format:"- %s" --no-merges -20 | grep -v "^- release:")
-  fi
+    # Generate changelog from commits since last tag
+    PREV_TAG=$(git tag --sort=-v:refname | grep -v "v${NEW_VERSION}" | head -1)
+    if [ -n "$PREV_TAG" ]; then
+      CHANGELOG=$(git log "${PREV_TAG}..v${NEW_VERSION}" --pretty=format:"- %s" --no-merges | grep -v "^- release:")
+    else
+      CHANGELOG=$(git log --pretty=format:"- %s" --no-merges -20 | grep -v "^- release:")
+    fi
 
-  gh release create "v${NEW_VERSION}" \
-    --title "v${NEW_VERSION}" \
-    --notes "## What's Changed
+    gh release create "v${NEW_VERSION}" \
+      --title "v${NEW_VERSION}" \
+      --notes "## What's Changed
 ${CHANGELOG}
 
 ---
 **Full Changelog**: https://github.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/compare/${PREV_TAG:-initial}...v${NEW_VERSION}"
 
-  ok "Created GitHub release v${NEW_VERSION}"
+    ok "Created GitHub release v${NEW_VERSION}"
+  fi
+else
+  # Beta: revert version in package.json files (don't persist beta version)
+  step "Reverting package.json versions (beta — no permanent version change)"
+  set_version "package.json" "$CURRENT_VERSION"
+  set_version "ui/package.json" "$CURRENT_VERSION"
+  npm install --package-lock-only --ignore-scripts 2>/dev/null
+  (cd ui && npm install --package-lock-only --ignore-scripts 2>/dev/null)
+  ok "Reverted to v${CURRENT_VERSION}"
 fi
 
 # ── Done ────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}============================================${NC}"
-echo -e "${GREEN}  Release v${NEW_VERSION} complete!${NC}"
+if [ "$DO_BETA" = true ]; then
+  echo -e "${YELLOW}  Beta v${NEW_VERSION} complete!${NC}"
+else
+  echo -e "${GREEN}  Release v${NEW_VERSION} complete!${NC}"
+fi
 echo -e "${BOLD}============================================${NC}"
 echo ""
 
-if [ "$DO_PUSH" = false ]; then
+if [ "$DO_BETA" = true ]; then
+  echo "  No git tag or GitHub release created for beta."
+  echo ""
+elif [ "$DO_PUSH" = false ]; then
   echo "  Next steps:"
   echo "    git push origin $(git branch --show-current)   # push commits"
   echo "    git push origin v${NEW_VERSION}                # push tag"
