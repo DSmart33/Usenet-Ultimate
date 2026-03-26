@@ -199,9 +199,10 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?
 
         if (indexA !== indexB) return indexA - indexB;
       } else if (method === 'size') {
-        const aSize = a.estimatedEpisodeSize || a.size;
-        const bSize = b.estimatedEpisodeSize || b.size;
-        if (aSize !== bSize) return bSize - aSize;
+        const aSize = a.estimatedEpisodeSize ?? a.size;
+        const bSize = b.estimatedEpisodeSize ?? b.size;
+        const sizeDir = sortDirections.size === 'asc' ? 1 : -1;
+        if (aSize !== bSize) return (aSize - bSize) * sizeDir;
       } else if (method === 'videoTag') {
         const sourceA = parseSource(a.title);
         const sourceB = parseSource(b.title);

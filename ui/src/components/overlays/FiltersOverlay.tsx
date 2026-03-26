@@ -8,11 +8,13 @@ import clsx from 'clsx';
 import type { FiltersState } from '../../types';
 
 const SORT_DIRECTION_LABELS: Record<string, Record<string, string>> = {
+  size: { desc: 'Largest first', asc: 'Smallest first' },
   age: { asc: 'Newest first', desc: 'Oldest first' },
   bitrate: { desc: 'Highest first', asc: 'Lowest first' },
 };
 
 const SORT_DIRECTION_DEFAULTS: Record<string, 'asc' | 'desc'> = {
+  size: 'desc',
   age: 'asc',
   bitrate: 'desc',
 };
@@ -252,7 +254,7 @@ export default function FiltersOverlay({
                 const isOver = dragOverSortItem === method;
                 const labels: Record<string, string> = {
                   quality: 'Resolution',
-                  size: 'Size (Largest first)',
+                  size: 'Size',
                   videoTag: 'Quality',
                   encode: 'Encode',
                   visualTag: 'Visual Tag',
