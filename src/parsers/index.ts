@@ -6,7 +6,7 @@
 export {
   parseQuality, resolutionToDisplay, parseCodec, parseSource,
   parseVisualTag, parseAudioTag, parseLanguage, formatBytes,
-  parseEdition, parseReleaseGroup, parseCleanTitle, parseMetadata,
+  parseEdition, parseReleaseGroup, parseCleanTitle, parseYear, parseMetadata,
 } from './metadataParsers.js';
 export type { ParsedMetadata } from './metadataParsers.js';
 

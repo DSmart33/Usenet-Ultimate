@@ -232,6 +232,10 @@ export function parseCleanTitle(title: string): string {
   return parseMetadata(title).cleanTitle;
 }
 
+export function parseYear(title: string): string | undefined {
+  return parseTorrentTitle(title).year;
+}
+
 // ── Utilities ────────────────────────────────────────────────────────
 
 export function formatBytes(bytes: number): string {

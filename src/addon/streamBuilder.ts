@@ -13,7 +13,7 @@
 
 import crypto from 'crypto';
 import { config } from '../config/index.js';
-import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseReleaseGroup, parseCleanTitle, parseEdition, parseLanguage, resolutionToDisplay, formatBytes, formatAge, formatBitrate, parseDurationAttr } from '../parsers/metadataParsers.js';
+import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseReleaseGroup, parseCleanTitle, parseYear, parseEdition, parseLanguage, resolutionToDisplay, formatBytes, formatAge, formatBitrate, parseDurationAttr } from '../parsers/metadataParsers.js';
 import type { Stream, AutoPlayConfig } from '../types.js';
 import type { HealthCheckResult } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
@@ -92,7 +92,9 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     const resolution = parseQuality(result.title);
     const resolutionDisplay = resolutionToDisplay(resolution);
     const quality = parseSource(result.title);
-    const cleanTitle = parseCleanTitle(result.title);
+    const parsedCleanTitle = parseCleanTitle(result.title);
+    const year = type === 'movie' ? parseYear(result.title) : undefined;
+    const cleanTitle = year ? `${parsedCleanTitle} (${year})` : parsedCleanTitle;
     const encode = parseCodec(result.title);
     const visualTag = parseVisualTag(result.title);
     const audioTag = parseAudioTag(result.title);
