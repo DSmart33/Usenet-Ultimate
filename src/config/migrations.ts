@@ -184,7 +184,7 @@ function migrateFilterKeys(filters: any): boolean {
   let changed = false;
 
   // Values to remove entirely from priority arrays
-  const REMOVE_VALUES = new Set(['IMAX', 'HC HD-Rip', 'EAC3', 'AC3']);
+  const REMOVE_VALUES = new Set(['HC HD-Rip', 'EAC3', 'AC3']);
 
   // Migrate priority arrays
   for (const key of ['resolutionPriority', 'encodePriority', 'audioTagPriority', 'visualTagPriority', 'editionPriority']) {
@@ -253,7 +253,17 @@ function migrateFilterKeys(filters: any): boolean {
     if (!arr) continue;
     for (const val of defaults) {
       if (!arr.includes(val)) {
-        arr.push(val);
+        // For editions, insert before Standard to keep it last
+        if (key === 'editionPriority' && val !== 'Standard') {
+          const standardIdx = arr.indexOf('Standard');
+          if (standardIdx >= 0) {
+            arr.splice(standardIdx, 0, val);
+          } else {
+            arr.push(val);
+          }
+        } else {
+          arr.push(val);
+        }
         changed = true;
       }
     }
