@@ -70,19 +70,8 @@ export function parseQuality(title: string): string {
 }
 
 export function resolutionToDisplay(resolution: string): string {
-  const resMap: Record<string, string> = {
-    '4k': '4K',
-    '1440p': '2K',
-    '1080p': 'FHD',
-    '720p': 'HD',
-    '576p': 'SD',
-    '480p': 'SD',
-    '360p': 'SD',
-    '240p': 'SD',
-    '144p': 'SD',
-    'Unknown': 'Unknown',
-  };
-  return resMap[resolution] || resolution;
+  if (resolution === '4k') return '4K';
+  return resolution;
 }
 
 // ── Codec ────────────────────────────────────────────────────────────
