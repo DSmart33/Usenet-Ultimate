@@ -184,7 +184,7 @@ function migrateFilterKeys(filters: any): boolean {
   let changed = false;
 
   // Values to remove entirely from priority arrays
-  const REMOVE_VALUES = new Set(['HC HD-Rip', 'EAC3', 'AC3']);
+  const REMOVE_VALUES = new Set(['IMAX', 'HC HD-Rip', 'EAC3', 'AC3']);
 
   // Migrate priority arrays
   for (const key of ['resolutionPriority', 'encodePriority', 'audioTagPriority', 'visualTagPriority', 'editionPriority']) {
@@ -192,7 +192,7 @@ function migrateFilterKeys(filters: any): boolean {
     if (!arr) continue;
     const newArr: string[] = [];
     for (const item of arr) {
-      if (REMOVE_VALUES.has(item)) { changed = true; continue; }
+      if (REMOVE_VALUES.has(item) && !(item === 'IMAX' && key === 'editionPriority')) { changed = true; continue; }
       // Atmos splits into two values
       if (item === 'Atmos') {
         if (!newArr.includes('Atmos (TrueHD)')) newArr.push('Atmos (TrueHD)');
