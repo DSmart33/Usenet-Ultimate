@@ -44,7 +44,7 @@ export function parseMetadata(title: string): ParsedMetadata {
   const parsed = parseTorrentTitle(title);
 
   return {
-    resolution: parseResolution(parsed),
+    resolution: parseResolution(parsed, title),
     codec: normalizeCodec(parsed.codec),
     source: parseSourceFromLib(parsed),
     visualTag: parseVisualFromLib(parsed),
@@ -58,8 +58,11 @@ export function parseMetadata(title: string): ParsedMetadata {
 
 // ── Resolution ───────────────────────────────────────────────────────
 
-function parseResolution(parsed: any): string {
-  if (!parsed.resolution) return 'Unknown';
+function parseResolution(parsed: any, title: string): string {
+  if (!parsed.resolution) {
+    if (/\bUHD\b|UHDRip/i.test(title)) return '4k';
+    return 'Unknown';
+  }
   const res = parsed.resolution.toLowerCase();
   if (res === '4k' || res === '2160p') return '4k';
   return res;
