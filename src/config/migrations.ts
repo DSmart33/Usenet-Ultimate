@@ -11,6 +11,7 @@
  *  - Single-string search methods → arrays
  *  - Single-string zyclops backbone → array
  *  - Pagination defaults migration
+ *  - maxStreamsPerQuality → maxStreamsPerResolution rename
  */
 
 import 'dotenv/config';
@@ -304,5 +305,22 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   if (migrated) {
     saveConfigFile(configData);
     console.log('✅ Migrated filter configs: added age/bitrate sort options');
+  }
+}
+
+// Migrate maxStreamsPerQuality → maxStreamsPerResolution (field was misnamed: it limits per resolution, not video source quality)
+{
+  let migrated = false;
+  for (const filterObj of [configData.filters, (configData as any).movieFilters, (configData as any).tvFilters]) {
+    if (!filterObj) continue;
+    if (filterObj.maxStreamsPerQuality !== undefined && filterObj.maxStreamsPerResolution === undefined) {
+      filterObj.maxStreamsPerResolution = filterObj.maxStreamsPerQuality;
+      delete filterObj.maxStreamsPerQuality;
+      migrated = true;
+    }
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ Migrated maxStreamsPerQuality → maxStreamsPerResolution');
   }
 }

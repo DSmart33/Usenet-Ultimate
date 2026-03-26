@@ -151,6 +151,7 @@ export const DEFAULT_FILTERS = {
   },
   maxFileSize: undefined as number | undefined,
   maxStreams: undefined as number | undefined,
+  maxStreamsPerResolution: undefined as number | undefined,
   maxStreamsPerQuality: undefined as number | undefined,
   resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'] as string[],
   videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'] as string[],

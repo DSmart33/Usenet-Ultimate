@@ -222,6 +222,27 @@ export default function FiltersOverlay({
 
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
+                Max Streams Per Resolution
+              </label>
+              <input
+                type="number"
+                value={activeFilters.maxStreamsPerResolution || ''}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  updateActiveFilters({
+                    ...activeFilters,
+                    maxStreamsPerResolution: value ? parseInt(value) : undefined
+                  });
+                }}
+                placeholder="Unlimited"
+                className="input-field w-28"
+                min="1"
+              />
+              <p className="text-xs text-slate-500 mt-1">Limit how many streams of each resolution to return (e.g., 4K, 1080p, etc.)</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
                 Max Streams Per Quality
               </label>
               <input
@@ -238,7 +259,7 @@ export default function FiltersOverlay({
                 className="input-field w-28"
                 min="1"
               />
-              <p className="text-xs text-slate-500 mt-1">Limit how many streams of each quality level to return (e.g., 5 = top 5 per quality)</p>
+              <p className="text-xs text-slate-500 mt-1">Limit streams per video source quality level (e.g., BluRay, WEB-DL)</p>
             </div>
           </div>
 
@@ -576,6 +597,7 @@ export default function FiltersOverlay({
                   },
                   maxFileSize: undefined,
                   maxStreams: undefined,
+                  maxStreamsPerResolution: undefined,
                   maxStreamsPerQuality: undefined,
                   resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'],
                   videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'],

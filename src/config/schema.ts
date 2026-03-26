@@ -80,6 +80,7 @@ export interface ConfigData {
   filters?: {
     sortOrder: string[];
     maxFileSize?: number;
+    maxStreamsPerResolution?: number;
     maxStreamsPerQuality?: number;
     videoPriority?: string[];
     encodePriority?: string[];

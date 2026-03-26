@@ -107,9 +107,9 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
   let results = allResults;
 
   // Apply max file size filter if configured
-  if (filterConfig.maxFileSize) {
+  if (filterConfig.maxFileSize != null) {
     const before = results.length;
-    results = results.filter(r => r.size <= (filterConfig.maxFileSize || Infinity));
+    results = results.filter(r => r.size <= (filterConfig.maxFileSize ?? Infinity));
     if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by max file size (${results.length} remaining)`);
   }
 
@@ -309,24 +309,35 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?
 }
 
 /**
- * Apply max-streams-per-quality and max-total-streams limits.
+ * Apply per-resolution, per-quality, and max-total-streams limits.
  */
 export function applyStreamLimits(allResults: any[], filterConfig?: FilterConfig): any[] {
   let results = allResults;
 
-  // Apply max streams per quality limit if configured
-  if (filterConfig?.maxStreamsPerQuality) {
+  // Apply max streams per resolution limit if configured
+  if (filterConfig?.maxStreamsPerResolution != null) {
+    const resolutionCounts: Record<string, number> = {};
+    results = results.filter(r => {
+      const resolution = parseQuality(r.title);
+      resolutionCounts[resolution] = (resolutionCounts[resolution] || 0) + 1;
+      return resolutionCounts[resolution] <= (filterConfig?.maxStreamsPerResolution ?? Infinity);
+    });
+    console.log(`🎯 Limited to ${filterConfig.maxStreamsPerResolution} per resolution (${results.length} remaining)`);
+  }
+
+  // Apply max streams per video source quality limit if configured
+  if (filterConfig?.maxStreamsPerQuality != null) {
     const qualityCounts: Record<string, number> = {};
     results = results.filter(r => {
-      const quality = parseQuality(r.title);
-      qualityCounts[quality] = (qualityCounts[quality] || 0) + 1;
-      return qualityCounts[quality] <= (filterConfig?.maxStreamsPerQuality || Infinity);
+      const source = parseSource(r.title);
+      qualityCounts[source] = (qualityCounts[source] || 0) + 1;
+      return qualityCounts[source] <= (filterConfig?.maxStreamsPerQuality ?? Infinity);
     });
     console.log(`🎯 Limited to ${filterConfig.maxStreamsPerQuality} per quality (${results.length} remaining)`);
   }
 
   // Apply max total streams limit if configured
-  if (filterConfig?.maxStreams) {
+  if (filterConfig?.maxStreams != null) {
     results = results.slice(0, filterConfig.maxStreams);
     console.log(`🎯 Limited to ${filterConfig.maxStreams} total streams`);
   }

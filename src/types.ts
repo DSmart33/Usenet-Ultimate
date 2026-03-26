@@ -212,7 +212,8 @@ export interface FilterConfig {
   };
   maxFileSize?: number;                      // Max file size in bytes (undefined = unlimited)
   maxStreams?: number;                       // Max total streams to return (default unlimited)
-  maxStreamsPerQuality?: number;             // Max streams per quality level (undefined = unlimited)
+  maxStreamsPerResolution?: number;           // Max streams per resolution level (undefined = unlimited)
+  maxStreamsPerQuality?: number;             // Max streams per video source quality level (undefined = unlimited)
   resolutionPriority?: string[];             // Resolution priority order for sorting
   videoPriority?: string[];                  // Video source priority order for sorting
   encodePriority?: string[];                 // Video encode priority order for sorting

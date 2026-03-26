@@ -213,6 +213,7 @@ export interface FiltersState {
   enabledPriorities: Record<string, Record<string, boolean>>;
   maxFileSize: number | undefined;
   maxStreams: number | undefined;
+  maxStreamsPerResolution: number | undefined;
   maxStreamsPerQuality: number | undefined;
   resolutionPriority: string[];
   videoPriority: string[];
