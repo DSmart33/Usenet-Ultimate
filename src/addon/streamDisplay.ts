@@ -8,6 +8,10 @@
 
 import type { StreamDisplayConfig } from '../types.js';
 
+const EDITION_DISPLAY: Record<string, string> = {
+  'Extended Edition': 'Extended',
+};
+
 export interface StreamDisplayData {
   resolutionDisplay: string;
   quality: string;
@@ -35,7 +39,7 @@ export function buildStreamDisplay(
     const streamName = `${data.statusBadge}\n${data.resolutionDisplay}\n${data.quality}`;
     const titleLine = data.isSeasonPack ? `📦 ${data.cleanTitle}` : `🎬 ${data.cleanTitle}`;
     const editionLangSpecs: string[] = [];
-    if (data.edition && data.edition !== 'Standard') editionLangSpecs.push(`🏷️ ${data.edition}`);
+    if (data.edition && data.edition !== 'Standard') editionLangSpecs.push(`🏷️ ${EDITION_DISPLAY[data.edition] || data.edition}`);
     if (data.language && data.language !== 'Unknown') editionLangSpecs.push(`🗣️ ${data.language}`);
     const editionLangLine = editionLangSpecs.length > 0 ? `  ${editionLangSpecs.join('  ')}` : null;
     const sizeCodecSpecs: string[] = [];
@@ -65,7 +69,7 @@ export function buildStreamDisplay(
     releaseGroup: data.releaseGroup,
     indexer: data.indexer,
     healthProviders: data.providersLine?.replace(/^\s*📡\s*/, '') || '',
-    edition: data.edition,
+    edition: EDITION_DISPLAY[data.edition] || data.edition,
     language: data.language || '',
   };
 

@@ -6,8 +6,9 @@
 export {
   parseQuality, resolutionToDisplay, parseCodec, parseSource,
   parseVisualTag, parseAudioTag, parseLanguage, formatBytes,
-  parseEdition, parseReleaseGroup, parseCleanTitle,
+  parseEdition, parseReleaseGroup, parseCleanTitle, parseMetadata,
 } from './metadataParsers.js';
+export type { ParsedMetadata } from './metadataParsers.js';
 
 // Re-export newznab client
 export { parseNewznabXmlWithMeta, parseNewznabXml, fetchIndexerCaps } from './newznabClient.js';
