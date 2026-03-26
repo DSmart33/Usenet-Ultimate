@@ -251,3 +251,59 @@ export function formatBytes(bytes: number): string {
 
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
+
+export function formatAge(pubDate: string, now: number): string {
+  if (!pubDate) return '';
+  const date = new Date(pubDate);
+  if (isNaN(date.getTime())) return '';
+  const diffMs = now - date.getTime();
+  if (diffMs < 0) return '';
+  const hours = diffMs / (1000 * 60 * 60);
+  if (hours < 1) return '<1h';
+  if (hours < 24) return `${Math.floor(hours)}h`;
+  const days = hours / 24;
+  if (days < 365) return `${Math.floor(days)}d`;
+  return `${(days / 365).toFixed(1)}y`;
+}
+
+export function getAgeHours(pubDate: string, now: number): number {
+  if (!pubDate) return Infinity;
+  const date = new Date(pubDate);
+  if (isNaN(date.getTime())) return Infinity;
+  const diffMs = now - date.getTime();
+  if (diffMs < 0) return Infinity;
+  return diffMs / (1000 * 60 * 60);
+}
+
+export function formatBitrate(sizeBytes: number, durationSeconds: number): string {
+  if (!sizeBytes || !durationSeconds || durationSeconds < 1) return '';
+  const bps = (sizeBytes * 8) / durationSeconds;
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`;
+  if (bps >= 1_000) return `${Math.round(bps / 1_000)} Kbps`;
+  return `${Math.round(bps)} bps`;
+}
+
+export function getBitrateValue(sizeBytes: number, durationSeconds: number | undefined): number {
+  if (!sizeBytes || !durationSeconds || durationSeconds < 1) return 0;
+  return (sizeBytes * 8) / durationSeconds;
+}
+
+export function parseDurationAttr(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  // HH:MM:SS or MM:SS
+  const parts = trimmed.split(':').map(Number);
+  if (parts.length >= 2 && parts.every(p => !isNaN(p))) {
+    let seconds: number;
+    if (parts.length === 3) seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    else seconds = parts[0] * 60 + parts[1];
+    return seconds >= 60 ? seconds : undefined;
+  }
+  // Plain number (assume minutes)
+  const num = parseFloat(trimmed);
+  if (!isNaN(num) && num > 0) {
+    const seconds = Math.round(num * 60);
+    return seconds >= 60 ? seconds : undefined;
+  }
+  return undefined;
+}

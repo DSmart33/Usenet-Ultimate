@@ -170,6 +170,43 @@ export async function resolveTitleFromTmdb(
 }
 
 /**
+ * Resolve movie runtime in seconds from TMDB detail endpoint.
+ * Requires an extra API call to /3/movie/{id} since /find doesn't include runtime.
+ */
+export async function resolveRuntimeFromTmdb(imdbId: string): Promise<number | undefined> {
+  const cacheKey = `runtime:tmdb:${imdbId}`;
+  const cached = idCache.get<number>(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const apiKey = config.searchConfig?.tmdbApiKey;
+  if (!apiKey) return undefined;
+
+  try {
+    // Get TMDB ID (likely already cached from title resolution)
+    const tmdbResult = await findOnTmdb(imdbId, 'movie');
+    if (!tmdbResult) return undefined;
+
+    const isReadAccessToken = apiKey.length > 40 || apiKey.startsWith('eyJ');
+    const response = await axios.get(`https://api.themoviedb.org/3/movie/${tmdbResult.id}`, {
+      params: isReadAccessToken ? {} : { api_key: apiKey },
+      headers: isReadAccessToken ? { Authorization: `Bearer ${apiKey}` } : {},
+      timeout: 5000,
+    });
+
+    const runtime = response.data?.runtime;
+    if (typeof runtime === 'number' && runtime > 0) {
+      const seconds = runtime * 60;
+      idCache.set(cacheKey, seconds);
+      console.log(`🎯 TMDB runtime: ${imdbId} → ${runtime}min`);
+      return seconds;
+    }
+  } catch (error) {
+    console.warn(`⚠️  Failed to resolve TMDB runtime for ${imdbId}:`, (error as Error).message);
+  }
+  return undefined;
+}
+
+/**
  * Shared TVDB /search/remoteid lookup — returns both the numeric ID and the canonical title.
  * Used by resolveTvdbId() (for ID resolution) and resolveTitleFromTvdb() (for title resolution).
  * Requires bearer token auth.
@@ -362,14 +399,15 @@ async function resolveTvmazeId(
  */
 export async function resolveEpisodeCountFromTvdb(
   imdbId: string,
-  season: number
-): Promise<number | undefined> {
+  season: number,
+  episode?: number
+): Promise<{ count: number; runtime?: number } | undefined> {
   const apiKey = config.searchConfig?.tvdbApiKey;
   if (!apiKey) return undefined;
 
   // Cache key for episode counts
-  const cacheKey = `epcount:${imdbId}:${season}`;
-  const cached = idCache.get<number>(cacheKey);
+  const cacheKey = `epdata:${imdbId}:${season}`;
+  const cached = idCache.get<{ count: number; runtime?: number }>(cacheKey);
   if (cached !== undefined) return cached;
 
   try {
@@ -393,11 +431,26 @@ export async function resolveEpisodeCountFromTvdb(
     const episodes = response.data?.data?.episodes;
     if (Array.isArray(episodes) && episodes.length > 0) {
       // TVDB may paginate — count episodes matching the requested season
-      const count = episodes.filter((ep: any) => ep.seasonNumber === season).length;
+      const seasonEps = episodes.filter((ep: any) => ep.seasonNumber === season);
+      const count = seasonEps.length;
       if (count > 0) {
-        idCache.set(cacheKey, count);
-        console.log(`🔗 TVDB episode count: ${imdbId} S${season.toString().padStart(2, '0')} → ${count} episodes`);
-        return count;
+        // Extract runtime: prefer specific episode, fall back to average across season
+        let runtime: number | undefined;
+        if (episode !== undefined) {
+          const targetEp = seasonEps.find((ep: any) => ep.number === episode);
+          if (targetEp?.runtime && targetEp.runtime > 0) runtime = targetEp.runtime * 60;
+        }
+        if (!runtime) {
+          const runtimes = seasonEps.map((ep: any) => ep.runtime).filter((r: any) => typeof r === 'number' && r > 0);
+          if (runtimes.length > 0) {
+            const avg = runtimes.reduce((a: number, b: number) => a + b, 0) / runtimes.length;
+            runtime = Math.round(avg) * 60;
+          }
+        }
+        const result = { count, runtime };
+        idCache.set(cacheKey, result);
+        console.log(`🔗 TVDB episode count: ${imdbId} S${season.toString().padStart(2, '0')} → ${count} episodes${runtime ? ` (${Math.round(runtime / 60)}min)` : ''}`);
+        return result;
       }
     }
   } catch (error) {

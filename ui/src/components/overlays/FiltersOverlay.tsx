@@ -3,9 +3,19 @@
 //   per-type (Movie/TV) overrides, and drag-to-reorder priority lists
 
 import { useState } from 'react';
-import { Filter, X, Check, GripVertical, ChevronDown } from 'lucide-react';
+import { Filter, X, Check, GripVertical, ChevronDown, ArrowUpDown } from 'lucide-react';
 import clsx from 'clsx';
 import type { FiltersState } from '../../types';
+
+const SORT_DIRECTION_LABELS: Record<string, Record<string, string>> = {
+  age: { asc: 'Newest first', desc: 'Oldest first' },
+  bitrate: { desc: 'Highest first', asc: 'Lowest first' },
+};
+
+const SORT_DIRECTION_DEFAULTS: Record<string, 'asc' | 'desc'> = {
+  age: 'asc',
+  bitrate: 'desc',
+};
 
 const DISPLAY_LABELS: Record<string, string> = {
   '4k': '4K',
@@ -248,8 +258,12 @@ export default function FiltersOverlay({
                   visualTag: 'Visual Tag',
                   audioTag: 'Audio Tag',
                   language: 'Language',
-                  edition: 'Edition'
+                  edition: 'Edition',
+                  age: 'Age',
+                  bitrate: 'Bitrate',
                 };
+                const hasDirection = method in SORT_DIRECTION_LABELS;
+                const currentDir = activeFilters.sortDirections?.[method] ?? SORT_DIRECTION_DEFAULTS[method];
 
                 return (
                   <div
@@ -318,7 +332,29 @@ export default function FiltersOverlay({
                     <span className={clsx(
                       "text-sm flex-1",
                       activeFilters.enabledSorts?.[method] !== false ? "text-slate-200" : "text-slate-500"
-                    )}>{labels[method]}</span>
+                    )}>{labels[method] || method}</span>
+                    {hasDirection && (
+                      <button
+                        type="button"
+                        draggable={false}
+                        onDragStart={(e) => e.preventDefault()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          const newDir = currentDir === 'asc' ? 'desc' : 'asc';
+                          updateActiveFilters(prev => ({
+                            ...prev,
+                            sortDirections: { ...prev.sortDirections, [method]: newDir }
+                          }));
+                        }}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-slate-700/50 hover:bg-slate-600/50 text-slate-400 hover:text-slate-200 transition-colors flex-shrink-0"
+                        title={`Toggle sort direction: ${SORT_DIRECTION_LABELS[method]?.[currentDir ?? ''] ?? ''}`}
+                      >
+                        <ArrowUpDown className="w-3 h-3" />
+                        <span>{SORT_DIRECTION_LABELS[method]?.[currentDir ?? ''] ?? ''}</span>
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -513,7 +549,7 @@ export default function FiltersOverlay({
             <button
               onClick={() => {
                 const defaults: FiltersState = {
-                  sortOrder: ['quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition'],
+                  sortOrder: ['quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition', 'age', 'bitrate'],
                   enabledSorts: {
                     quality: true,
                     videoTag: true,
@@ -522,8 +558,11 @@ export default function FiltersOverlay({
                     visualTag: true,
                     audioTag: true,
                     language: false,
-                    edition: false
+                    edition: false,
+                    age: false,
+                    bitrate: false,
                   },
+                  sortDirections: {},
                   enabledPriorities: {
                     resolution: {},
                     video: {},
@@ -546,7 +585,7 @@ export default function FiltersOverlay({
                   preferNonStandardEdition: false
                 };
                 if (filterTab === 'tv') {
-                  defaults.sortOrder = ['edition', 'quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language'];
+                  defaults.sortOrder = ['edition', 'quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'age', 'bitrate'];
                   defaults.enabledSorts.edition = true;
                   defaults.preferNonStandardEdition = true;
                   defaults.enabledPriorities.edition = { 'IMAX Edition': true, 'Theatrical': true, 'Remastered': true };

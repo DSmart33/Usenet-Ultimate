@@ -211,12 +211,14 @@ export class EasynewsSearcher {
 
     let hash: string, subject: string, filename: string, ext: string;
     let size: number | string, duration: string | number | null;
+    let posted: string | number | null = null;
     let sig: string | null = null;
 
     if (Array.isArray(item)) {
       hash = item[0] || '';
       size = item[4] || 0;
       subject = item[6] || '';
+      posted = item[8] ?? null;
       filename = item[10] || '';
       ext = item[11] || '';
       duration = item[14] || null;
@@ -228,6 +230,7 @@ export class EasynewsSearcher {
       ext = String(item.extension || item.ext || item['11'] || '');
       size = item.size || item.rawSize || item.Length || item['4'] || 0;
       duration = item.runtime || item.duration || item['14'] || null;
+      posted = (item.ts ?? item.timestamp ?? item['5'] ?? item['8'] ?? null) as string | number | null;
       sig = item.sig ? String(item.sig) : null;
     } else {
       return reject('bad-format');
@@ -262,11 +265,21 @@ export class EasynewsSearcher {
     // break both title matching and quality parsing
     const title = filename ? `${filename}.${ext}` : subject;
 
+    // Parse posted date for age display
+    let pubDate = '';
+    if (posted != null) {
+      const date = typeof posted === 'number' ? new Date(posted * 1000) : new Date(String(posted));
+      if (!isNaN(date.getTime()) && date.getTime() <= Date.now()) {
+        pubDate = date.toISOString();
+      }
+    }
+
     return {
       title,
       link: `easynews://${hash}`,
       size: sizeBytes,
-      pubDate: '',
+      pubDate,
+      duration: durationSec > 0 ? durationSec : undefined,
       category: 'EasyNews',
       attributes: {},
       easynewsMeta: { hash, filename, ext, dlFarm, dlPort, downURL, sig: sig || undefined },

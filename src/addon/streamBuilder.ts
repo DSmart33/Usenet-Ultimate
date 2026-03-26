@@ -13,7 +13,7 @@
 
 import crypto from 'crypto';
 import { config } from '../config/index.js';
-import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseReleaseGroup, parseCleanTitle, parseEdition, parseLanguage, resolutionToDisplay, formatBytes } from '../parsers/metadataParsers.js';
+import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseReleaseGroup, parseCleanTitle, parseEdition, parseLanguage, resolutionToDisplay, formatBytes, formatAge, formatBitrate, parseDurationAttr } from '../parsers/metadataParsers.js';
 import type { Stream, AutoPlayConfig } from '../types.js';
 import type { HealthCheckResult } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
@@ -29,6 +29,8 @@ export interface StreamBuildContext {
   season?: number;
   episode?: number;
   episodesInSeason?: number;
+  now: number;
+  runtime?: number;
 }
 
 export interface StreamBuildOutput {
@@ -41,7 +43,7 @@ export interface StreamBuildOutput {
  * Build Stremio Stream objects from processed search results.
  */
 export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
-  const { allResults, healthResults, type, season, episode, episodesInSeason } = ctx;
+  const { allResults, healthResults, type, season, episode, episodesInSeason, now, runtime } = ctx;
 
   // Build auto-play / binge group settings
   const autoPlay: AutoPlayConfig = config.autoPlay || { enabled: true, method: 'firstFile' as const, attributes: ['resolution', 'quality', 'edition'] as ('resolution' | 'quality' | 'edition')[] };
@@ -100,6 +102,25 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     const language = parseLanguage(result.title);
     const indexer = result.indexerName;
 
+    // Calculate age from pubDate
+    const age = formatAge(result.pubDate, now);
+
+    // Calculate bitrate from size + duration (EasyNews provides duration; Newznab may have runtime attribute)
+    let durationSec: number | undefined = result.duration;
+    let bitrateEstimated = false;
+    if (!durationSec) {
+      // Non-standard Newznab attributes — most indexers don't send these, but some may
+      const runtimeAttr = result.attributes?.runtime || result.attributes?.duration;
+      if (runtimeAttr) durationSec = parseDurationAttr(String(runtimeAttr));
+    }
+    if (!durationSec && runtime) {
+      durationSec = runtime;
+      bitrateEstimated = true;
+    }
+    const bitrateSize = result.estimatedEpisodeSize ?? result.size;
+    const rawBitrate = durationSec ? formatBitrate(bitrateSize, durationSec) : '';
+    const bitrate = rawBitrate && bitrateEstimated ? `~${rawBitrate}` : rawBitrate;
+
     // Get health status if available
     const healthStatus = healthResults.get(result.link);
     let statusBadge = '';
@@ -133,7 +154,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       {
         resolutionDisplay, quality, cleanTitle, rawTitle: result.title, encode, displaySize,
         visualTag, audioTag, releaseGroup, indexer, statusBadge,
-        providersLine, edition, language, isSeasonPack: result.isSeasonPack || false,
+        providersLine, edition, language, age, bitrate, isSeasonPack: result.isSeasonPack || false,
       },
       config.streamDisplayConfig
     );

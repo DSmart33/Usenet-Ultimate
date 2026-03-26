@@ -200,6 +200,7 @@ export interface UserAgentConfig {
 export interface FilterConfig {
   sortOrder: string[];                       // Sort priority order ['quality', 'size', 'videoTag', 'encode', 'visualTag', 'audioTag']
   enabledSorts?: Record<string, boolean>;    // Which sort methods are enabled
+  sortDirections?: Record<string, 'asc' | 'desc'>; // Sort direction per method (age, bitrate)
   enabledPriorities?: {
     resolution?: Record<string, boolean>;    // Which resolutions are enabled
     video?: Record<string, boolean>;         // Which video sources are enabled
@@ -319,6 +320,7 @@ export interface NZBSearchResult {
     grabs?: string;     // How many times downloaded
     files?: string;     // Number of files
   };
+  duration?: number;                   // Duration in seconds (EasyNews, or from Newznab runtime attribute)
   zyclopsVerified?: boolean;           // True if result came through Zyclops (pre-verified healthy)
   easynewsMeta?: {      // EasyNews direct download metadata (only present for EasyNews results)
     hash: string;

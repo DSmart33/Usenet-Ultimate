@@ -272,3 +272,37 @@ function migrateFilterKeys(filters: any): boolean {
     console.log('✅ Migrated filter keys to library format (resolution, codec, audio)');
   }
 }
+
+// Migrate streamDisplayConfig: inject age/bitrate elements if missing
+if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.elements['age']) {
+  configData.streamDisplayConfig.elements['age'] = { id: 'age', label: 'Post Age', enabled: false, prefix: '📅' };
+  configData.streamDisplayConfig.elements['bitrate'] = { id: 'bitrate', label: 'Bitrate', enabled: false, prefix: '📊' };
+  // Also place them into the first empty lineGroup row so they're visible in the UI
+  if (configData.streamDisplayConfig.lineGroups) {
+    const emptyRow = configData.streamDisplayConfig.lineGroups.find((g: any) => g.elementIds?.length === 0);
+    if (emptyRow) {
+      emptyRow.elementIds = ['age', 'bitrate'];
+    }
+  }
+  saveConfigFile(configData);
+  console.log('✅ Migrated streamDisplayConfig: added age/bitrate display elements');
+}
+
+// Migrate filters: inject age/bitrate sort options if missing
+{
+  let migrated = false;
+  for (const filterObj of [configData.filters, (configData as any).movieFilters, (configData as any).tvFilters]) {
+    if (!filterObj?.sortOrder) continue;
+    if (!filterObj.sortOrder.includes('age')) {
+      filterObj.sortOrder.push('age', 'bitrate');
+      if (!filterObj.enabledSorts) filterObj.enabledSorts = {};
+      if (filterObj.enabledSorts.age === undefined) filterObj.enabledSorts.age = false;
+      if (filterObj.enabledSorts.bitrate === undefined) filterObj.enabledSorts.bitrate = false;
+      migrated = true;
+    }
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ Migrated filter configs: added age/bitrate sort options');
+  }
+}

@@ -6,7 +6,7 @@
  */
 
 import { config } from '../config/index.js';
-import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition } from '../parsers/metadataParsers.js';
+import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, getAgeHours, getBitrateValue } from '../parsers/metadataParsers.js';
 import type { FilterConfig } from '../types.js';
 
 /**
@@ -159,9 +159,10 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
 /**
  * Sort results by configured preference using the sortOrder array.
  */
-export function sortResults(allResults: any[], filterConfig?: FilterConfig): any[] {
+export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?: number, runtime?: number): any[] {
   const sortOrder = filterConfig?.sortOrder || ['quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition'];
   const enabledSorts = filterConfig?.enabledSorts || {};
+  const sortDirections = filterConfig?.sortDirections || {};
   const enabledPriorities = filterConfig?.enabledPriorities || {};
   const resolutionPriority = filterConfig?.resolutionPriority || ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'];
   const videoPriority = filterConfig?.videoPriority || ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'];
@@ -171,6 +172,11 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig): any
   const languagePriority = filterConfig?.languagePriority || ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'];
   const editionPriority = filterConfig?.editionPriority || ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'];
   const preferNonStandardEdition = filterConfig?.preferNonStandardEdition || false;
+
+  // Pre-compute age/bitrate values for efficient sorting (avoids Date.parse per comparison)
+  const sortNow = now ?? Date.now();
+  const ageMap = new Map(allResults.map(r => [r, getAgeHours(r.pubDate, sortNow)]));
+  const bitrateMap = new Map(allResults.map(r => [r, getBitrateValue(r.estimatedEpisodeSize ?? r.size, r.duration ?? runtime)]));
 
   const sorted = [...allResults];
   sorted.sort((a, b) => {
@@ -281,6 +287,18 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig): any
         }
 
         if (indexA !== indexB) return indexA - indexB;
+      } else if (method === 'age') {
+        const ageA = ageMap.get(a) ?? Infinity;
+        const ageB = ageMap.get(b) ?? Infinity;
+        // Default asc = newest first (smallest age hours first)
+        const dir = sortDirections.age === 'desc' ? -1 : 1;
+        if (ageA !== ageB) return (ageA - ageB) * dir;
+      } else if (method === 'bitrate') {
+        const brA = bitrateMap.get(a) ?? 0;
+        const brB = bitrateMap.get(b) ?? 0;
+        // Default desc = highest bitrate first
+        const dir = sortDirections.bitrate === 'asc' ? 1 : -1;
+        if (brA !== brB) return (brA - brB) * dir;
       }
     }
     return 0;
@@ -318,7 +336,7 @@ export function applyStreamLimits(allResults: any[], filterConfig?: FilterConfig
 /**
  * Full processing pipeline: dedup → filter → sort → limit.
  */
-export function processResults(allResults: any[], type: string): any[] {
+export function processResults(allResults: any[], type: string, now?: number, runtime?: number): any[] {
   // Step 1: Cross-indexer dedup by priority
   let results = deduplicateByPriority(allResults);
 
@@ -332,7 +350,7 @@ export function processResults(allResults: any[], type: string): any[] {
   results = applyQualityFilters(results, filterConfig);
 
   // Step 5: Sort
-  results = sortResults(results, filterConfig);
+  results = sortResults(results, filterConfig, now, runtime);
 
   // Step 6: Stream limits
   results = applyStreamLimits(results, filterConfig);

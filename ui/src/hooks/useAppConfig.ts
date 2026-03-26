@@ -579,7 +579,28 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setAutoPlay(data.autoPlay || { enabled: true, method: 'firstFile', attributes: ['resolution', 'quality', 'edition'] });
 
       // Load stream display config (normalize to always have MAX_TITLE_ROWS)
-      setStreamDisplayConfig(normalizeLineGroups(data.streamDisplayConfig || DEFAULT_STREAM_DISPLAY));
+      {
+        const displayCfg = normalizeLineGroups(data.streamDisplayConfig || DEFAULT_STREAM_DISPLAY);
+        // Ensure all elements from defaults exist in loaded config
+        for (const [id, el] of Object.entries(DEFAULT_STREAM_DISPLAY.elements)) {
+          if (!displayCfg.elements[id]) {
+            displayCfg.elements[id] = { ...el };
+          }
+        }
+        // Place any orphaned elements (in elements dict but not in any lineGroup or nameElements) into the first empty row
+        const placedIds = new Set([
+          ...displayCfg.nameElements,
+          ...displayCfg.lineGroups.flatMap(g => g.elementIds),
+        ]);
+        const orphaned = Object.keys(displayCfg.elements).filter(id => !placedIds.has(id));
+        if (orphaned.length > 0) {
+          const emptyRow = displayCfg.lineGroups.find(g => g.elementIds.length === 0);
+          if (emptyRow) {
+            emptyRow.elementIds = orphaned;
+          }
+        }
+        setStreamDisplayConfig(displayCfg);
+      }
 
       setUserAgents(data.userAgents || {
         indexerSearch: 'Prowlarr/2.3.0.5236 (alpine 3.22.2)',
@@ -658,6 +679,27 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       // Ensure Collector's Edition is in editionPriority for existing configs
       if (filterConfig.editionPriority && !filterConfig.editionPriority.includes("Collector's Edition")) {
         filterConfig.editionPriority = [...filterConfig.editionPriority, "Collector's Edition"];
+      }
+
+      // Ensure age is in sortOrder for existing configs
+      if (filterConfig.sortOrder && !filterConfig.sortOrder.includes('age')) {
+        filterConfig.sortOrder = [...filterConfig.sortOrder, 'age'];
+      }
+      if (filterConfig.enabledSorts && filterConfig.enabledSorts.age === undefined) {
+        filterConfig.enabledSorts.age = false;
+      }
+
+      // Ensure bitrate is in sortOrder for existing configs
+      if (filterConfig.sortOrder && !filterConfig.sortOrder.includes('bitrate')) {
+        filterConfig.sortOrder = [...filterConfig.sortOrder, 'bitrate'];
+      }
+      if (filterConfig.enabledSorts && filterConfig.enabledSorts.bitrate === undefined) {
+        filterConfig.enabledSorts.bitrate = false;
+      }
+
+      // Ensure sortDirections exists for existing configs
+      if (!filterConfig.sortDirections) {
+        filterConfig.sortDirections = {};
       }
 
       setFilters(filterConfig);

@@ -27,6 +27,8 @@ export interface StreamDisplayData {
   providersLine: string;
   edition: string;
   language: string;
+  age: string;
+  bitrate: string;
   isSeasonPack: boolean;
 }
 
@@ -50,8 +52,12 @@ export function buildStreamDisplay(
     if (data.visualTag !== 'Unknown') tagSpecs.push(`🎨 ${data.visualTag}`);
     if (data.audioTag !== 'Unknown') tagSpecs.push(`🔊 ${data.audioTag}`);
     const tagLine = tagSpecs.length > 0 ? `  ${tagSpecs.join('  ')}` : null;
+    const ageBitrateSpecs: string[] = [];
+    if (data.age) ageBitrateSpecs.push(`📅 ${data.age}`);
+    if (data.bitrate) ageBitrateSpecs.push(`📊 ${data.bitrate}`);
+    const ageBitrateLine = ageBitrateSpecs.length > 0 ? `  ${ageBitrateSpecs.join('  ')}` : null;
     const metaLine = `  🏴‍☠️ ${data.releaseGroup}  🗂️ ${data.indexer}`;
-    const streamTitle = [titleLine, editionLangLine, sizeCodecLine, tagLine, metaLine, data.providersLine || null]
+    const streamTitle = [titleLine, editionLangLine, sizeCodecLine, tagLine, ageBitrateLine, metaLine, data.providersLine || null]
       .filter(Boolean).join('\n');
     return { name: streamName, title: streamTitle };
   }
@@ -71,6 +77,8 @@ export function buildStreamDisplay(
     healthProviders: data.providersLine?.replace(/^\s*📡\s*/, '') || '',
     edition: EDITION_DISPLAY[data.edition] || data.edition,
     language: data.language || '',
+    age: data.age || '',
+    bitrate: data.bitrate || '',
   };
 
   // Build name column

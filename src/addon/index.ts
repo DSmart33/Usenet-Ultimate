@@ -138,7 +138,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
     console.log(`📊 Found ${allRawResults.length} total results (indexer: ${indexManagerResults.length}, easynews: ${easynewsResults.length})`);
 
     // === STEP 3: DEDUP, FILTER, SORT ===
-    let allResults = processResults(allRawResults, type);
+    const now = Date.now();
+    let allResults = processResults(allRawResults, type, now, titleInfo.runtime);
 
     // === STEP 4: HEALTH CHECKS ===
     const { healthResults, filteredResults } = await coordinateHealthChecks({
@@ -164,6 +165,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
       season,
       episode,
       episodesInSeason: titleInfo.episodesInSeason,
+      now,
+      runtime: titleInfo.runtime,
     });
 
     const response = { streams };

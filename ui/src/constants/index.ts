@@ -29,6 +29,8 @@ export const DEFAULT_STREAM_DISPLAY: StreamDisplayConfig = {
     healthProviders: { id: 'healthProviders',  label: 'Health Providers', enabled: true,  prefix: '📡'  },
     edition:         { id: 'edition',          label: 'Edition',          enabled: true,  prefix: '🏷️'  },
     language:        { id: 'language',          label: 'Language',         enabled: true,  prefix: '🗣️'  },
+    age:             { id: 'age',              label: 'Post Age',         enabled: false, prefix: '📅'  },
+    bitrate:         { id: 'bitrate',          label: 'Bitrate',          enabled: false, prefix: '📊'  },
   },
   lineGroups: [
     { id: 'title-line',   elementIds: ['cleanTitle'],                   indent: false },
@@ -37,7 +39,7 @@ export const DEFAULT_STREAM_DISPLAY: StreamDisplayConfig = {
     { id: 'edition-line', elementIds: ['visualTag', 'audioTag'],       indent: true  },
     { id: 'meta-line',    elementIds: ['releaseGroup', 'indexer'],     indent: true  },
     { id: 'health-line',  elementIds: ['healthProviders'],             indent: true  },
-    { id: 'row-7',        elementIds: [],                              indent: true  },
+    { id: 'row-7',        elementIds: ['age', 'bitrate'],              indent: true  },
     { id: 'row-8',        elementIds: [],                              indent: true  },
   ],
   cleanTitles: true,
@@ -60,6 +62,8 @@ export const MOCK_STREAM_DATA: Record<string, MockStreamData> = {
     healthProviders: 'Provider1 (3/3), Provider2 (3/3)',
     edition: 'Remastered',
     language: 'English',
+    age: '2h',
+    bitrate: '8.5 Mbps',
     isSeasonPack: false,
   },
   seasonPack: {
@@ -78,6 +82,8 @@ export const MOCK_STREAM_DATA: Record<string, MockStreamData> = {
     healthProviders: 'Provider1 (3/3)',
     edition: 'Standard',
     language: 'English',
+    age: '3d',
+    bitrate: '6.2 Mbps',
     isSeasonPack: true,
   },
   minimal: {
@@ -96,6 +102,8 @@ export const MOCK_STREAM_DATA: Record<string, MockStreamData> = {
     healthProviders: '',
     edition: 'Standard',
     language: 'Unknown',
+    age: '',
+    bitrate: '',
     isSeasonPack: false,
   },
 };
@@ -119,7 +127,7 @@ export const DEFAULT_HEALTH_CHECKS = {
 };
 
 export const DEFAULT_FILTERS = {
-  sortOrder: ['quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition'] as string[],
+  sortOrder: ['quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition', 'age', 'bitrate'] as string[],
   enabledSorts: {
     quality: true,
     videoTag: true,
@@ -128,7 +136,9 @@ export const DEFAULT_FILTERS = {
     visualTag: true,
     audioTag: true,
     language: false,
-    edition: false
+    edition: false,
+    age: false,
+    bitrate: false,
   } as Record<string, boolean>,
   enabledPriorities: {
     resolution: {} as Record<string, boolean>,

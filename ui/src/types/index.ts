@@ -209,6 +209,7 @@ export interface AutoPlayState {
 export interface FiltersState {
   sortOrder: string[];
   enabledSorts: Record<string, boolean>;
+  sortDirections?: Record<string, 'asc' | 'desc'>;
   enabledPriorities: Record<string, Record<string, boolean>>;
   maxFileSize: number | undefined;
   maxStreams: number | undefined;
@@ -289,5 +290,7 @@ export interface MockStreamData {
   healthProviders: string;
   edition: string;
   language: string;
+  age?: string;
+  bitrate?: string;
   isSeasonPack: boolean;
 }
