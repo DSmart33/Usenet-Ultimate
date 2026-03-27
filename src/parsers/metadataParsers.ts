@@ -47,7 +47,7 @@ export function parseMetadata(title: string): ParsedMetadata {
     resolution: parseResolution(parsed, title),
     codec: normalizeCodec(parsed.codec),
     source: parseSourceFromLib(parsed),
-    visualTag: parseVisualFromLib(parsed),
+    visualTag: parseVisualFromLib(parsed, title),
     audioTag: parseAudioFromLib(parsed),
     language: parseLanguageFromLib(parsed),
     edition: parseEditionFromLib(parsed, title),
@@ -104,8 +104,10 @@ export function parseSource(title: string): string {
 
 // ── Visual/HDR — normalized to current canonical format ──────────────
 
-function parseVisualFromLib(parsed: any): string {
+function parseVisualFromLib(parsed: any, title: string): string {
   if (parsed.threeD) return '3D';
+  // Custom fallback for 3D tag in title when library misses it
+  if (/S\d{1,2}(?:E\d{1,2})+[._\s-].*\b(?:BD)?3D\b/i.test(title)) return '3D';
 
   const hdr = parsed.hdr as string[] | undefined;
 
