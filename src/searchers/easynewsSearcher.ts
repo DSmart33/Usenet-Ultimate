@@ -99,7 +99,7 @@ export class EasynewsSearcher {
       const packQuery = `${title} S${s}`;
       console.log(`🔍 EasyNews season pack search: "${packQuery}"`);
       const packResults = await this.search(packQuery, spAdditionalPages);
-      const seasonPackPattern = new RegExp(`S0?${season}(?!E\\d)`, 'i');
+      const seasonPackPattern = new RegExp(`S0?${season}(?![._\\s-]?E\\d)`, 'i');
       const existingHashes = new Set(filtered.map(r => r.easynewsMeta!.hash));
       const packs = packResults
         .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))

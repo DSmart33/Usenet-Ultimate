@@ -180,7 +180,7 @@ export class ProwlarrSearcher {
               const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
               const packQuery = stripDiacritics(`${title} S${s}`);
               const packResults = await this.doAggregateSearch(indexerIds, 'search', packQuery, ['5000'], spOverride);
-              const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+              const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
               const packs = packResults
                 .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
                 .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
@@ -250,7 +250,7 @@ export class ProwlarrSearcher {
             const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
             const packQuery = stripDiacritics(`${title} S${s}`);
             const packResults = await this.doAggregateSearch(textFallbackIds, 'search', packQuery, ['5000'], spOverride);
-            const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+            const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
             const packs = packResults
               .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
               .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
@@ -280,7 +280,7 @@ export class ProwlarrSearcher {
       const packQuery = stripDiacritics(`${title} S${s}`);
       console.log(`📦 Prowlarr season pack search for ${idSearchedIndexerIds.length} ID-based indexer(s): "${packQuery}"`);
       const packResults = await this.doAggregateSearch(idSearchedIndexerIds, 'search', packQuery, ['5000'], spOverride);
-      const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+      const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
       const packs = packResults
         .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
         .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
@@ -316,7 +316,7 @@ export class ProwlarrSearcher {
         const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
         const packQuery = stripDiacritics(`${title} S${s}`);
         const packResults = await this.doAggregateSearch(idSearchedIndexerIds, 'search', packQuery, ['5000'], spOverride);
-        const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+        const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
         const packs = packResults
           .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
           .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));

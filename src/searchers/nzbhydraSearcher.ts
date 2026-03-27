@@ -213,7 +213,7 @@ export class NzbhydraSearcher {
           const packParams: Record<string, string> = { ...params, q: stripDiacritics(`${title} S${s}`) };
 
           const packResults = await this.doSearch(packParams, spOverride);
-          const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+          const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
           const packs = packResults
             .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
             .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
@@ -251,7 +251,7 @@ export class NzbhydraSearcher {
       };
       console.log(`📦 NZBHydra season pack search for ${idSearchedNames.length} ID-based indexer(s)`);
       const packResults = await this.doSearch(packParams, spOverride);
-      const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+      const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
       const packs = packResults
         .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
         .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
@@ -293,7 +293,7 @@ export class NzbhydraSearcher {
         const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
         const packParams: Record<string, string> = { ...params, q: stripDiacritics(`${title} S${s}`) };
         const packResults = await this.doSearch(packParams, spOverride);
-        const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+        const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
         const packs = packResults
           .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
           .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
@@ -336,7 +336,7 @@ export class NzbhydraSearcher {
         const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
         const packParams: Record<string, string> = { ...params, q: stripDiacritics(`${title} S${s}`) };
         const packResults = await this.doSearch(packParams, spOverride);
-        const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+        const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
         const packs = packResults
           .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
           .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));

@@ -325,7 +325,7 @@ export class UsenetSearcher {
           const packResults = await this.search(packQuery, '5000', seasonPackPagination);
           const packBefore = packResults.length;
           // Must match title AND be a season pack (S## without E##)
-          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?!E\\d)`, 'i');
+          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
           const filteredPacks = packResults
             .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles))
             .filter(r => seasonPackPattern.test(r.title));
@@ -378,7 +378,7 @@ export class UsenetSearcher {
           const seasonPackPagination2 = spPaginationEnabled2 && spAdditionalPages2 ? { enabled: true, maxPages: spAdditionalPages2 } : undefined;
           const packQuery = stripDiacritics(`${title} S${s2}`);
           const packResults = await this.search(packQuery, '5000', seasonPackPagination2);
-          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?!E\\d)`, 'i');
+          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
           const filteredPacks = packResults
             .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles))
             .filter(r => seasonPackPattern.test(r.title));
@@ -492,7 +492,7 @@ export class UsenetSearcher {
         const packQuery = stripDiacritics(`${title} S${sp}`);
         console.log(`📦 Season pack search for: ${packQuery}`);
         const packResults = await this.search(packQuery, '5000', seasonPackPagination3);
-        const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?!E\\d)`, 'i');
+        const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
         const filteredPacks = packResults
           .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles))
           .filter(r => seasonPackPattern.test(r.title));
