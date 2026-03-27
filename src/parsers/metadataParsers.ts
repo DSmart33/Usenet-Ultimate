@@ -105,6 +105,8 @@ export function parseSource(title: string): string {
 // ── Visual/HDR — normalized to current canonical format ──────────────
 
 function parseVisualFromLib(parsed: any): string {
+  if (parsed.threeD) return '3D';
+
   const hdr = parsed.hdr as string[] | undefined;
 
   if (hdr && hdr.length > 0) {

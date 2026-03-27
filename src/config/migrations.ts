@@ -244,7 +244,7 @@ function migrateFilterKeys(filters: any): boolean {
     resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'],
     videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'],
     encodePriority: ['av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'],
-    visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', 'Unknown'],
+    visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'],
     audioTagPriority: ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'],
     editionPriority: ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'],
   };
@@ -261,12 +261,32 @@ function migrateFilterKeys(filters: any): boolean {
           } else {
             arr.push(val);
           }
+        // For visual tags, insert before Unknown to keep it last
+        } else if (key === 'visualTagPriority' && val !== 'Unknown') {
+          const unknownIdx = arr.indexOf('Unknown');
+          if (unknownIdx >= 0) {
+            arr.splice(unknownIdx, 0, val);
+          } else {
+            arr.push(val);
+          }
         } else {
           arr.push(val);
         }
         changed = true;
       }
     }
+  }
+
+  // Seed '3D' as disabled by default for existing configs
+  if (!filters.enabledPriorities) {
+    filters.enabledPriorities = {};
+  }
+  if (!filters.enabledPriorities.visualTag) {
+    filters.enabledPriorities.visualTag = {};
+  }
+  if (filters.enabledPriorities.visualTag['3D'] === undefined) {
+    filters.enabledPriorities.visualTag['3D'] = false;
+    changed = true;
   }
 
   return changed;
