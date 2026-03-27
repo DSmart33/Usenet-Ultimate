@@ -13,6 +13,7 @@ import { getLatestVersions } from '../versionFetcher.js';
 import { getAxiosProxyConfig, logProxyExitIp } from '../proxy.js';
 import { parseNewznabXmlWithMeta } from './newznabClient.js';
 import { stripDiacritics, isTextSearchMatch } from './titleMatching.js';
+import { formatBytes } from './metadataParsers.js';
 
 export class UsenetSearcher {
   constructor(private indexer: UsenetIndexer) {}
@@ -528,7 +529,7 @@ export class UsenetSearcher {
   private deduplicateResults(results: NZBSearchResult[]): NZBSearchResult[] {
     const seen = new Set<string>();
     return results.filter((result) => {
-      const key = `${result.title}-${result.size}`;
+      const key = `${result.title}-${formatBytes(result.size)}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;

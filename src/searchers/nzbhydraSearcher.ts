@@ -13,6 +13,7 @@ import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
 import { isTextSearchMatch, stripDiacritics } from '../parsers/titleMatching.js';
+import { formatBytes } from '../parsers/metadataParsers.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 
@@ -470,7 +471,7 @@ export class NzbhydraSearcher {
   private deduplicateResults(results: (NZBSearchResult & { indexerName: string })[]): (NZBSearchResult & { indexerName: string })[] {
     const seen = new Set<string>();
     return results.filter((result) => {
-      const key = `${result.title}-${result.size}`;
+      const key = `${result.title}-${formatBytes(result.size)}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;

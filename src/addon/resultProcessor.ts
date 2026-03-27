@@ -6,7 +6,7 @@
  */
 
 import { config } from '../config/index.js';
-import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, getAgeHours, getBitrateValue } from '../parsers/metadataParsers.js';
+import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, getAgeHours, getBitrateValue, formatBytes } from '../parsers/metadataParsers.js';
 import type { FilterConfig } from '../types.js';
 
 /**
@@ -40,7 +40,7 @@ export function deduplicateByPriority(allResults: any[]): any[] {
   const seen = new Map<string, { priority: number; index: number; indexerName: string }>();
   const dropped: { title: string; droppedFrom: string; keptFrom: string }[] = [];
   allResults.forEach((result, i) => {
-    const key = `${result.title}-${result.size}`;
+    const key = `${result.title}-${formatBytes(result.size)}`;
     const priority = priorityMap.get(result.indexerName) ?? 9998;
     const existing = seen.get(key);
     if (!existing) {
