@@ -39,6 +39,9 @@ export function clearDeliveryLog(): void {
   lastDeliveryLog.clear();
 }
 
+/** Error message stored when an episode is only found in a combined multi-episode file */
+export const MULTI_EPISODE_BLOCKED_ERROR = 'Episode only found in combined multi-episode file';
+
 export function nzbdavError(message: string, isTimeout = false): Error & { isNzbdavFailure: boolean; isTimeout: boolean } {
   const err = new Error(message) as Error & { isNzbdavFailure: boolean; isTimeout: boolean };
   err.isNzbdavFailure = true;

@@ -349,7 +349,10 @@ export async function handleStream(
   if (seasonParam && episodeParam) {
     const s = parseInt(seasonParam, 10).toString().padStart(2, '0');
     const e = parseInt(episodeParam, 10).toString().padStart(2, '0');
-    episodePattern = `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d)`;
+    const allowMultiEp = globalConfig.searchConfig?.allowMultiEpisodeFiles !== false;
+    episodePattern = allowMultiEp
+      ? `S${s}(?:[. _-]?E\\d+)*[. _-]?E${e}(?!\\d)`
+      : `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d)`;
   }
 
   // Build the list of candidates to try (primary first, then fallbacks)
@@ -410,7 +413,10 @@ export async function handleStream(
       if (!episodePattern && group.season && group.episode) {
         const s = parseInt(group.season, 10).toString().padStart(2, '0');
         const e = parseInt(group.episode, 10).toString().padStart(2, '0');
-        episodePattern = `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d)`;
+        const allowMultiEp = globalConfig.searchConfig?.allowMultiEpisodeFiles !== false;
+        episodePattern = allowMultiEp
+          ? `S${s}(?:[. _-]?E\\d+)*[. _-]?E${e}(?!\\d)`
+          : `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d)`;
       }
     }
   }

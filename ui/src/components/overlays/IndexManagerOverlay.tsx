@@ -68,6 +68,10 @@ interface IndexManagerOverlayProps {
   enableRemakeFiltering: boolean;
   setEnableRemakeFiltering: React.Dispatch<React.SetStateAction<boolean>>;
 
+  // Multi-episode files
+  allowMultiEpisodeFiles: boolean;
+  setAllowMultiEpisodeFiles: React.Dispatch<React.SetStateAction<boolean>>;
+
   // Indexer priority dedup
   indexerPriorityDedup: boolean;
   setIndexerPriorityDedup: React.Dispatch<React.SetStateAction<boolean>>;
@@ -192,6 +196,8 @@ export function IndexManagerOverlay({
   setSkipAnimeTitleResolve,
   enableRemakeFiltering,
   setEnableRemakeFiltering,
+  allowMultiEpisodeFiles,
+  setAllowMultiEpisodeFiles,
   indexerPriorityDedup,
   setIndexerPriorityDedup,
   indexerPriority,
@@ -576,6 +582,23 @@ export function IndexManagerOverlay({
                     <label htmlFor="enable-remake-filtering" className="flex-1 cursor-pointer">
                       <div className="text-sm font-medium text-slate-300">Remake / Reboot Detection</div>
                       <div className="text-xs text-slate-500 mt-0.5">For TV shows with known remakes or reboots, filter out results from the wrong version by cross-referencing year or episode name via TVDB. Applies to all search methods.</div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Multi-Episode Files */}
+                <div className="pt-3 border-t border-slate-700/30">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="allow-multi-episode-files"
+                      checked={allowMultiEpisodeFiles}
+                      onChange={(e) => setAllowMultiEpisodeFiles(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                    />
+                    <label htmlFor="allow-multi-episode-files" className="flex-1 cursor-pointer">
+                      <div className="text-sm font-medium text-slate-300">Allow Multi-Episode Files</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Allow streaming from files that contain multiple episodes (e.g. S01E01E02.mkv). When disabled, combined multi-episode files are skipped. Enabling will flush previously blocked NZBs from the dead NZB database.</div>
                     </label>
                   </div>
                 </div>

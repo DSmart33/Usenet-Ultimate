@@ -9,7 +9,8 @@ import { createClient, FileStat } from 'webdav';
 import { getWebdavClient } from './webdavClient.js';
 import { resolveCategory } from './nzbdavApi.js';
 import { WEBDAV_REQUEST_TIMEOUT_MS, type NZBDavConfig, type StreamData } from './types.js';
-import { encodeWebdavPath, nzbdavError } from './utils.js';
+import { encodeWebdavPath, nzbdavError, MULTI_EPISODE_BLOCKED_ERROR } from './utils.js';
+import { config as globalConfig } from '../config/index.js';
 
 /**
  * Find video file in WebDAV directory
@@ -54,12 +55,16 @@ export async function findVideoFile(
 
     if (videos.length > 0) {
       if (episodePattern) {
+        const allowMultiEp = globalConfig.searchConfig?.allowMultiEpisodeFiles !== false;
+
         // Try exact SxxExx pattern match first
         const pattern = new RegExp(episodePattern, 'i');
         const match = videos.find(v => pattern.test(v.path));
         if (match) return match;
 
-        // Extract the episode number from the pattern (e.g. "S03E01" -> 1)
+        // Extract target episode number — /E(\d+)/i applied to the pattern STRING finds the
+        // terminal E{digits} literal. Chain-aware patterns use E\\d+ (literal backslash-d)
+        // in the non-capturing group body, so the regex skips those and matches the final number.
         const epMatch = episodePattern.match(/E(\d+)/i);
         if (epMatch) {
           const targetEp = parseInt(epMatch[1], 10);
@@ -76,7 +81,10 @@ export async function findVideoFile(
           }
 
           // Try to extract episode numbers from all filenames and pick the right one
-          const epRegex = /S\d+E(\d+)(?!\d|[. _-]?E\d)/i;
+          // (only captures first ep in chain — ep-in-chain check below handles the rest)
+          const epRegex = allowMultiEp
+            ? /S\d+E(\d+)/i
+            : /S\d+E(\d+)(?!\d|[. _-]?E\d)/i;
           const numbered = videos
             .map(v => ({ ...v, ep: parseInt((v.path.match(epRegex)?.[1] || '0'), 10) }))
             .filter(v => v.ep > 0);
@@ -85,13 +93,24 @@ export async function findVideoFile(
             if (exact) return exact;
           }
 
+          // When multi-ep is allowed, check if targetEp appears anywhere in an SxxExx...Exx chain
+          // (handles separators like dots/dashes between chained episode numbers)
+          if (allowMultiEp) {
+            const teStr = targetEp.toString().padStart(2, '0');
+            const epInChain = new RegExp(`S\\d+(?:[. _-]?E\\d+)*[. _-]?E${teStr}(?!\\d)`, 'i');
+            const chainMatch = videos.find(v => epInChain.test(v.path));
+            if (chainMatch) return chainMatch;
+          }
+
           // Check if target episode only exists in a combined multi-episode file
-          const te = targetEp.toString().padStart(2, '0');
-          const multiEpRegex = new RegExp(
-            `E${te}[. _-]?E\\d+|E\\d+[. _-]?E${te}`, 'i'
-          );
-          if (videos.some(v => multiEpRegex.test(v.path.split('/').pop() || ''))) {
-            throw nzbdavError('Episode only found in combined multi-episode file');
+          if (!allowMultiEp) {
+            const te = targetEp.toString().padStart(2, '0');
+            const multiEpRegex = new RegExp(
+              `E${te}[. _-]?E\\d+|E\\d+[. _-]?E${te}`, 'i'
+            );
+            if (videos.some(v => multiEpRegex.test(v.path.split('/').pop() || ''))) {
+              throw nzbdavError(MULTI_EPISODE_BLOCKED_ERROR);
+            }
           }
 
           // Season pack with multiple episodes but can't identify the file --

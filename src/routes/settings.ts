@@ -13,7 +13,7 @@
 
 import { Router } from 'express';
 import type { Config } from '../types.js';
-import { recalculateTTLExpirations } from '../nzbdav/streamCache.js';
+import { recalculateTTLExpirations, clearMultiEpisodeDeadEntries } from '../nzbdav/streamCache.js';
 
 interface SettingsDeps {
   config: Config;
@@ -115,12 +115,17 @@ export function createSettingsRoutes(deps: SettingsDeps): Router {
   // Shared handler for PUT and POST /settings
   function handleSettingsUpdate(req: any, res: any) {
     try {
+      const wasMultiEpAllowed = config.searchConfig?.allowMultiEpisodeFiles !== false;
       updateSettings(req.body);
       // Recalculate NZB database expirations when TTL, mode, or storage limit changes
       if (req.body.healthyNzbDbTTL !== undefined || req.body.deadNzbDbTTL !== undefined ||
           req.body.healthyNzbDbMode !== undefined || req.body.deadNzbDbMode !== undefined ||
           req.body.healthyNzbDbMaxSizeMB !== undefined || req.body.deadNzbDbMaxSizeMB !== undefined) {
         recalculateTTLExpirations();
+      }
+      // Flush dead NZB entries blocked for multi-episode files when the setting is enabled
+      if (!wasMultiEpAllowed && req.body.searchConfig?.allowMultiEpisodeFiles === true) {
+        clearMultiEpisodeDeadEntries();
       }
       res.json(buildConfigResponse(config));
     } catch (error) {

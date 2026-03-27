@@ -13,7 +13,7 @@ import { fileURLToPath } from 'url';
 import type { CacheEntry, StreamData, NZBDavConfig } from './types.js';
 import { config as globalConfig } from '../config/index.js';
 import { clearFallbackGroups } from './fallbackManager.js';
-import { clearDeliveryLog } from './utils.js';
+import { clearDeliveryLog, MULTI_EPISODE_BLOCKED_ERROR } from './utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -390,6 +390,22 @@ export function clearFailedCache(): number {
   return count;
 }
 
+/** Clear dead entries blocked because the episode was only available in a combined multi-episode file */
+export function clearMultiEpisodeDeadEntries(): number {
+  let count = 0;
+  for (const [key, entry] of deadNzbCache) {
+    if (entry.error.message === MULTI_EPISODE_BLOCKED_ERROR) {
+      deadNzbCache.delete(key);
+      count++;
+    }
+  }
+  if (count) {
+    console.log(`\u{1F9F9} Cleared ${count} multi-episode dead NZB entries`);
+    saveCacheToDisk();
+  }
+  return count;
+}
+
 /** Clear only timed-out entries from the dead NZB cache */
 export function clearTimeoutDeadEntries(): number {
   let count = 0;
@@ -430,8 +446,9 @@ export function evictReadyByVideoPath(videoPath: string): string | null {
       const sepIdx = key.indexOf('::');
       if (sepIdx !== -1) {
         const nzbUrl = key.substring(0, sepIdx);
-        // Extract episode pattern from cache key suffix (e.g. ":S04[. _-]?E08")
-        const epMatch = key.match(/:S\d+(\[.*?\]\??)?E\d+$/);
+        // Extract episode pattern from cache key suffix — handles both old form (":S04E08",
+        // ":S04[. _-]?E08") and chain-aware form (":S04(?:[. _-]?E\d+)*[. _-]?E08(?!\d)")
+        const epMatch = key.match(/:S\d{2}[^:]*$/);
         const episodePattern = epMatch ? epMatch[0].substring(1) : undefined;
         const deadKey = getDeadCacheKey(nzbUrl, episodePattern);
         if (!deadNzbCache.has(deadKey)) {
@@ -465,9 +482,9 @@ function extractTitle(cacheKey: string): string {
   const separatorIdx = cacheKey.indexOf('::');
   if (separatorIdx === -1) return cacheKey;
   const afterSep = cacheKey.substring(separatorIdx + 2);
-  // Strip episode pattern suffix — handles both literal (":S01E02") and
-  // regex-pattern form (":S04[. _-]?E08") used by season pack file selection
-  return afterSep.replace(/:S\d+(\[.*?\]\??)?E\d+(\(.*\))?$/, '');
+  // Strip episode pattern suffix — handles both old form (":S04E08", ":S04[. _-]?E08")
+  // and chain-aware form (":S04(?:[. _-]?E\d+)*[. _-]?E08(?!\d)")
+  return afterSep.replace(/:S\d{2}[^:]*$/, '');
 }
 
 /**

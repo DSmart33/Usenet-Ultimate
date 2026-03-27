@@ -97,6 +97,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [skipAnimeTitleResolve, setSkipAnimeTitleResolve] = useState(true);
   const [indexerPriorityDedup, setIndexerPriorityDedup] = useState(false);
   const [enableRemakeFiltering, setEnableRemakeFiltering] = useState(true);
+  const [allowMultiEpisodeFiles, setAllowMultiEpisodeFiles] = useState(true);
   const [indexerPriority, setIndexerPriority] = useState<string[]>([]);
   const [dedupDraggedItem, setDedupDraggedItem] = useState<string | null>(null);
   const [dedupDragOverItem, setDedupDragOverItem] = useState<string | null>(null);
@@ -351,11 +352,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         skipAnimeTitleResolve,
         indexerPriorityDedup,
         enableRemakeFiltering,
+        allowMultiEpisodeFiles,
       },
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, useTextSearchForAnime, skipAnimeTitleResolve, indexerPriorityDedup, enableRemakeFiltering, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, useTextSearchForAnime, skipAnimeTitleResolve, indexerPriorityDedup, enableRemakeFiltering, allowMultiEpisodeFiles, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -494,6 +496,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setSkipAnimeTitleResolve(sc?.skipAnimeTitleResolve !== false);
       setIndexerPriorityDedup(sc?.indexerPriorityDedup ?? false);
       setEnableRemakeFiltering(sc?.enableRemakeFiltering !== false);
+      setAllowMultiEpisodeFiles(sc?.allowMultiEpisodeFiles !== false);
       setIndexerPriority(data.indexerPriority || []);
       setEasynewsEnabled(data.easynewsEnabled || false);
       setEasynewsUsername(data.easynewsUsername || '');
@@ -1186,6 +1189,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     skipAnimeTitleResolve, setSkipAnimeTitleResolve,
     indexerPriorityDedup, setIndexerPriorityDedup,
     enableRemakeFiltering, setEnableRemakeFiltering,
+    allowMultiEpisodeFiles, setAllowMultiEpisodeFiles,
     indexerPriority, setIndexerPriority,
     dedupDraggedItem, setDedupDraggedItem,
     dedupDragOverItem, setDedupDragOverItem,

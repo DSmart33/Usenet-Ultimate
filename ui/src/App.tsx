@@ -563,6 +563,8 @@ function App() {
           setSkipAnimeTitleResolve={ac.setSkipAnimeTitleResolve}
           enableRemakeFiltering={ac.enableRemakeFiltering}
           setEnableRemakeFiltering={ac.setEnableRemakeFiltering}
+          allowMultiEpisodeFiles={ac.allowMultiEpisodeFiles}
+          setAllowMultiEpisodeFiles={ac.setAllowMultiEpisodeFiles}
           indexerPriorityDedup={ac.indexerPriorityDedup}
           setIndexerPriorityDedup={ac.setIndexerPriorityDedup}
           indexerPriority={ac.indexerPriority}
