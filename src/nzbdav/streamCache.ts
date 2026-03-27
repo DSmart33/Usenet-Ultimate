@@ -20,6 +20,20 @@ const __dirname = path.dirname(__filename);
 const READY_CACHE_FILE = path.join(__dirname, '..', '..', 'config', 'healthy-nzbs.json');
 const DEAD_NZB_CACHE_FILE = path.join(__dirname, '..', '..', 'config', 'dead-nzbs.json');
 
+/** Strip the volatile `link` query param from Prowlarr download URLs for stable cache keys.
+ *  Prowlarr URLs match: /{indexerId}/download?apikey=...&link=...&file=...
+ *  The link= param is a dynamic token that changes every search. */
+function normalizeProwlarrUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.pathname.match(/\/\d+\/download\/?$/)) return url;
+    parsed.searchParams.delete('link');
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 /** Pending preparations — in-flight promises that resolve into readyCache or deadNzbCache */
 const pendingCache = new Map<string, CacheEntry>();
 
@@ -90,7 +104,10 @@ function loadCacheFromDisk(): void {
     for (const [key, entry] of Object.entries(raw)) {
       const expiresAt = entry.expiresAt || Infinity;
       if (expiresAt > now) {
-        readyCache.set(key, { ...entry, createdAt: (entry as any).createdAt || now, expiresAt });
+        // Normalize Prowlarr URLs to strip volatile `link` param for stable lookups
+        const sepIdx = key.indexOf('::');
+        const normalizedKey = sepIdx === -1 ? key : `${normalizeProwlarrUrl(key.substring(0, sepIdx))}::${key.substring(sepIdx + 2)}`;
+        readyCache.set(normalizedKey, { ...entry, createdAt: (entry as any).createdAt || now, expiresAt });
       }
     }
     if (readyCache.size) console.log(`💾 Loaded ${readyCache.size} ready streams from disk`);
@@ -105,7 +122,12 @@ function loadCacheFromDisk(): void {
         (error as any).isTimeout = entry.error.isTimeout ?? false;
         if (entry.title) {
           // New format — key is url or url::episodePattern, title stored in entry
-          deadNzbCache.set(key, { title: entry.title, indexerName: entry.indexerName, error, createdAt: (entry as any).createdAt || now, expiresAt });
+          // Normalize Prowlarr URLs to strip volatile `link` param for stable lookups
+          const sepIdx = key.indexOf('::');
+          const normalizedKey = sepIdx === -1
+            ? normalizeProwlarrUrl(key)
+            : `${normalizeProwlarrUrl(key.substring(0, sepIdx))}::${key.substring(sepIdx + 2)}`;
+          deadNzbCache.set(normalizedKey, { title: entry.title, indexerName: entry.indexerName, error, createdAt: (entry as any).createdAt || now, expiresAt });
         } else {
           // Old format — key is url::title or url::title:episodePattern, migrate
           const title = extractTitle(key);
@@ -160,11 +182,12 @@ export function setPrepareFn(fn: PrepareFn): void {
 }
 
 export function getCacheKey(nzbUrl: string, title: string): string {
-  return `${nzbUrl}::${title}`;
+  return `${normalizeProwlarrUrl(nzbUrl)}::${title}`;
 }
 
 export function getDeadCacheKey(nzbUrl: string, episodePattern?: string): string {
-  return episodePattern ? `${nzbUrl}::${episodePattern}` : nzbUrl;
+  const normalized = normalizeProwlarrUrl(nzbUrl);
+  return episodePattern ? `${normalized}::${episodePattern}` : normalized;
 }
 
 export function cleanupExpiredCache(): void {
@@ -490,7 +513,7 @@ export function isStreamCached(nzbUrl: string, title: string): boolean {
     if ((key === baseKey || key.startsWith(baseKey + ':')) && entry.expiresAt > now) return true;
   }
   // Check dead NZB cache (URL-only — if the URL itself is dead, the grab already happened)
-  const deadEntry = deadNzbCache.get(nzbUrl);
+  const deadEntry = deadNzbCache.get(normalizeProwlarrUrl(nzbUrl));
   if (deadEntry && deadEntry.expiresAt > now) return true;
   return false;
 }
@@ -524,17 +547,18 @@ export function getCacheStats(): {
 
 /** Check if a non-expired URL-only dead entry exists (health-check entries use bare URL as key) */
 export function isDeadNzbByUrl(nzbUrl: string): boolean {
-  const entry = deadNzbCache.get(nzbUrl);
+  const entry = deadNzbCache.get(normalizeProwlarrUrl(nzbUrl));
   return !!entry && entry.expiresAt > Date.now();
 }
 
 /** Write a URL-only dead entry for a health-check-blocked NZB (caller must call saveCacheToDisk) */
 export function addDeadNzbByUrl(nzbUrl: string, title: string): void {
-  if (deadNzbCache.has(nzbUrl)) return;
+  const normalized = normalizeProwlarrUrl(nzbUrl);
+  if (deadNzbCache.has(normalized)) return;
   const createdAt = Date.now();
   const error = new Error('Health check: blocked');
   (error as any).isNzbdavFailure = true;
-  deadNzbCache.set(nzbUrl, { title, error, createdAt, expiresAt: createdAt + getDeadTTLMs() });
+  deadNzbCache.set(normalized, { title, error, createdAt, expiresAt: createdAt + getDeadTTLMs() });
   if (globalConfig.deadNzbDbMode === 'storage') {
     enforceStorageLimit(deadNzbCache, estimateDeadCacheSize, globalConfig.deadNzbDbMaxSizeMB ?? 50);
   }
