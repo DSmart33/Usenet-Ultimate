@@ -101,11 +101,11 @@ export const config: Config = {
   },
   get nzbdavMoviesTimeoutSeconds() {
     const raw = envInt('NZBDAV_MOVIES_TIMEOUT') ?? configData.nzbdavMoviesTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 30;
-    return Math.max(1, Math.min(180, raw));
+    return Math.max(1, Math.min(90, raw));
   },
   get nzbdavTvTimeoutSeconds() {
     const raw = envInt('NZBDAV_TV_TIMEOUT') ?? configData.nzbdavTvTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 15;
-    return Math.max(1, Math.min(180, raw));
+    return Math.max(1, Math.min(90, raw));
   },
   get nzbdavFallbackOrder() {
     return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'selected';

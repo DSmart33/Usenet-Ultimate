@@ -68,9 +68,9 @@ export function FallbackOverlay({
   setNzbdavProxyEnabled,
 }: FallbackOverlayProps) {
   const movieDec = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavMoviesTimeoutSeconds]));
-  const movieInc = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.min(180, v + 1)), [setNzbdavMoviesTimeoutSeconds]));
+  const movieInc = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.min(90, v + 1)), [setNzbdavMoviesTimeoutSeconds]));
   const tvDec = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavTvTimeoutSeconds]));
-  const tvInc = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.min(180, v + 1)), [setNzbdavTvTimeoutSeconds]));
+  const tvInc = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.min(90, v + 1)), [setNzbdavTvTimeoutSeconds]));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
@@ -196,12 +196,12 @@ export function FallbackOverlay({
                         <input
                           type="number"
                           min={1}
-                          max={180}
+                          max={90}
                           step={1}
                           value={nzbdavMoviesTimeoutSeconds}
                           onChange={(e) => {
                             const v = parseInt(e.target.value, 10);
-                            if (!isNaN(v)) setNzbdavMoviesTimeoutSeconds(Math.min(180, Math.max(1, v)));
+                            if (!isNaN(v)) setNzbdavMoviesTimeoutSeconds(Math.min(90, Math.max(1, v)));
                           }}
                           className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
                         />
@@ -241,12 +241,12 @@ export function FallbackOverlay({
                         <input
                           type="number"
                           min={1}
-                          max={180}
+                          max={90}
                           step={1}
                           value={nzbdavTvTimeoutSeconds}
                           onChange={(e) => {
                             const v = parseInt(e.target.value, 10);
-                            if (!isNaN(v)) setNzbdavTvTimeoutSeconds(Math.min(180, Math.max(1, v)));
+                            if (!isNaN(v)) setNzbdavTvTimeoutSeconds(Math.min(90, Math.max(1, v)));
                           }}
                           className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
                         />
@@ -262,7 +262,7 @@ export function FallbackOverlay({
               </div>
             </div>
             <ul className="text-xs text-slate-500 space-y-1 list-disc list-inside">
-              <li>How long to wait for a stream to become ready before trying the next NZB. Hold the +/- buttons to accelerate. Min 1s, max 3 min.</li>
+              <li>How long to wait for a stream to become ready before trying the next NZB. Hold the +/- buttons to accelerate. Min 1s, max 1 min 30s.</li>
               <li>Timed-out NZBs can be excluded from the Dead NZBs Database in the NZB Database menu.</li>
             </ul>
           </div>
