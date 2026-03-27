@@ -391,19 +391,6 @@ export function IndexManagerOverlay({
                         <span><span className="text-slate-300 font-medium">Universal Compatibility</span> — Works with every indexer regardless of API capabilities — no IMDB/TMDB/TVDB ID support required</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 pt-2 border-t border-amber-500/15">
-                      <input
-                        type="checkbox"
-                        id="enable-remake-filtering"
-                        checked={enableRemakeFiltering}
-                        onChange={(e) => setEnableRemakeFiltering(e.target.checked)}
-                        className="w-4 h-4 rounded border-amber-500/30 bg-slate-800 text-amber-500 focus:ring-2 focus:ring-amber-500 cursor-pointer"
-                      />
-                      <label htmlFor="enable-remake-filtering" className="flex-1 cursor-pointer">
-                        <div className="text-xs font-medium text-slate-300">Remake / Reboot Detection</div>
-                        <div className="text-xs text-slate-500 mt-0.5">For TV shows with known remakes or reboots, filter out results from the wrong version by verifying year or episode name via TVDB.</div>
-                      </label>
-                    </div>
                     <p className="text-xs text-amber-400/60 italic">
                       Enable Ultimate Text Search per-indexer below, or globally for anime in the Anime section. For best results pair with TMDB and TVDB API keys.
                     </p>
@@ -546,7 +533,7 @@ export function IndexManagerOverlay({
                 <div className="pt-3 border-t border-slate-700/30">
                   <div className="text-sm font-medium text-slate-300 mb-2">Anime</div>
                   <div className="text-xs text-slate-500 mb-3">Anime is detected automatically via Cinemeta metadata (Animation genre + Japan country).</div>
-                  <div className="space-y-3 pl-1">
+                  <div className="space-y-3 pl-7">
                     <div className="flex items-center gap-3">
                       <input
                         type="checkbox"
@@ -573,6 +560,23 @@ export function IndexManagerOverlay({
                         <div className="text-xs text-slate-500 mt-0.5">Use Cinemeta English title for anime instead of TVDB/TMDB which often returns Japanese titles.</div>
                       </label>
                     </div>
+                  </div>
+                </div>
+
+                {/* Remake / Reboot Detection */}
+                <div className="pt-3 border-t border-slate-700/30">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="enable-remake-filtering"
+                      checked={enableRemakeFiltering}
+                      onChange={(e) => setEnableRemakeFiltering(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                    />
+                    <label htmlFor="enable-remake-filtering" className="flex-1 cursor-pointer">
+                      <div className="text-sm font-medium text-slate-300">Remake / Reboot Detection</div>
+                      <div className="text-xs text-slate-500 mt-0.5">For TV shows with known remakes or reboots, filter out results from the wrong version by cross-referencing year or episode name via TVDB. Applies to all search methods.</div>
+                    </label>
                   </div>
                 </div>
 

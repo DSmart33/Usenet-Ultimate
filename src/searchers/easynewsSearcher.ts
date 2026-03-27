@@ -79,8 +79,6 @@ export class EasynewsSearcher {
     year?: string,
     country?: string,
     additionalTitles?: string[],
-    episodeName?: string,
-    hasRemake?: boolean,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
@@ -88,7 +86,7 @@ export class EasynewsSearcher {
     console.log(`🔍 EasyNews TV search: "${query}"`);
     const results = await this.search(query);
     const before = results.length;
-    const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake));
+    const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
     if (before !== filtered.length) {
       console.log(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
     }

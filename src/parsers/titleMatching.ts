@@ -100,13 +100,13 @@ const ALL_COUNTRY_CODES = new Set(Object.values(COUNTRY_CODES).flat());
  *  Returns true if the normalized titles are close enough.
  *  Optionally accepts additional titles (e.g. Cinemeta title alongside TMDB title)
  *  and returns true if ANY title matches. */
-export function isTextSearchMatch(expectedTitle: string, releaseTitle: string, year?: string, country?: string, additionalTitles?: string[], episodeName?: string, hasRemake?: boolean): boolean {
-  if (isTextSearchMatchSingle(expectedTitle, releaseTitle, year, country, episodeName, hasRemake)) return true;
+export function isTextSearchMatch(expectedTitle: string, releaseTitle: string, year?: string, country?: string, additionalTitles?: string[]): boolean {
+  if (isTextSearchMatchSingle(expectedTitle, releaseTitle, year, country)) return true;
 
   // Try additional titles (e.g. Cinemeta title when primary is TMDB, or vice versa)
   if (additionalTitles) {
     for (const altTitle of additionalTitles) {
-      if (altTitle && altTitle !== expectedTitle && isTextSearchMatchSingle(altTitle, releaseTitle, year, country, episodeName, hasRemake)) {
+      if (altTitle && altTitle !== expectedTitle && isTextSearchMatchSingle(altTitle, releaseTitle, year, country)) {
         return true;
       }
     }
@@ -115,8 +115,30 @@ export function isTextSearchMatch(expectedTitle: string, releaseTitle: string, y
   return false;
 }
 
+/**
+ * Returns true if a release should be filtered out due to remake detection.
+ * Year-present releases are rejected if the year differs significantly from the expected version.
+ * Yearless releases must contain the episode name to prove they are the correct version.
+ */
+export function isRemakeFiltered(releaseTitle: string, episodeName: string, year: string): boolean {
+  const parsedYear = parseYear(releaseTitle);
+  if (!parsedYear) {
+    // Yearless release — must contain the episode name to prove it's the correct version
+    const epNameNorm = normalizeTitle(episodeName.replace(/\s*\(\d+\)\s*$/, ''));
+    if (epNameNorm && !normalizeTitle(releaseTitle).includes(epNameNorm)) {
+      return true;
+    }
+  } else {
+    // Year-present release — reject if the year differs significantly from the expected version
+    if (Math.abs(parseInt(parsedYear, 10) - parseInt(year, 10)) > 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Core single-title matching logic */
-function isTextSearchMatchSingle(expectedTitle: string, releaseTitle: string, year?: string, country?: string, episodeName?: string, hasRemake?: boolean): boolean {
+function isTextSearchMatchSingle(expectedTitle: string, releaseTitle: string, year?: string, country?: string): boolean {
   const extracted = extractTitleFromRelease(releaseTitle);
   const normExpected = normalizeTitle(expectedTitle);
   const normExtracted = normalizeTitle(extracted);
@@ -128,20 +150,6 @@ function isTextSearchMatchSingle(expectedTitle: string, releaseTitle: string, ye
     const parsedYear = parseYear(releaseTitle);
     if (parsedYear && !expectedTitle.includes(parsedYear)) {
       if (Math.abs(parseInt(parsedYear, 10) - expectedYear) > 1) {
-        return false;
-      }
-    }
-  }
-
-  // Remake detection: if the show has a remake (hasRemake flag) and the release has no
-  // year, it must contain the correct episode name or it's rejected. This prevents yearless
-  // remake releases from slipping through while having zero impact on non-remake shows.
-  if (hasRemake && episodeName && year) {
-    const parsedYear = parseYear(releaseTitle);
-    if (!parsedYear) {
-      // No year in release — must contain the correct episode name to prove it's the right version
-      const epNameNorm = normalizeTitle(episodeName.replace(/\s*\(\d+\)\s*$/, ''));
-      if (epNameNorm && !normalizeTitle(releaseTitle).includes(epNameNorm)) {
         return false;
       }
     }

@@ -149,8 +149,6 @@ export class NzbhydraSearcher {
     country?: string,
     resolvedIds?: Map<string, { idParam: string; idValue: string } | null>,
     additionalTitles?: string[],
-    episodeName?: string,
-    hasRemake?: boolean,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const groups = this.groupByMethod('tv');
     const allResults: (NZBSearchResult & { indexerName: string })[] = [];
@@ -200,10 +198,10 @@ export class NzbhydraSearcher {
       const results = await this.doSearch(params);
 
       if (method === 'text') {
-        const episodeFiltered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake));
+        const episodeFiltered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
         console.log(`   🎯 Title filter: ${results.length} → ${episodeFiltered.length}`);
         if (results.length !== episodeFiltered.length) {
-          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake))
+          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
             .forEach(r => console.log(`      ✂️  ${r.title}`));
         }
 
@@ -282,10 +280,10 @@ export class NzbhydraSearcher {
       params.indexers = textFallbackNames.join(',');
       console.log(`🔄 ID resolution failed — text fallback for ${textFallbackNames.length} indexer(s)`);
       const results = await this.doSearch(params);
-      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake));
+      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
       console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
       if (results.length !== filtered.length) {
-        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake))
+        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
           .forEach(r => console.log(`      ✂️  ${r.title}`));
       }
 
@@ -325,10 +323,10 @@ export class NzbhydraSearcher {
       };
       console.log(`🔄 ID search returned 0 — text fallback for ${idSearchedNames.length} indexer(s)`);
       const results = await this.doSearch(params);
-      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake));
+      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
       console.log(`   🎯 Zero-result text fallback filter: ${results.length} → ${filtered.length}`);
       if (results.length !== filtered.length) {
-        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake))
+        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
           .forEach(r => console.log(`      ✂️  ${r.title}`));
       }
 

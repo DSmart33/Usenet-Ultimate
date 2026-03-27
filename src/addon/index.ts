@@ -128,8 +128,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
       additionalTitles: titleInfo.additionalTitles,
       isAnime: titleInfo.isAnime,
       useTextForAnime: titleInfo.useTextForAnime,
-      episodeName: titleInfo.episodeName,
-      hasRemake: titleInfo.hasRemake,
     };
 
     const [indexManagerResults, easynewsResults] = await Promise.all([
@@ -141,7 +139,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
     // === STEP 3: DEDUP, FILTER, SORT ===
     const now = Date.now();
-    let allResults = processResults(allRawResults, type, now, titleInfo.runtime);
+    let allResults = processResults(allRawResults, type, now, titleInfo.runtime, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year);
 
     // === STEP 4: HEALTH CHECKS ===
     const { healthResults, filteredResults } = await coordinateHealthChecks({
