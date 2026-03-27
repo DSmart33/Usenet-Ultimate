@@ -72,7 +72,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           if (meta.sig) nzbParams.set('sig', meta.sig);
           nzbUrl = `${BASE_URL}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
         }
-        return { nzbUrl, title: r.title, indexerName: r.indexerName };
+        return { nzbUrl, title: r.title, indexerName: r.indexerName, isSeasonPack: r.isSeasonPack || false };
       });
 
     createFallbackGroup(
@@ -201,7 +201,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
 
       if (config.streamingMode === 'nzbdav') {
         const episodeParams = result.isSeasonPack && season !== undefined && episode !== undefined
-          ? `&season=${season}&episode=${episode}${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
+          ? `&season=${season}&episode=${episode}&sp=1${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
           : '';
         const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
         const proxyUrl = `${BASE_URL}/${streamManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
@@ -252,7 +252,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       // Encode the NZB URL and title as a proxy URL
       // For season packs, include season/episode so the correct file is selected
       const episodeParams = result.isSeasonPack && season !== undefined && episode !== undefined
-        ? `&season=${season}&episode=${episode}${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
+        ? `&season=${season}&episode=${episode}&sp=1${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
         : '';
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
       const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';

@@ -684,6 +684,8 @@ function App() {
           setNzbdavMoviesTimeoutSeconds={ac.setNzbdavMoviesTimeoutSeconds}
           nzbdavTvTimeoutSeconds={ac.nzbdavTvTimeoutSeconds}
           setNzbdavTvTimeoutSeconds={ac.setNzbdavTvTimeoutSeconds}
+          nzbdavSeasonPackTimeoutSeconds={ac.nzbdavSeasonPackTimeoutSeconds}
+          setNzbdavSeasonPackTimeoutSeconds={ac.setNzbdavSeasonPackTimeoutSeconds}
           nzbdavFallbackOrder={ac.nzbdavFallbackOrder}
           setNzbdavFallbackOrder={ac.setNzbdavFallbackOrder}
           nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}

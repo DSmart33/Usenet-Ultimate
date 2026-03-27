@@ -23,8 +23,8 @@ const pipelineAsync = promisify(pipeline);
 // Register prepareStream into the cache to break the circular import
 // (streamCache needs to call prepareStream, but importing it directly would create a cycle)
 setPrepareFn(
-  (nzbUrl, title, config, episodePattern, contentType, episodesInSeason) =>
-    prepareStream(nzbUrl, title, config, episodePattern, contentType, episodesInSeason)
+  (nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack) =>
+    prepareStream(nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack)
 );
 
 // ============================================================================
@@ -126,11 +126,15 @@ function isClientDisconnect(error: unknown): boolean {
     || message.includes('aborted');
 }
 
-/** Per-attempt budget in ms. Returns 0 (no limit) when fallback is off. */
-function getAttemptBudgetMs(contentType?: string): number {
+/** Per-attempt budget in ms. Returns 0 (no limit) when fallback is off.
+ * For series, returns season pack timeout or TV timeout depending on isSeasonPack.
+ * For movies, returns the movies timeout. */
+function getAttemptBudgetMs(contentType?: string, isSeasonPack?: boolean): number {
   if (globalConfig.nzbdavFallbackEnabled !== true) return 0;
   return (contentType === 'series'
-    ? (globalConfig.nzbdavTvTimeoutSeconds ?? 15)
+    ? (isSeasonPack
+        ? (globalConfig.nzbdavSeasonPackTimeoutSeconds ?? 30)
+        : (globalConfig.nzbdavTvTimeoutSeconds ?? 15))
     : (globalConfig.nzbdavMoviesTimeoutSeconds ?? 30)) * 1000;
 }
 
@@ -151,9 +155,10 @@ export async function prepareStream(
   config: NZBDavConfig,
   episodePattern?: string,
   contentType?: string,
-  episodesInSeason?: number
+  episodesInSeason?: number,
+  isSeasonPack?: boolean
 ): Promise<StreamData> {
-  const totalBudgetMs = getAttemptBudgetMs(contentType);
+  const totalBudgetMs = getAttemptBudgetMs(contentType, isSeasonPack);
   const unlimited = totalBudgetMs === 0;
   const budgetStart = Date.now();
   const remaining = () => unlimited ? '∞' : Math.max(0, Math.round((totalBudgetMs - (Date.now() - budgetStart)) / 1000));
@@ -340,6 +345,7 @@ export async function handleStream(
   let episodePattern: string | undefined;
   const epcountParam = req.query.epcount as string | undefined;
   const episodesInSeason = epcountParam ? parseInt(epcountParam, 10) : undefined;
+  const isSeasonPackRequest = req.query.sp === '1';
   if (seasonParam && episodeParam) {
     const s = parseInt(seasonParam, 10).toString().padStart(2, '0');
     const e = parseInt(episodeParam, 10).toString().padStart(2, '0');
@@ -348,7 +354,7 @@ export async function handleStream(
 
   // Build the list of candidates to try (primary first, then fallbacks)
   const candidates: FallbackCandidate[] = [
-    { nzbUrl, title, indexerName: req.query.indexer as string || '' }
+    { nzbUrl, title, indexerName: req.query.indexer as string || '', isSeasonPack: isSeasonPackRequest }
   ];
 
   const fallbackEnabled = globalConfig.nzbdavFallbackEnabled === true;
@@ -374,7 +380,7 @@ export async function handleStream(
           candidates.push(clickedCandidate);
           candidates.push(...group.candidates.filter(c => c !== clickedCandidate));
         } else {
-          candidates.push({ nzbUrl, title, indexerName: req.query.indexer as string || '' });
+          candidates.push({ nzbUrl, title, indexerName: req.query.indexer as string || '', isSeasonPack: isSeasonPackRequest });
           candidates.push(...group.candidates);
         }
       } else {
@@ -388,7 +394,7 @@ export async function handleStream(
           candidates.push(...group.candidates.slice(0, clickedIdx));
         } else {
           // Clicked NZB not found in group — put it first, then all group candidates
-          candidates.push({ nzbUrl, title, indexerName: req.query.indexer as string || '' });
+          candidates.push({ nzbUrl, title, indexerName: req.query.indexer as string || '', isSeasonPack: isSeasonPackRequest });
           candidates.push(...group.candidates);
         }
       }
@@ -417,8 +423,6 @@ export async function handleStream(
   const candidateStart = maxCandidates > 0
     ? Math.min(Math.max(0, parseInt(req.query._ci as string || '0', 10) || 0), maxCandidates - 1)
     : 0;
-  const attemptBudgetMs = getAttemptBudgetMs(contentType);
-
   // Evict expired entries once before the loop so isDeadNzb() trusts existence
   cleanupExpiredCache();
 
@@ -433,6 +437,7 @@ export async function handleStream(
     }
 
     const candidate = candidates[i];
+    const attemptBudgetMs = getAttemptBudgetMs(contentType, candidate.isSeasonPack);
 
     // Skip candidates already known to be dead
     const deadKey = getDeadCacheKey(candidate.nzbUrl, episodePattern);
@@ -451,7 +456,7 @@ export async function handleStream(
       if (elapsed + attemptBudgetMs + STREMIO_SAFETY_MARGIN_MS > STREMIO_TIMEOUT_MS) {
         const pendingKey = getCacheKey(candidate.nzbUrl, candidate.title) + (episodePattern ? `:${episodePattern}` : '');
         if (!streamCacheMap.has(pendingKey) && !isDeadNzb(deadKey)) {
-          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose).catch(() => {});
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose, candidate.isSeasonPack).catch(() => {});
         }
         const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
         redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
@@ -480,7 +485,7 @@ export async function handleStream(
         const waitMs = Math.max(1000, EXO_PLAYER_BUDGET_MS - requestElapsed);
         let exoTimerId: ReturnType<typeof setTimeout>;
         streamData = await Promise.race([
-          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose)
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose, candidate.isSeasonPack)
             .finally(() => clearTimeout(exoTimerId)),
           new Promise<never>((_, reject) => {
             exoTimerId = setTimeout(() => reject(Object.assign(new Error('ExoPlayer safety timeout'), { isExoTimeout: true })), waitMs);
@@ -495,7 +500,7 @@ export async function handleStream(
         if (attemptBudgetMs > stremioRemainingMs && stremioRemainingMs > 0 && !req.socket.destroyed) {
           let stremioTimerId: ReturnType<typeof setTimeout>;
           streamData = await Promise.race([
-            getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose)
+            getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose, candidate.isSeasonPack)
               .finally(() => clearTimeout(stremioTimerId)),
             new Promise<never>((_, reject) => {
               stremioTimerId = setTimeout(() => reject(Object.assign(new Error('Stremio timeout redirect'), { isExoTimeout: true })), stremioRemainingMs);
@@ -503,7 +508,7 @@ export async function handleStream(
           ]);
         } else {
           streamData = await getOrCreateStream(
-            candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose
+            candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose, candidate.isSeasonPack
           );
         }
       }

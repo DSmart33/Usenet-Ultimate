@@ -35,6 +35,7 @@ export function updateSettings(settings: {
   nzbdavJobTimeoutSeconds?: number;
   nzbdavMoviesTimeoutSeconds?: number;
   nzbdavTvTimeoutSeconds?: number;
+  nzbdavSeasonPackTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
@@ -163,6 +164,9 @@ export function updateSettings(settings: {
   }
   if (settings.nzbdavTvTimeoutSeconds !== undefined) {
     configData.nzbdavTvTimeoutSeconds = settings.nzbdavTvTimeoutSeconds;
+  }
+  if (settings.nzbdavSeasonPackTimeoutSeconds !== undefined) {
+    configData.nzbdavSeasonPackTimeoutSeconds = settings.nzbdavSeasonPackTimeoutSeconds;
   }
   if (settings.nzbdavFallbackOrder !== undefined) {
     configData.nzbdavFallbackOrder = settings.nzbdavFallbackOrder;

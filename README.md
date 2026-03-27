@@ -465,6 +465,7 @@ These are migrated into `config/config.json` on first startup. After that, manag
 | `NZBDAV_LIBRARY_CHECK` | `true` | Check WebDAV library for existing files before grabbing a new NZB |
 | `NZBDAV_MOVIES_TIMEOUT` | `30` | Seconds to wait for a movie stream before trying the next fallback (1-90) |
 | `NZBDAV_TV_TIMEOUT` | `15` | Seconds to wait for a TV episode stream before trying the next fallback (1-90) |
+| `NZBDAV_SEASON_PACK_TIMEOUT` | `30` | Seconds to wait for a season pack stream before trying the next fallback (1-90) |
 | `NZBDAV_JOB_TIMEOUT` | `120` | Legacy: sets both movie and TV timeouts if the specific ones aren't configured (clamped to 1-90) |
 | `NZBDAV_MAX_SELF_REDIRECTS` | `100` | Max Stremio self-redirects during fallback chains before giving up |
 

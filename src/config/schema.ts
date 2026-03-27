@@ -41,6 +41,7 @@ export interface ConfigData {
   nzbdavJobTimeoutSeconds?: number;
   nzbdavMoviesTimeoutSeconds?: number;
   nzbdavTvTimeoutSeconds?: number;
+  nzbdavSeasonPackTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
   nzbdavCacheTimeouts?: boolean;
   nzbdavStreamBufferMB?: number;
@@ -169,7 +170,7 @@ const ENV_OVERRIDES: readonly string[] = [
   'NZBDAV_FALLBACK_ENABLED', 'NZBDAV_MAX_FALLBACKS', 'NZBDAV_FALLBACK_ORDER',
   'NZBDAV_LIBRARY_CHECK', 'NZBDAV_PROXY_ENABLED',
   'NZBDAV_STREAM_BUFFER_MB', 'STREAM_BUFFER_MB', 'NZBDAV_STREAM_MAX_RECONNECTS', 'STREAM_MAX_RECONNECTS', 'NZBDAV_MAX_SELF_REDIRECTS',
-  'NZBDAV_JOB_TIMEOUT', 'NZBDAV_MOVIES_TIMEOUT', 'NZBDAV_TV_TIMEOUT',
+  'NZBDAV_JOB_TIMEOUT', 'NZBDAV_MOVIES_TIMEOUT', 'NZBDAV_TV_TIMEOUT', 'NZBDAV_SEASON_PACK_TIMEOUT',
   'PROWLARR_URL', 'PROWLARR_API_KEY',
   'NZBHYDRA_URL', 'NZBHYDRA_API_KEY', 'NZBHYDRA_USERNAME', 'NZBHYDRA_PASSWORD',
   'EASYNEWS_ENABLED', 'EASYNEWS_USERNAME', 'EASYNEWS_PASSWORD',

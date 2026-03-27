@@ -2,7 +2,7 @@
 //   NZB Fallback configuration overlay with enable toggle, fallback order, wait times, and streaming method
 
 import { useRef, useCallback, useEffect } from 'react';
-import { RotateCcw, X, Film, Tv } from 'lucide-react';
+import { RotateCcw, X, Film, Tv, Layers } from 'lucide-react';
 import clsx from 'clsx';
 
 function useHoldRepeat(action: () => void, initialDelay = 500, minDelay = 200) {
@@ -42,6 +42,8 @@ interface FallbackOverlayProps {
   setNzbdavMoviesTimeoutSeconds: React.Dispatch<React.SetStateAction<number>>;
   nzbdavTvTimeoutSeconds: number;
   setNzbdavTvTimeoutSeconds: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavSeasonPackTimeoutSeconds: number;
+  setNzbdavSeasonPackTimeoutSeconds: React.Dispatch<React.SetStateAction<number>>;
   nzbdavFallbackOrder: 'selected' | 'top';
   setNzbdavFallbackOrder: React.Dispatch<React.SetStateAction<'selected' | 'top'>>;
   nzbdavMaxFallbacks: number;
@@ -60,6 +62,8 @@ export function FallbackOverlay({
   setNzbdavMoviesTimeoutSeconds,
   nzbdavTvTimeoutSeconds,
   setNzbdavTvTimeoutSeconds,
+  nzbdavSeasonPackTimeoutSeconds,
+  setNzbdavSeasonPackTimeoutSeconds,
   nzbdavFallbackOrder,
   setNzbdavFallbackOrder,
   nzbdavMaxFallbacks,
@@ -71,6 +75,8 @@ export function FallbackOverlay({
   const movieInc = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.min(90, v + 1)), [setNzbdavMoviesTimeoutSeconds]));
   const tvDec = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavTvTimeoutSeconds]));
   const tvInc = useHoldRepeat(useCallback(() => setNzbdavTvTimeoutSeconds(v => Math.min(90, v + 1)), [setNzbdavTvTimeoutSeconds]));
+  const seasonPackDec = useHoldRepeat(useCallback(() => setNzbdavSeasonPackTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavSeasonPackTimeoutSeconds]));
+  const seasonPackInc = useHoldRepeat(useCallback(() => setNzbdavSeasonPackTimeoutSeconds(v => Math.min(90, v + 1)), [setNzbdavSeasonPackTimeoutSeconds]));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
@@ -163,12 +169,13 @@ export function FallbackOverlay({
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium text-slate-300">Stream Wait Times</div>
               <button
-                onClick={() => { setNzbdavMoviesTimeoutSeconds(30); setNzbdavTvTimeoutSeconds(15); }}
+                onClick={() => { setNzbdavMoviesTimeoutSeconds(30); setNzbdavTvTimeoutSeconds(15); setNzbdavSeasonPackTimeoutSeconds(30); }}
                 className="text-xs text-amber-400 hover:text-amber-300"
               >
                 Reset
               </button>
             </div>
+            <div className="flex flex-col gap-3">
             <div className="grid grid-cols-2 gap-3">
               {/* Movie */}
               <div className="rounded-lg bg-slate-800/40 border border-slate-700/20 py-3 px-2 flex flex-col items-center gap-2">
@@ -260,6 +267,54 @@ export function FallbackOverlay({
                   >+</button>
                 </div>
               </div>
+            </div>
+            <div className="flex justify-center">
+              {/* Season Pack */}
+              <div className="w-1/2 rounded-lg bg-slate-800/40 border border-slate-700/20 py-3 px-2 flex flex-col items-center gap-2">
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <Layers className="w-3.5 h-3.5" />
+                  <span className="text-xs font-medium">Season Pack</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    {...seasonPackDec}
+                    className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                  >−</button>
+                  <div className="flex flex-col items-center">
+                    {nzbdavSeasonPackTimeoutSeconds >= 60 ? (
+                      <>
+                        <div className="text-2xl font-bold text-amber-400/90 leading-none tabular-nums">
+                          {Math.floor(nzbdavSeasonPackTimeoutSeconds / 60)}
+                          <span className="text-lg text-amber-400/40 mx-px">:</span>
+                          {String(nzbdavSeasonPackTimeoutSeconds % 60).padStart(2, '0')}
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">min : sec</span>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="number"
+                          min={1}
+                          max={90}
+                          step={1}
+                          value={nzbdavSeasonPackTimeoutSeconds}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            if (!isNaN(v)) setNzbdavSeasonPackTimeoutSeconds(Math.min(90, Math.max(1, v)));
+                          }}
+                          className="w-14 bg-transparent text-center text-2xl font-bold text-amber-400/90 focus:outline-none focus:text-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
+                        />
+                        <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-0.5">seconds</span>
+                      </>
+                    )}
+                  </div>
+                  <button
+                    {...seasonPackInc}
+                    className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                  >+</button>
+                </div>
+              </div>
+            </div>
             </div>
             <ul className="text-xs text-slate-500 space-y-1 list-disc list-inside">
               <li>How long to wait for a stream to become ready before trying the next NZB. Hold the +/- buttons to accelerate. Min 1s, max 1 min 30s.</li>

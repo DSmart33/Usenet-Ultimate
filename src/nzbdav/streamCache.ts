@@ -174,7 +174,7 @@ loadCacheFromDisk();
 recalculateTTLExpirations();
 
 /** Injected stream preparation function (set by streamHandler to break circular dep) */
-type PrepareFn = (nzbUrl: string, title: string, config: NZBDavConfig, episodePattern?: string, contentType?: string, episodesInSeason?: number) => Promise<StreamData>;
+type PrepareFn = (nzbUrl: string, title: string, config: NZBDavConfig, episodePattern?: string, contentType?: string, episodesInSeason?: number, isSeasonPack?: boolean) => Promise<StreamData>;
 let prepareFn: PrepareFn | null = null;
 
 export function setPrepareFn(fn: PrepareFn): void {
@@ -243,7 +243,8 @@ export async function getOrCreateStream(
   contentType?: string,
   episodesInSeason?: number,
   indexerName?: string,
-  verbose = true
+  verbose = true,
+  isSeasonPack?: boolean
 ): Promise<StreamData> {
   cleanupExpiredCache();
 
@@ -281,14 +282,14 @@ export async function getOrCreateStream(
   // Create new preparation task
   if (verbose) console.log(`\u{1F195} Starting new stream preparation: ${title}`);
 
-  const promise = prepareFn(nzbUrl, title, config, episodePattern, contentType, episodesInSeason);
+  const promise = prepareFn(nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack);
 
   // Set as pending with a TTL — if the promise hangs, the entry expires and
   // subsequent requests can retry instead of hanging forever.  When fallback is
   // off (no budget), the promise handlers (.then/.catch) clean up the entry so
   // no TTL-based expiry is needed.
   const maxTimeout = globalConfig.nzbdavFallbackEnabled === true
-    ? Math.max(globalConfig.nzbdavMoviesTimeoutSeconds ?? 30, globalConfig.nzbdavTvTimeoutSeconds ?? 15)
+    ? Math.max(globalConfig.nzbdavMoviesTimeoutSeconds ?? 30, globalConfig.nzbdavTvTimeoutSeconds ?? 15, globalConfig.nzbdavSeasonPackTimeoutSeconds ?? 30)
     : 0;
   const pendingTTLMs = maxTimeout > 0 ? (maxTimeout + 30) * 1000 : Infinity;
   pendingCache.set(cacheKey, {

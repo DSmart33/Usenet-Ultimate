@@ -65,6 +65,7 @@ function buildConfigResponse(config: Config) {
     nzbdavJobTimeoutSeconds: config.nzbdavJobTimeoutSeconds,
     nzbdavMoviesTimeoutSeconds: config.nzbdavMoviesTimeoutSeconds,
     nzbdavTvTimeoutSeconds: config.nzbdavTvTimeoutSeconds,
+    nzbdavSeasonPackTimeoutSeconds: config.nzbdavSeasonPackTimeoutSeconds,
     nzbdavFallbackOrder: config.nzbdavFallbackOrder,
     nzbdavStreamBufferMB: config.nzbdavStreamBufferMB,
     nzbdavProxyEnabled: config.nzbdavProxyEnabled,

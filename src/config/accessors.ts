@@ -107,6 +107,10 @@ export const config: Config = {
     const raw = envInt('NZBDAV_TV_TIMEOUT') ?? configData.nzbdavTvTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 15;
     return Math.max(1, Math.min(90, raw));
   },
+  get nzbdavSeasonPackTimeoutSeconds() {
+    const raw = envInt('NZBDAV_SEASON_PACK_TIMEOUT') ?? configData.nzbdavSeasonPackTimeoutSeconds ?? 30;
+    return Math.max(1, Math.min(90, raw));
+  },
   get nzbdavFallbackOrder() {
     return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'selected';
   },
