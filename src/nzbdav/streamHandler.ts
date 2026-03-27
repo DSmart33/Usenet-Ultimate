@@ -398,6 +398,14 @@ export async function handleStream(
           : Math.min(candidates.length, 1 + maxFallbacksSetting);
         console.log(`🔄 Fallback group loaded (${fallbackOrder}): ${candidates.length} candidates (trying up to ${totalToTry})`);
       }
+
+      // If episode info wasn't in the request URL (individual episode stream),
+      // use the group's stored episode so season pack fallbacks select the right file.
+      if (!episodePattern && group.season && group.episode) {
+        const s = parseInt(group.season, 10).toString().padStart(2, '0');
+        const e = parseInt(group.episode, 10).toString().padStart(2, '0');
+        episodePattern = `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d)`;
+      }
     }
   }
 
