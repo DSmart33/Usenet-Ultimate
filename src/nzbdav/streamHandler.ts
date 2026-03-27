@@ -472,9 +472,8 @@ export async function handleStream(
         }
       }
 
-      // On post-redirect requests, cap blocking time to keep Android ExoPlayer
-      // alive. If the candidate isn't ready within the budget, self-redirect
-      // and let the stream cache continue processing in the background.
+      // On post-redirect requests, cap blocking time to the ExoPlayer budget so
+      // Stremio doesn't disconnect on Android while the candidate is processing.
       let streamData: StreamData;
       if (redirectCount > 0) {
         const requestElapsed = Date.now() - streamStartTime;
@@ -488,9 +487,25 @@ export async function handleStream(
           })
         ]);
       } else {
-        streamData = await getOrCreateStream(
-          candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose
-        );
+        // On the initial request, race against the remaining Stremio window when
+        // the attempt budget would exceed it. If the stream isn't ready in time,
+        // self-redirect so the post-redirect ExoPlayer race takes over.
+        const elapsed = Date.now() - streamStartTime;
+        const stremioRemainingMs = STREMIO_TIMEOUT_MS - elapsed - STREMIO_SAFETY_MARGIN_MS;
+        if (attemptBudgetMs > stremioRemainingMs && stremioRemainingMs > 0 && !req.socket.destroyed) {
+          let stremioTimerId: ReturnType<typeof setTimeout>;
+          streamData = await Promise.race([
+            getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose)
+              .finally(() => clearTimeout(stremioTimerId)),
+            new Promise<never>((_, reject) => {
+              stremioTimerId = setTimeout(() => reject(Object.assign(new Error('Stremio timeout redirect'), { isExoTimeout: true })), stremioRemainingMs);
+            })
+          ]);
+        } else {
+          streamData = await getOrCreateStream(
+            candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, verbose
+          );
+        }
       }
 
       if (i > 0 && verbose) {
@@ -546,14 +561,14 @@ export async function handleStream(
       return;
 
     } catch (error) {
-      // ExoPlayer safety timeout — candidate is still processing in cache,
+      // Stremio / ExoPlayer timeout — candidate is still processing in cache,
       // self-redirect to keep the player alive while we wait
       if ((error as any).isExoTimeout && redirectCount < MAX_SELF_REDIRECTS && !req.socket.destroyed) {
         const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
         redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
         redirectUrl.searchParams.set('_ci', String(i));
         if (verbose) {
-          console.log(`\u23F1\uFE0F ExoPlayer safety redirect (candidate still processing, rc=${redirectCount + 1}/${MAX_SELF_REDIRECTS}, resuming at ${i + 1}/${maxCandidates})`);
+          console.log(`\u23F1\uFE0F Timeout redirect (candidate still processing, rc=${redirectCount + 1}/${MAX_SELF_REDIRECTS}, resuming at ${i + 1}/${maxCandidates})`);
         }
         res.redirect(302, redirectUrl.href);
         return;
