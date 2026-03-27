@@ -123,7 +123,12 @@ export async function resolveTitle(
     console.log(`🎌 Anime detected — using Cinemeta title "${cinemetaTitle}" (skipping TVDB/TMDB resolution)`);
   } else {
     if (type === 'series') {
-      resolvedTitle = await resolveTitleFromTvdb(imdbId, 'series');
+      const tvdbTitleResult = await resolveTitleFromTvdb(imdbId, 'series');
+      resolvedTitle = tvdbTitleResult?.title ?? null;
+      if (tvdbTitleResult?.year && tvdbTitleResult.year !== year) {
+        console.log(`📅 Using TVDB year ${tvdbTitleResult.year} (Cinemeta: ${year})`);
+        year = tvdbTitleResult.year;
+      }
     } else {
       const tmdbResult = await resolveTitleFromTmdb(imdbId, 'movie');
       resolvedTitle = tmdbResult?.title ?? null;
