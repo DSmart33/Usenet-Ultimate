@@ -75,6 +75,7 @@ export interface SearchConfig {
   useTextSearchForAnime?: boolean;
   skipAnimeTitleResolve?: boolean;
   indexerPriorityDedup?: boolean;
+  enableRemakeFiltering?: boolean;
   movieSearchMethod?: string;
   tvSearchMethod?: string;
 }

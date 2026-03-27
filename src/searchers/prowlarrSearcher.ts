@@ -148,6 +148,8 @@ export class ProwlarrSearcher {
     country?: string,
     resolvedIds?: Map<string, { idParam: string; idValue: string } | null>,
     additionalTitles?: string[],
+    episodeName?: string,
+    hasRemake?: boolean,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const groups = this.groupByMethod('tv');
     const searches: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
@@ -165,10 +167,10 @@ export class ProwlarrSearcher {
         console.log(`🔍 Prowlarr TV text search for ${indexerIds.length} indexer(s): "${query}"`);
         searches.push(
           this.doAggregateSearch(indexerIds, 'search', query, ['5000']).then(async results => {
-            const episodeFiltered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+            const episodeFiltered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake));
             console.log(`   🎯 Title filter: ${results.length} → ${episodeFiltered.length}`);
             if (results.length !== episodeFiltered.length) {
-              results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+              results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake))
                 .forEach(r => console.log(`      ✂️  ${r.title}`));
             }
 
@@ -237,10 +239,10 @@ export class ProwlarrSearcher {
       console.log(`🔄 ID resolution failed — text fallback for ${textFallbackIds.length} indexer(s): "${query}"`);
       searches.push(
         this.doAggregateSearch(textFallbackIds, 'search', query, ['5000']).then(async results => {
-          const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+          const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake));
           console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
           if (results.length !== filtered.length) {
-            results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+            results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake))
               .forEach(r => console.log(`      ✂️  ${r.title}`));
           }
           if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
@@ -301,10 +303,10 @@ export class ProwlarrSearcher {
       const query = stripDiacritics(`${title} S${s}E${e}`);
       console.log(`🔄 ID search returned 0 — falling back to text for ${idSearchedIndexerIds.length} indexer(s): "${query}"`);
       const fallbackResults = await this.doAggregateSearch(idSearchedIndexerIds, 'search', query, ['5000']);
-      const filtered = fallbackResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+      const filtered = fallbackResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake));
       console.log(`   🎯 Text fallback filter: ${fallbackResults.length} → ${filtered.length}`);
       if (fallbackResults.length !== filtered.length) {
-        fallbackResults.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+        fallbackResults.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake))
           .forEach(r => console.log(`      ✂️  ${r.title}`));
       }
 

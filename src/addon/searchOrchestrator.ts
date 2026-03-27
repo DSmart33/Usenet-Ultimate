@@ -25,13 +25,15 @@ export interface SearchContext {
   additionalTitles?: string[];
   isAnime: boolean;
   useTextForAnime: boolean;
+  episodeName?: string;
+  hasRemake?: boolean;
 }
 
 /**
  * Search via the configured index manager (Prowlarr, NZBHydra, or Newznab).
  */
 export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
-  const { type, imdbId, title, year, country, season, episode, episodesInSeason, additionalTitles, isAnime, useTextForAnime } = ctx;
+  const { type, imdbId, title, year, country, season, episode, episodesInSeason, additionalTitles, isAnime, useTextForAnime, episodeName, hasRemake } = ctx;
 
   if (config.indexManager === 'prowlarr' && config.prowlarrUrl && config.prowlarrApiKey) {
     // === PROWLARR MODE ===
@@ -75,7 +77,7 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       if (type === 'movie') {
         results = await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles);
       } else if (type === 'series' && season !== undefined && episode !== undefined) {
-        results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles);
+        results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, episodeName, hasRemake);
       } else {
         results = [];
       }
@@ -138,7 +140,7 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       if (type === 'movie') {
         results = await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles);
       } else if (type === 'series' && season !== undefined && episode !== undefined) {
-        results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles);
+        results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, episodeName, hasRemake);
       } else {
         results = [];
       }
@@ -212,7 +214,7 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
               const results = await searcher.searchMovie(imdbId, title, year, country, externalId || undefined, method, additionalTitles);
               allMethodResults.push(...results);
             } else if (type === 'series' && season !== undefined && episode !== undefined) {
-              const results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, externalId || undefined, method, additionalTitles);
+              const results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, externalId || undefined, method, additionalTitles, episodeName, hasRemake);
               allMethodResults.push(...results);
             }
           }
@@ -251,7 +253,7 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
             if (type === 'movie') {
               fbResults = await searcher.searchMovie(imdbId, title, year, country, undefined, 'text', additionalTitles);
             } else if (type === 'series' && season !== undefined && episode !== undefined) {
-              fbResults = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, undefined, 'text', additionalTitles);
+              fbResults = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, undefined, 'text', additionalTitles, episodeName, hasRemake);
             }
             const responseTime = Date.now() - startTime;
             trackQuery(indexer.name, true, responseTime, fbResults.length);
@@ -281,7 +283,7 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
     return [];
   }
 
-  const { type, title, year, country, season, episode, episodesInSeason, additionalTitles } = ctx;
+  const { type, title, year, country, season, episode, episodesInSeason, additionalTitles, episodeName, hasRemake } = ctx;
   const easynewsStartTime = Date.now();
   const searcher = new EasynewsSearcher(
     config.easynewsUsername,
@@ -294,7 +296,7 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
     if (type === 'movie') {
       results = await searcher.searchMovie(title, year, country, additionalTitles);
     } else if (type === 'series' && season !== undefined && episode !== undefined) {
-      results = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles);
+      results = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles, episodeName, hasRemake);
     } else {
       results = [];
     }

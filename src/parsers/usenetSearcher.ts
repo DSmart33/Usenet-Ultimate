@@ -292,7 +292,9 @@ export class UsenetSearcher {
     country?: string,
     externalId?: { idParam: string; idValue: string },
     searchMethod?: string,
-    additionalTitles?: string[]
+    additionalTitles?: string[],
+    episodeName?: string,
+    hasRemake?: boolean
   ): Promise<NZBSearchResult[]> {
     try {
       const tvMethods = this.indexer.tvSearchMethod;
@@ -306,9 +308,9 @@ export class UsenetSearcher {
         console.log(`📺 TV text search for: ${query}`);
         const results = await this.search(query, '5000'); // Category 5000 = TV
         const before = results.length;
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake));
         if (before !== filtered.length) {
-          const removed = results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles));
+          const removed = results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake));
           console.log(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
           removed.forEach(r => console.log(`      ✂️  ${r.title}`));
         }
@@ -363,10 +365,10 @@ export class UsenetSearcher {
         const e2 = episode.toString().padStart(2, '0');
         const query = stripDiacritics(`${title} S${s2}E${e2}`);
         const results = await this.search(query, '5000');
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake));
         console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
         if (results.length !== filtered.length) {
-          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, episodeName, hasRemake))
             .forEach(r => console.log(`      ✂️  ${r.title}`));
         }
 

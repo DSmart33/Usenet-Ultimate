@@ -87,6 +87,7 @@ export interface SearchConfig {
   useTextSearchForAnime?: boolean; // Override per-indexer search method to use text search for anime (Animation+Japan)
   skipAnimeTitleResolve?: boolean; // Skip TVDB/TMDB title resolution for anime (Animation+Japan) to avoid Japanese titles
   indexerPriorityDedup?: boolean;  // Deduplicate results across indexers, keeping only the copy from the highest-priority indexer (default false)
+  enableRemakeFiltering?: boolean;  // For shows with remakes, filter yearless results that don't contain the correct episode name (default true)
   // Legacy fields - migrated to per-indexer settings, kept for migration
   movieSearchMethod?: 'imdb' | 'tmdb' | 'tvdb' | 'text';
   tvSearchMethod?: 'imdb' | 'tvdb' | 'tvmaze' | 'text';

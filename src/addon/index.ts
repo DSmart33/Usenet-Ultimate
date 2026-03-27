@@ -128,6 +128,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
       additionalTitles: titleInfo.additionalTitles,
       isAnime: titleInfo.isAnime,
       useTextForAnime: titleInfo.useTextForAnime,
+      episodeName: titleInfo.episodeName,
+      hasRemake: titleInfo.hasRemake,
     };
 
     const [indexManagerResults, easynewsResults] = await Promise.all([

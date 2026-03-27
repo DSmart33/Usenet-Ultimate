@@ -561,6 +561,8 @@ function App() {
           setUseTextSearchForAnime={ac.setUseTextSearchForAnime}
           skipAnimeTitleResolve={ac.skipAnimeTitleResolve}
           setSkipAnimeTitleResolve={ac.setSkipAnimeTitleResolve}
+          enableRemakeFiltering={ac.enableRemakeFiltering}
+          setEnableRemakeFiltering={ac.setEnableRemakeFiltering}
           indexerPriorityDedup={ac.indexerPriorityDedup}
           setIndexerPriorityDedup={ac.setIndexerPriorityDedup}
           indexerPriority={ac.indexerPriority}

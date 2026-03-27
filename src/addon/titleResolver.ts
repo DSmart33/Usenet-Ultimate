@@ -8,7 +8,7 @@
 
 import axios from 'axios';
 import { config } from '../config/index.js';
-import { resolveTitleFromTmdb, resolveTitleFromTvdb, resolveEpisodeCountFromTvdb, resolveRuntimeFromTmdb } from '../idResolver.js';
+import { resolveTitleFromTmdb, resolveTitleFromTvdb, resolveEpisodeCountFromTvdb, resolveRuntimeFromTmdb, detectRemake } from '../idResolver.js';
 
 export interface ResolvedTitleInfo {
   /** Final title to use for search (TVDB/TMDB resolved, or Cinemeta fallback) */
@@ -31,6 +31,10 @@ export interface ResolvedTitleInfo {
   useTextForAnime: boolean;
   /** Estimated runtime in seconds (from TMDB/TVDB/Cinemeta) for bitrate estimation */
   runtime?: number;
+  /** Episode name from TVDB (for remake/version detection via episode name cross-referencing) */
+  episodeName?: string;
+  /** Whether this show has a known remake/reboot (detected via TMDB search) */
+  hasRemake?: boolean;
 }
 
 /**
@@ -90,9 +94,10 @@ export async function resolveTitle(
   const country = resolved.country;
   const genres = resolved.genres;
 
-  // Step 2: Episode count + runtime — prefer TVDB (authoritative for TV) over Cinemeta (fallback)
+  // Step 2: Episode count + runtime + episode name — prefer TVDB (authoritative for TV) over Cinemeta (fallback)
   let episodesInSeason = resolved.episodesInSeason;
   let runtime = resolved.runtime;
+  let episodeName: string | undefined;
   if (type === 'series' && season !== undefined) {
     const tvdbResult = await resolveEpisodeCountFromTvdb(imdbId, season, episode);
     if (tvdbResult) {
@@ -101,6 +106,7 @@ export async function resolveTitle(
       }
       episodesInSeason = tvdbResult.count;
       if (tvdbResult.runtime) runtime = tvdbResult.runtime;
+      if (tvdbResult.episodeName) episodeName = tvdbResult.episodeName;
     }
   }
   console.log(`📌 Title: "${cinemetaTitle}"${year ? ` (${year})` : ''}${country ? ` [${country}]` : ''}${episodesInSeason ? ` — ${episodesInSeason} eps in season` : ''}`);
@@ -139,6 +145,11 @@ export async function resolveTitle(
     if (tmdbRuntime) runtime = tmdbRuntime;
   }
 
+  // Step 6: Detect remakes — check if another show shares the same title (for text search filtering)
+  const hasRemake = (type === 'series' && config.searchConfig?.enableRemakeFiltering !== false)
+    ? await detectRemake(title)
+    : undefined;
+
   return {
     title,
     cinemetaTitle,
@@ -150,5 +161,7 @@ export async function resolveTitle(
     isAnime,
     useTextForAnime,
     runtime,
+    episodeName,
+    hasRemake,
   };
 }

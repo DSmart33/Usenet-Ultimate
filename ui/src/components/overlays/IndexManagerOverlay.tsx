@@ -64,6 +64,10 @@ interface IndexManagerOverlayProps {
   skipAnimeTitleResolve: boolean;
   setSkipAnimeTitleResolve: React.Dispatch<React.SetStateAction<boolean>>;
 
+  // Remake detection
+  enableRemakeFiltering: boolean;
+  setEnableRemakeFiltering: React.Dispatch<React.SetStateAction<boolean>>;
+
   // Indexer priority dedup
   indexerPriorityDedup: boolean;
   setIndexerPriorityDedup: React.Dispatch<React.SetStateAction<boolean>>;
@@ -186,6 +190,8 @@ export function IndexManagerOverlay({
   setUseTextSearchForAnime,
   skipAnimeTitleResolve,
   setSkipAnimeTitleResolve,
+  enableRemakeFiltering,
+  setEnableRemakeFiltering,
   indexerPriorityDedup,
   setIndexerPriorityDedup,
   indexerPriority,
@@ -384,6 +390,19 @@ export function IndexManagerOverlay({
                         <Search className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
                         <span><span className="text-slate-300 font-medium">Universal Compatibility</span> — Works with every indexer regardless of API capabilities — no IMDB/TMDB/TVDB ID support required</span>
                       </div>
+                    </div>
+                    <div className="flex items-center gap-3 pt-2 border-t border-amber-500/15">
+                      <input
+                        type="checkbox"
+                        id="enable-remake-filtering"
+                        checked={enableRemakeFiltering}
+                        onChange={(e) => setEnableRemakeFiltering(e.target.checked)}
+                        className="w-4 h-4 rounded border-amber-500/30 bg-slate-800 text-amber-500 focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                      />
+                      <label htmlFor="enable-remake-filtering" className="flex-1 cursor-pointer">
+                        <div className="text-xs font-medium text-slate-300">Remake / Reboot Detection</div>
+                        <div className="text-xs text-slate-500 mt-0.5">For TV shows with known remakes or reboots, filter out results from the wrong version by verifying year or episode name via TVDB.</div>
+                      </label>
                     </div>
                     <p className="text-xs text-amber-400/60 italic">
                       Enable Ultimate Text Search per-indexer below, or globally for anime in the Anime section. For best results pair with TMDB and TVDB API keys.
