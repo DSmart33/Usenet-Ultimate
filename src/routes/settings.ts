@@ -13,7 +13,7 @@
 
 import { Router } from 'express';
 import type { Config } from '../types.js';
-import { recalculateTTLExpirations, clearMultiEpisodeDeadEntries } from '../nzbdav/streamCache.js';
+import { recalculateTTLExpirations, clearMultiEpisodeDeadEntries, clearTimeoutDeadEntries } from '../nzbdav/streamCache.js';
 
 interface SettingsDeps {
   config: Config;
@@ -116,6 +116,7 @@ export function createSettingsRoutes(deps: SettingsDeps): Router {
   function handleSettingsUpdate(req: any, res: any) {
     try {
       const wasMultiEpAllowed = config.searchConfig?.allowMultiEpisodeFiles !== false;
+      const wasCacheTimeoutsEnabled = config.nzbdavCacheTimeouts !== false;
       updateSettings(req.body);
       // Recalculate NZB database expirations when TTL, mode, or storage limit changes
       if (req.body.healthyNzbDbTTL !== undefined || req.body.deadNzbDbTTL !== undefined ||
@@ -126,6 +127,10 @@ export function createSettingsRoutes(deps: SettingsDeps): Router {
       // Flush dead NZB entries blocked for multi-episode files when the setting is enabled
       if (!wasMultiEpAllowed && req.body.searchConfig?.allowMultiEpisodeFiles === true) {
         clearMultiEpisodeDeadEntries();
+      }
+      // Flush timed-out dead NZB entries when "Include Timed-Out NZBs" is disabled
+      if (wasCacheTimeoutsEnabled && req.body.nzbdavCacheTimeouts === false) {
+        clearTimeoutDeadEntries();
       }
       res.json(buildConfigResponse(config));
     } catch (error) {

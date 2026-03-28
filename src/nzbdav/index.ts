@@ -13,7 +13,7 @@ export { createFallbackGroup, getFallbackGroup, clearFallbackGroups } from './fa
 export { getOrCreateStream, getDeadCacheKey, isStreamCached, isDeadNzbByUrl, addDeadNzbByUrl, evictReadyByVideoPath, clearTimeoutEntries } from './streamCache.js';
 
 // Cache utilities
-export { getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, clearTimeoutDeadEntries, deleteCacheEntry, getCacheEntries, saveCacheToDisk } from './cacheUtils.js';
+export { getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, saveCacheToDisk } from './cacheUtils.js';
 
 // Stream handler (Express endpoint)
 export { handleStream } from './streamHandler.js';

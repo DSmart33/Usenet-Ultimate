@@ -416,6 +416,7 @@ export function clearTimeoutDeadEntries(): number {
     }
   }
   if (count) {
+    console.log(`\u{1F9F9} Cleared ${count} timed-out dead NZB entries`);
     saveCacheToDisk();
   }
   return count;

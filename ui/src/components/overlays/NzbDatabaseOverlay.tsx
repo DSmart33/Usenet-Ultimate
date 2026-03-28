@@ -170,7 +170,7 @@ export function NzbDatabaseOverlay({
     if (!mountedRef.current) { mountedRef.current = true; return; }
     const timer = setTimeout(() => fetchEntries(), 600);
     return () => clearTimeout(timer);
-  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, fetchEntries]);
+  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, nzbdavCacheTimeouts, fetchEntries]);
 
   const deleteEntry = async (key: string) => {
     try {
@@ -200,13 +200,6 @@ export function NzbDatabaseOverlay({
       await apiFetch('/api/nzbdav/cache/failed', { method: 'DELETE' });
       setFailedEntries([]);
       setDeadSizeMB(0);
-    } catch {}
-  };
-
-  const clearTimeouts = async () => {
-    try {
-      await apiFetch('/api/nzbdav/cache/timeouts', { method: 'DELETE' });
-      fetchEntries();
     } catch {}
   };
 
@@ -391,23 +384,10 @@ export function NzbDatabaseOverlay({
               <div>
                 <span className="text-sm font-medium text-slate-300">Include Timed-Out NZBs</span>
                 <p className="text-xs text-slate-500 mt-1">
-                  Adds timed-out NZBs to the Dead Database to skip them in future searches. Disable this to allow retries.
+                  Adds timed-out NZBs to the Dead Database to skip them in future searches. Disabling also removes any existing timed-out entries from the database.
                 </p>
               </div>
             </label>
-
-            <button
-              onClick={clearTimeouts}
-              disabled={failedEntries.length === 0}
-              className={clsx(
-                "flex items-center justify-center gap-2 w-full px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                "border border-red-500/25 text-red-400 hover:bg-red-500/10 hover:border-red-500/40",
-                failedEntries.length === 0 && "opacity-40 cursor-not-allowed"
-              )}
-            >
-              <Trash2 className="w-3 h-3" />
-              Clear Timed-Out Entries
-            </button>
 
             {/* Mode Toggle */}
             <div className="flex gap-2">
