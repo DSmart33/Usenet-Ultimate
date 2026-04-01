@@ -213,6 +213,8 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           behaviorHints: {
             notWebReady: false,
             bingeGroup,
+            filename: result.title,
+            videoSize: result.size,
           },
         });
       } else {
@@ -223,6 +225,8 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           behaviorHints: {
             notWebReady: true,
             bingeGroup,
+            filename: result.title,
+            videoSize: result.size,
           },
         });
       }
@@ -247,6 +251,8 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         behaviorHints: {
           notWebReady: false,  // CDN URL is directly streamable
           bingeGroup,
+          filename: result.title,
+          videoSize: result.size,
         },
       });
     } else if (config.streamingMode === 'nzbdav') {
@@ -266,6 +272,8 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         behaviorHints: {
           notWebReady: false,  // NZBDav can stream in player
           bingeGroup,
+          filename: result.title,
+          videoSize: result.size,
         },
       });
     } else {
@@ -276,6 +284,8 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         behaviorHints: {
           notWebReady: true,  // Native mode requires external NZB client
           bingeGroup,
+          filename: result.title,
+          videoSize: result.size,
         },
       });
     }
