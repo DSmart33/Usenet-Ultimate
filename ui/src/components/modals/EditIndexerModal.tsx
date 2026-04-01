@@ -81,7 +81,7 @@ export function EditIndexerModal({
           {zyclopsActive && (
             <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3">
               <p className="text-xs text-violet-300">
-                <span className="font-semibold">🤖 Zyclops Active</span> — Name, URL, and enabled status are locked while Zyclops is enabled. Disable Zyclops first to edit these fields.
+                <span className="font-semibold">🤖 Zyclops Active</span> — Name, URL, enabled status, and test search are locked while Zyclops is enabled. Disable Zyclops first to change these settings.
               </p>
             </div>
           )}
@@ -229,7 +229,7 @@ export function EditIndexerModal({
           </div>
 
           {/* Test Search */}
-          <div className="border-t border-slate-700/50 pt-4 mt-4">
+          <div className={clsx("border-t border-slate-700/50 pt-4 mt-4", zyclopsActive && "opacity-50 pointer-events-none")}>
             <label className="block text-sm text-slate-400 mb-2">Test Search</label>
             <div className="flex gap-2">
               <input
