@@ -109,7 +109,6 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
 
     // Calculate bitrate from size + duration (EasyNews provides duration; Newznab may have runtime attribute)
     let durationSec: number | undefined = result.duration;
-    let bitrateEstimated = false;
     if (!durationSec) {
       // Non-standard Newznab attributes — most indexers don't send these, but some may
       const runtimeAttr = result.attributes?.runtime || result.attributes?.duration;
@@ -117,11 +116,9 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     }
     if (!durationSec && runtime) {
       durationSec = runtime;
-      bitrateEstimated = true;
     }
     const bitrateSize = result.estimatedEpisodeSize ?? result.size;
-    const rawBitrate = durationSec ? formatBitrate(bitrateSize, durationSec) : '';
-    const bitrate = rawBitrate && bitrateEstimated ? `~${rawBitrate}` : rawBitrate;
+    const bitrate = durationSec ? formatBitrate(bitrateSize, durationSec) : '';
 
     // Get health status if available
     const healthStatus = healthResults.get(result.link);
