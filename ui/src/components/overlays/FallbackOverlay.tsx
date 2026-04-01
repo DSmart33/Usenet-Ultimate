@@ -273,7 +273,7 @@ export function FallbackOverlay({
               <div className="w-1/2 rounded-lg bg-slate-800/40 border border-slate-700/20 py-3 px-2 flex flex-col items-center gap-2">
                 <div className="flex items-center gap-1.5 text-slate-400">
                   <Layers className="w-3.5 h-3.5" />
-                  <span className="text-xs font-medium">Season Pack</span>
+                  <span className="text-xs font-medium">Season Packs</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
