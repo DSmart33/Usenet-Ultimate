@@ -124,7 +124,12 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
 
   let results = allResults;
 
-  // Apply max file size filter if configured
+  // Apply file size filters if configured
+  if (filterConfig.minFileSize != null) {
+    const before = results.length;
+    results = results.filter(r => r.size >= (filterConfig.minFileSize ?? 0));
+    if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by min file size (${results.length} remaining)`);
+  }
   if (filterConfig.maxFileSize != null) {
     const before = results.length;
     results = results.filter(r => r.size <= (filterConfig.maxFileSize ?? Infinity));

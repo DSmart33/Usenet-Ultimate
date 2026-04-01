@@ -80,6 +80,7 @@ export interface ConfigData {
   streamDisplayConfig?: StreamDisplayConfig;
   filters?: {
     sortOrder: string[];
+    minFileSize?: number;
     maxFileSize?: number;
     maxStreamsPerResolution?: number;
     maxStreamsPerQuality?: number;

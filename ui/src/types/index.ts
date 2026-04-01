@@ -213,6 +213,7 @@ export interface FiltersState {
   enabledSorts: Record<string, boolean>;
   sortDirections?: Record<string, 'asc' | 'desc'>;
   enabledPriorities: Record<string, Record<string, boolean>>;
+  minFileSize: number | undefined;
   maxFileSize: number | undefined;
   maxStreams: number | undefined;
   maxStreamsPerResolution: number | undefined;

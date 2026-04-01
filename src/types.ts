@@ -213,6 +213,7 @@ export interface FilterConfig {
     language?: Record<string, boolean>;      // Which languages are enabled
     edition?: Record<string, boolean>;       // Which editions are enabled
   };
+  minFileSize?: number;                      // Min file size in bytes (undefined = no minimum)
   maxFileSize?: number;                      // Max file size in bytes (undefined = unlimited)
   maxStreams?: number;                       // Max total streams to return (default unlimited)
   maxStreamsPerResolution?: number;           // Max streams per resolution level (undefined = unlimited)

@@ -118,6 +118,7 @@ function StreamFilterField({ config: field, value: rawValue, onChange }: {
 }
 
 const STREAM_FILTER_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
+  { key: 'minFileSize', config: { label: 'Minimum File Size', description: 'Filters out files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true } },
   { key: 'maxFileSize', config: { label: 'Maximum File Size', description: 'Filters out files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
   { key: 'maxStreams', config: { label: 'Max Total Streams', description: 'Maximum total streams to display overall', defaultValue: 25, step: 1, min: 1 } },
   { key: 'maxStreamsPerResolution', config: { label: 'Max Streams Per Resolution', description: 'Limit streams per resolution level (4K, 1080p, etc.)', defaultValue: 10, step: 1, min: 1 } },
@@ -632,6 +633,7 @@ export default function FiltersOverlay({
                     language: {},
                     edition: {}
                   },
+                  minFileSize: undefined,
                   maxFileSize: undefined,
                   maxStreams: undefined,
                   maxStreamsPerResolution: undefined,

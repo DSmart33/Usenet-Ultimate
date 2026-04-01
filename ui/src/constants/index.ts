@@ -149,6 +149,7 @@ export const DEFAULT_FILTERS = {
     language: {} as Record<string, boolean>,
     edition: {} as Record<string, boolean>
   },
+  minFileSize: undefined as number | undefined,
   maxFileSize: undefined as number | undefined,
   maxStreams: undefined as number | undefined,
   maxStreamsPerResolution: undefined as number | undefined,
