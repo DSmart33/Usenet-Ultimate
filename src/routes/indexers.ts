@@ -8,6 +8,21 @@ import { Router } from 'express';
 import type { Config, UsenetIndexer } from '../types.js';
 import { checkZyclopsUrlConflict } from '../utils/indexerHelpers.js';
 
+/**
+ * Ensure a Newznab URL ends with /api (the standard endpoint).
+ * Users often paste just the base URL (e.g. https://indexer.example.com)
+ * when they mean https://indexer.example.com/api.
+ */
+function normalizeNewznabUrl(raw: string): string {
+  const trimmed = raw.replace(/\/+$/, '');
+  // Already ends with /api — nothing to do
+  if (/\/api$/i.test(trimmed)) return trimmed;
+  // Has a deeper path (e.g. /torznab/foo, /custom/v1) — leave it alone
+  const { pathname } = new URL(trimmed);
+  if (pathname !== '/' && pathname !== '') return trimmed;
+  return `${trimmed}/api`;
+}
+
 interface IndexerDeps {
   config: Config;
   getIndexers: () => UsenetIndexer[];
@@ -30,11 +45,13 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
 
   router.post('/', (req, res) => {
     try {
-      const { name, url, apiKey, website, logo, movieSearchMethod, tvSearchMethod, caps, zyclops } = req.body;
+      const { name, url: rawUrl, apiKey, website, logo, movieSearchMethod, tvSearchMethod, caps, zyclops } = req.body;
 
-      if (!name || !url || !apiKey) {
+      if (!name || !rawUrl || !apiKey) {
         return res.status(400).json({ error: 'Name, URL, and API key are required' });
       }
+
+      const url = normalizeNewznabUrl(rawUrl);
 
       // SAFETY: Check for duplicate indexer URLs when Zyclops is involved
       const conflict = checkZyclopsUrlConflict(url, !!zyclops?.enabled, getIndexers());
@@ -60,6 +77,11 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
 
       if (updates.name !== undefined && !updates.name.trim()) {
         return res.status(400).json({ error: 'Name cannot be empty' });
+      }
+
+      // Normalize URL if provided
+      if (updates.url) {
+        updates.url = normalizeNewznabUrl(updates.url);
       }
 
       // SAFETY: Check for duplicate indexer URLs when Zyclops is toggled
@@ -198,11 +220,13 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
 
   router.post('/test-new', async (req, res) => {
     try {
-      const { name, url, apiKey, query = 'test' } = req.body;
+      const { name, url: rawUrl, apiKey, query = 'test' } = req.body;
 
-      if (!name || !url || !apiKey) {
+      if (!name || !rawUrl || !apiKey) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
+
+      const url = normalizeNewznabUrl(rawUrl);
 
       // Test search with user query
       const searchUrl = `${url}?t=search&apikey=${apiKey}&q=${encodeURIComponent(query)}&limit=50`;
@@ -267,12 +291,13 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
 
   router.post('/caps', async (req, res) => {
     try {
-      const { url, apiKey, indexerName, zyclops } = req.body;
+      const { url: rawUrl, apiKey, indexerName, zyclops } = req.body;
 
-      if (!url || !apiKey) {
+      if (!rawUrl || !apiKey) {
         return res.status(400).json({ error: 'URL and API key are required' });
       }
 
+      const url = normalizeNewznabUrl(rawUrl);
       const caps = await fetchIndexerCaps(url, apiKey, indexerName, zyclops);
       res.json(caps);
     } catch (error) {
