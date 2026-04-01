@@ -135,6 +135,35 @@ export class NzbhydraSearcher {
       allResults.push(...filtered);
     }
 
+    // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
+    if (allResults.length === 0 && additionalTitles?.length) {
+      const allNames = [...new Set([...idSearchedNames, ...textFallbackNames])];
+      if (allNames.length > 0) {
+        for (const altTitle of additionalTitles) {
+          const altParams: Record<string, string> = {
+            apikey: this.apiKey,
+            extended: '1',
+            t: 'search',
+            q: stripDiacritics(year ? `${altTitle} ${year}` : altTitle),
+            cat: '2000',
+            indexers: allNames.join(','),
+          };
+          console.log(`🔄 Retrying with alternative title for ${allNames.length} indexer(s): "${altParams.q}"`);
+          const altResults = await this.doSearch(altParams);
+          const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country));
+          console.log(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+          if (altResults.length !== altFiltered.length) {
+            altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country))
+              .forEach(r => console.log(`      ✂️  ${r.title}`));
+          }
+          if (altFiltered.length > 0) {
+            allResults.push(...altFiltered);
+            break;
+          }
+        }
+      }
+    }
+
     return allResults;
   }
 
@@ -351,6 +380,51 @@ export class NzbhydraSearcher {
       }
 
       allResults.push(...filtered);
+    }
+
+    // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
+    if (allResults.length === 0 && additionalTitles?.length) {
+      const allNames = [...new Set([...idSearchedNames, ...textFallbackNames])];
+      if (allNames.length > 0) {
+        for (const altTitle of additionalTitles) {
+          const altParams: Record<string, string> = {
+            apikey: this.apiKey,
+            extended: '1',
+            t: 'search',
+            q: stripDiacritics(`${altTitle} S${s}E${e}`),
+            cat: '5000',
+            indexers: allNames.join(','),
+          };
+          console.log(`🔄 Retrying with alternative title for ${allNames.length} indexer(s): "${altParams.q}"`);
+          const altResults = await this.doSearch(altParams);
+          const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country));
+          console.log(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+          if (altResults.length !== altFiltered.length) {
+            altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country))
+              .forEach(r => console.log(`      ✂️  ${r.title}`));
+          }
+          if (altFiltered.length > 0) {
+            // Also check for season packs with the alternative title
+            if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
+              const spPagination = config.searchConfig?.seasonPackPagination !== false;
+              const spPages = config.searchConfig?.seasonPackAdditionalPages;
+              const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
+              const packParams: Record<string, string> = { ...altParams, q: stripDiacritics(`${altTitle} S${s}`) };
+              const packResults = await this.doSearch(packParams, spOverride);
+              const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
+              const packs = packResults
+                .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(altTitle, r.title, year, country))
+                .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
+              if (packs.length > 0) {
+                console.log(`   📦 Found ${packs.length} season packs (alt-title)`);
+              }
+              altFiltered.push(...packs);
+            }
+            allResults.push(...altFiltered);
+            break;
+          }
+        }
+      }
     }
 
     return allResults;

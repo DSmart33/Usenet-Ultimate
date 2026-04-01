@@ -269,6 +269,41 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         console.log(`   🎯 Text fallback returned ${results.length} results`);
       }
     }
+
+    // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
+    if (results.length === 0 && additionalTitles?.length && enabledIndexers.length > 0) {
+      for (const altTitle of additionalTitles) {
+        console.log(`🔄 Retrying with alternative title for ${enabledIndexers.length} indexer(s): "${altTitle}"`);
+        const altPromises = enabledIndexers.map(async (indexer) => {
+          const startTime = Date.now();
+          const searcher = new UsenetSearcher(indexer);
+          try {
+            let altResults: any[] = [];
+            if (type === 'movie') {
+              altResults = await searcher.searchMovie(imdbId, altTitle, year, country, undefined, 'text');
+            } else if (type === 'series' && season !== undefined && episode !== undefined) {
+              altResults = await searcher.searchTVShow(imdbId, altTitle, season, episode, episodesInSeason, year, country, undefined, 'text');
+            }
+            const responseTime = Date.now() - startTime;
+            trackQuery(indexer.name, true, responseTime, altResults.length);
+            return altResults.map(result => ({ ...result, indexerName: indexer.name }));
+          } catch (error) {
+            const responseTime = Date.now() - startTime;
+            trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+            console.error(`❌ Error in alt-title retry for ${indexer.name}:`, error);
+            return [];
+          }
+        });
+
+        const altResults = (await Promise.all(altPromises)).flat();
+        console.log(`   🎯 Alt-title retry returned ${altResults.length} results`);
+        if (altResults.length > 0) {
+          results = altResults;
+          break;
+        }
+      }
+    }
+
     return results;
   }
 }

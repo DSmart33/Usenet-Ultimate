@@ -115,6 +115,30 @@ export function isTextSearchMatch(expectedTitle: string, releaseTitle: string, y
   return false;
 }
 
+// --- Stylized title detection ---
+
+/** Common digit-to-letter substitutions used in stylized titles */
+const STYLIZED_DIGIT_MAP: Record<string, string> = {
+  '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't',
+};
+
+/** Detect if a title uses digit-for-letter substitutions compared to a reference title.
+ *  Returns true if mapping digits back to letters in the candidate makes it match
+ *  the reference, indicating the candidate is a stylized variant. */
+export function isStylizedTitle(candidate: string, reference: string): boolean {
+  if (!candidate || !reference) return false;
+
+  const normCandidate = normalizeTitle(candidate);
+  const normReference = normalizeTitle(reference);
+
+  // If they already match after normalization, no stylization issue
+  if (normCandidate === normReference) return false;
+
+  // Map digits back to letters in the candidate and check if it matches the reference
+  const demapped = normCandidate.replace(/[013457]/g, d => STYLIZED_DIGIT_MAP[d] || d);
+  return demapped === normReference;
+}
+
 /**
  * Returns true if a release should be filtered out due to remake detection.
  * Year-present releases are rejected if the year differs significantly from the expected version.

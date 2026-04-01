@@ -15,7 +15,7 @@ export { parseNewznabXmlWithMeta, parseNewznabXml, fetchIndexerCaps } from './ne
 export type { NewznabParsedResponse } from './newznabClient.js';
 
 // Re-export title matching
-export { stripDiacritics, normalizeTitle, extractTitleFromRelease, isTextSearchMatch } from './titleMatching.js';
+export { stripDiacritics, normalizeTitle, extractTitleFromRelease, isTextSearchMatch, isStylizedTitle } from './titleMatching.js';
 
 // Re-export Usenet searcher
 export { UsenetSearcher } from './usenetSearcher.js';

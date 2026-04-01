@@ -9,6 +9,7 @@
 import axios from 'axios';
 import { config } from '../config/index.js';
 import { resolveTitleFromTmdb, resolveTitleFromTvdb, resolveEpisodeCountFromTvdb, resolveRuntimeFromTmdb, detectRemake } from '../idResolver.js';
+import { isStylizedTitle } from '../parsers/titleMatching.js';
 
 export interface ResolvedTitleInfo {
   /** Final title to use for search (TVDB/TMDB resolved, or Cinemeta fallback) */
@@ -138,9 +139,24 @@ export async function resolveTitle(
       }
     }
   }
-  const title = resolvedTitle || cinemetaTitle;
-  const additionalTitles = cinemetaTitle && cinemetaTitle !== title ? [cinemetaTitle] : undefined;
-  if (resolvedTitle && resolvedTitle !== cinemetaTitle) {
+  // Detect stylized titles (digit-for-letter substitutions like 1→i, 3→e, 0→o)
+  // Prefer Cinemeta for search since release groups use the natural spelling
+  let title: string;
+  if (resolvedTitle && cinemetaTitle && resolvedTitle !== cinemetaTitle && isStylizedTitle(resolvedTitle, cinemetaTitle)) {
+    console.log(`🔤 Stylized title detected: "${resolvedTitle}" → using Cinemeta "${cinemetaTitle}" for search`);
+    title = cinemetaTitle;
+  } else {
+    title = resolvedTitle || cinemetaTitle;
+  }
+  let additionalTitles: string[] | undefined;
+  if (resolvedTitle && resolvedTitle !== title) {
+    // Stylized case: resolved title was swapped out, keep it as fallback
+    additionalTitles = [resolvedTitle];
+  } else if (cinemetaTitle && cinemetaTitle !== title) {
+    // Normal case: Cinemeta differs from resolved, keep it as fallback
+    additionalTitles = [cinemetaTitle];
+  }
+  if (resolvedTitle && resolvedTitle !== cinemetaTitle && title === resolvedTitle) {
     console.log(`🎯 Using resolved title "${resolvedTitle}" for search (Cinemeta: "${cinemetaTitle}")`);
   }
 

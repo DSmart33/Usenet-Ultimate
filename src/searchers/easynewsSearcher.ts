@@ -68,6 +68,22 @@ export class EasynewsSearcher {
     if (before !== filtered.length) {
       console.log(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
     }
+
+    // Alternative-title retry: if 0 results and alternative titles exist, retry with each
+    if (filtered.length === 0 && additionalTitles?.length) {
+      for (const altTitle of additionalTitles) {
+        const altQuery = year ? `${altTitle} ${year}` : altTitle;
+        console.log(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
+        const altResults = await this.search(altQuery);
+        const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country));
+        console.log(`   🎯 EasyNews alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+        if (altFiltered.length > 0) {
+          filtered.push(...altFiltered);
+          break;
+        }
+      }
+    }
+
     return filtered;
   }
 
@@ -112,6 +128,52 @@ export class EasynewsSearcher {
       if (packs.length > 0) {
         console.log(`   📦 EasyNews: ${packs.length} season packs`);
         filtered.push(...packs);
+      }
+    }
+
+    // Alternative-title retry: if 0 results and alternative titles exist, retry with each
+    if (filtered.length === 0 && additionalTitles?.length) {
+      for (const altTitle of additionalTitles) {
+        const altQuery = `${altTitle} S${s}E${e}`;
+        console.log(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
+        const altResults = await this.search(altQuery);
+        const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country));
+        console.log(`   🎯 EasyNews alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+        if (altFiltered.length > 0) {
+          // Also check for season packs with the alternative title
+          if (includeSeasonPacks && episodesInSeason) {
+            const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
+            const spAdditionalPages = spPaginationEnabled ? config.searchConfig?.seasonPackAdditionalPages : undefined;
+            const altPackQuery = `${altTitle} S${s}`;
+            console.log(`🔍 EasyNews alt-title season pack search: "${altPackQuery}"`);
+            const altPackResults = await this.search(altPackQuery, spAdditionalPages);
+            const seasonPackPattern = new RegExp(`S0?${season}(?![._\\s-]?E\\d)`, 'i');
+            const existingHashes = new Set(altFiltered.map(r => r.easynewsMeta!.hash));
+            const altPacks = altPackResults
+              .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(altTitle, r.title, year, country))
+              .filter(r => !existingHashes.has(r.easynewsMeta!.hash))
+              .map(r => ({
+                ...r,
+                isSeasonPack: true,
+                estimatedEpisodeSize: episodesInSeason > 0 ? Math.round(r.size / episodesInSeason) : undefined,
+              }));
+            if (altPackResults.length !== altPacks.length) {
+              const removed = altPackResults.filter(r =>
+                !seasonPackPattern.test(r.title) || !isTextSearchMatch(altTitle, r.title, year, country)
+              );
+              if (removed.length > 0) {
+                console.log(`   📦 EasyNews alt-title season pack filter: ${altPackResults.length} → ${altPacks.length}`);
+                removed.forEach(r => console.log(`      ✂️  ${r.title}${!seasonPackPattern.test(r.title) ? ' (no season match)' : ' (title mismatch)'}`));
+              }
+            }
+            if (altPacks.length > 0) {
+              console.log(`   📦 EasyNews: ${altPacks.length} season packs (alt-title)`);
+              altFiltered.push(...altPacks);
+            }
+          }
+          filtered.push(...altFiltered);
+          break;
+        }
       }
     }
 

@@ -135,6 +135,28 @@ export class ProwlarrSearcher {
       allResults = filtered;
     }
 
+    // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
+    if (allResults.length === 0 && additionalTitles?.length) {
+      const allIndexerIds = [...new Set([...idSearchedIndexerIds, ...textFallbackIds])];
+      if (allIndexerIds.length > 0) {
+        for (const altTitle of additionalTitles) {
+          const altQuery = stripDiacritics(year ? `${altTitle} ${year}` : altTitle);
+          console.log(`🔄 Retrying with alternative title for ${allIndexerIds.length} indexer(s): "${altQuery}"`);
+          const altResults = await this.doAggregateSearch(allIndexerIds, 'search', altQuery, ['2000']);
+          const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country));
+          console.log(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+          if (altResults.length !== altFiltered.length) {
+            altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country))
+              .forEach(r => console.log(`      ✂️  ${r.title}`));
+          }
+          if (altFiltered.length > 0) {
+            allResults = altFiltered;
+            break;
+          }
+        }
+      }
+    }
+
     return allResults;
   }
 
@@ -333,6 +355,44 @@ export class ProwlarrSearcher {
       }
 
       allResults = filtered;
+    }
+
+    // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
+    if (allResults.length === 0 && additionalTitles?.length) {
+      const allIndexerIds = [...new Set([...idSearchedIndexerIds, ...textFallbackIds])];
+      if (allIndexerIds.length > 0) {
+        for (const altTitle of additionalTitles) {
+          const altQuery = stripDiacritics(`${altTitle} S${s}E${e}`);
+          console.log(`🔄 Retrying with alternative title for ${allIndexerIds.length} indexer(s): "${altQuery}"`);
+          const altResults = await this.doAggregateSearch(allIndexerIds, 'search', altQuery, ['5000']);
+          const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country));
+          console.log(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+          if (altResults.length !== altFiltered.length) {
+            altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country))
+              .forEach(r => console.log(`      ✂️  ${r.title}`));
+          }
+          if (altFiltered.length > 0) {
+            // Also check for season packs with the alternative title
+            if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
+              const spPagination = config.searchConfig?.seasonPackPagination !== false;
+              const spPages = config.searchConfig?.seasonPackAdditionalPages;
+              const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
+              const packQuery = stripDiacritics(`${altTitle} S${s}`);
+              const packResults = await this.doAggregateSearch(allIndexerIds, 'search', packQuery, ['5000'], spOverride);
+              const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
+              const packs = packResults
+                .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(altTitle, r.title, year, country))
+                .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
+              if (packs.length > 0) {
+                console.log(`   📦 Found ${packs.length} season packs (alt-title)`);
+              }
+              altFiltered.push(...packs);
+            }
+            allResults = altFiltered;
+            break;
+          }
+        }
+      }
     }
 
     return allResults;
