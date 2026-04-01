@@ -2,7 +2,7 @@
 //   Emoji sections and search keyword mappings for the stream display emoji picker
 
 export const EMOJI_SECTIONS: { label: string; emojis: string[] }[] = [
-  { label: 'Common', emojis: ['▸', '📦', '💾', '⚙️', '🎨', '🔊', '📡', '🏷️', '🌐', '🎬', '📺', '⭐', '🔥', '✨', '💎', '🎯', '📊', '🎮', '🏆', '⚡', '🎵', '📐', '🔧', '💿', '👑', '🔒', '✅', '❌'] },
+  { label: 'Common', emojis: ['▸', '📦', '💾', '⚙️', '🎨', '🔊', '📡', '🏷️', '📅', '🌐', '🎬', '📺', '⭐', '🔥', '✨', '💎', '🎯', '📊', '🎮', '🏆', '⚡', '🎵', '📐', '🔧', '💿', '👑', '🔒', '✅', '❌'] },
   { label: 'Symbols', emojis: ['▸', '▶', '►', '▪', '▫', '◾', '◽', '●', '○', '◆', '◇', '★', '☆', '✦', '✧', '⬥', '⬦', '⏵', '⏶', '⏷', '⟐', '⊙', '⊕', '⊘', '∞', '≈', '≠', '±', '×', '÷', '√', '∑', '∆', '∇', '∅', '∈', '⊂', '⊃', '∩', '∪', '†', '‡', '§', '¶', '©', '®', '™', '℗', '℠', '№', '℃', '℉', '‰', '‱'] },
   { label: 'Media', emojis: ['🎬', '📺', '🎥', '📽️', '🎞️', '📀', '💿', '💾', '📦', '📁', '📂', '🗂️', '🗃️', '🗄️', '📼', '📹', '🎙️', '🎧', '🎵', '🎶', '🔊', '🔉', '🔈', '🔇', '📻', '📷', '📸', '🖨️', '📠', '🎤', '🎸', '🎹', '🎷', '🎺', '🎻', '🥁', '🪘', '🎼', '🪗', '📰', '🗞️', '📖', '📚', '🔏', '🔐', '🔑', '🗝️'] },
   { label: 'Tech', emojis: ['⚙️', '🔧', '🔩', '🛠️', '📡', '📐', '💻', '🖥️', '📱', '⌨️', '🖱️', '🔌', '🔋', '💡', '🧲', '🧮', '🔬', '🔭', '📊', '📈', '📉', '🧪', '🏗️', '⛓️', '🤖', '👾', '🧬', '🦠', '🛡️', '⚔️', '🗡️', '🪃', '🏹', '💣', '🧨', '🪛', '🪚', '⛏️', '🪝', '🧰', '🪤', '📟', '📞', '☎️', '🖲️', '💽', '🖳'] },
@@ -85,7 +85,7 @@ export const EMOJI_NAMES: Record<string, string> = {
   '🌺': 'hibiscus flower tropical', '🌻': 'sunflower yellow happy', '🌼': 'blossom flower white', '🌷': 'tulip flower spring',
   '💐': 'bouquet flowers bunch', '🪻': 'hyacinth flower purple', '🌾': 'rice sheaf grain wheat', '🍁': 'maple leaf fall autumn canada',
   '🍂': 'fallen leaf autumn brown', '🎋': 'tanabata tree bamboo', '🎍': 'pine decoration new year', '🪴': 'potted plant houseplant',
-  '🏷️': 'tag label price', '🏴': 'flag black', '🏳️': 'flag white surrender', '🚩': 'flag red triangular warning',
+  '📅': 'calendar date age post time schedule', '🏷️': 'tag label price', '🏴': 'flag black', '🏳️': 'flag white surrender', '🚩': 'flag red triangular warning',
   '📌': 'pin pushpin tack', '📎': 'paperclip clip attach', '📍': 'pin round location map', '🔖': 'bookmark ribbon mark',
   '🔗': 'link chain url connect', '🏠': 'house home', '🌐': 'globe earth world web internet', '🗺️': 'map world atlas',
   '🧭': 'compass navigation direction north', '📮': 'mailbox post letter', '📬': 'mailbox mail letter open', '📧': 'email letter message at',
