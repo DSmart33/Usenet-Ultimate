@@ -1,7 +1,7 @@
 /**
  * Result Processor
  *
- * Handles cross-indexer deduplication (by priority and URL), quality filtering,
+ * Handles cross-indexer deduplication (by priority), quality filtering,
  * priority-based sorting, and stream count limits.
  */
 
@@ -65,37 +65,6 @@ export function deduplicateByPriority(allResults: any[]): any[] {
     }
   }
   return deduped;
-}
-
-/**
- * Deduplicate by download URL — same URL = same NZB regardless of title.
- */
-export function deduplicateByUrl(allResults: any[]): any[] {
-  const seenUrls = new Map<string, number>(); // url → first index
-  const urlDropped: { title: string; indexerName: string; keptTitle: string; keptIndexer: string }[] = [];
-  allResults.forEach((result, i) => {
-    const existing = seenUrls.get(result.link);
-    if (existing === undefined) {
-      seenUrls.set(result.link, i);
-    } else {
-      urlDropped.push({
-        title: result.title,
-        indexerName: result.indexerName,
-        keptTitle: allResults[existing].title,
-        keptIndexer: allResults[existing].indexerName,
-      });
-    }
-  });
-  if (urlDropped.length > 0) {
-    const keepIndices = new Set(seenUrls.values());
-    const deduped = allResults.filter((_, i) => keepIndices.has(i));
-    console.log(`🔗 URL dedup: removed ${urlDropped.length} duplicate(s) with same download URL (${deduped.length} remaining)`);
-    for (const d of urlDropped) {
-      console.log(`   ✂️  "${d.title}" (${d.indexerName}) — same URL as "${d.keptTitle}" (${d.keptIndexer})`);
-    }
-    return deduped;
-  }
-  return allResults;
 }
 
 /**
@@ -402,28 +371,25 @@ export function processResults(allResults: any[], type: string, now?: number, ru
   // Step 1: Cross-indexer dedup by priority
   let results = deduplicateByPriority(allResults);
 
-  // Step 2: URL dedup
-  results = deduplicateByUrl(results);
-
-  // Step 3: Remake filter — applies globally regardless of search method.
+  // Step 2: Remake filter — applies globally regardless of search method.
   // Yearless season packs for remake shows are separated and appended after sorting.
   const { results: remakeFiltered, deprioritizedPacks } = applyRemakeFilter(results, hasRemake, episodeName, year);
   results = remakeFiltered;
 
-  // Step 4: Select per-type filter config, falling back to global filters
+  // Step 3: Select per-type filter config, falling back to global filters
   const filterConfig = (type === 'movie' ? config.movieFilters : config.tvFilters) || config.filters;
 
-  // Step 5: Quality filters
+  // Step 4: Quality filters
   results = applyQualityFilters(results, filterConfig);
   const filteredDeprioritized = applyQualityFilters(deprioritizedPacks, filterConfig);
 
-  // Step 6: Sort
+  // Step 5: Sort
   results = sortResults(results, filterConfig, now, runtime);
 
   // Yearless remake season packs appear after all sorted results, in post-dedup order
   results = [...results, ...filteredDeprioritized];
 
-  // Step 7: Stream limits
+  // Step 6: Stream limits
   results = applyStreamLimits(results, filterConfig);
 
   console.log(`📊 Returning ${results.length} streams after filtering`);

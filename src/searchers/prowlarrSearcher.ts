@@ -22,7 +22,6 @@ import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult, ProwlarrSearchResult } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
 import { isTextSearchMatch, stripDiacritics } from '../parsers/titleMatching.js';
-import { formatBytes } from '../parsers/metadataParsers.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 
@@ -136,7 +135,7 @@ export class ProwlarrSearcher {
       allResults = filtered;
     }
 
-    return this.deduplicateResults(allResults);
+    return allResults;
   }
 
   async searchTVShow(
@@ -336,7 +335,7 @@ export class ProwlarrSearcher {
       allResults = filtered;
     }
 
-    return this.deduplicateResults(allResults);
+    return allResults;
   }
 
   /**
@@ -548,14 +547,5 @@ export class ProwlarrSearcher {
     }
     return groups;
   }
-
-  private deduplicateResults(results: (NZBSearchResult & { indexerName: string })[]): (NZBSearchResult & { indexerName: string })[] {
-    const seen = new Set<string>();
-    return results.filter((result) => {
-      const key = `${result.title}-${formatBytes(result.size)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }
 }
+

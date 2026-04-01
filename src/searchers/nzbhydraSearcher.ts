@@ -13,7 +13,6 @@ import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
 import { isTextSearchMatch, stripDiacritics } from '../parsers/titleMatching.js';
-import { formatBytes } from '../parsers/metadataParsers.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 
@@ -136,7 +135,7 @@ export class NzbhydraSearcher {
       allResults.push(...filtered);
     }
 
-    return this.deduplicateResults(allResults);
+    return allResults;
   }
 
   async searchTVShow(
@@ -354,7 +353,7 @@ export class NzbhydraSearcher {
       allResults.push(...filtered);
     }
 
-    return this.deduplicateResults(allResults);
+    return allResults;
   }
 
   private async doSearch(params: Record<string, string>, paginationOverride?: { enabled: boolean; additionalPages: number }): Promise<(NZBSearchResult & { indexerName: string })[]> {
@@ -464,15 +463,5 @@ export class NzbhydraSearcher {
       || attrs.hydraindexername
       || attrs.hydraindexer
       || undefined;
-  }
-
-  private deduplicateResults(results: (NZBSearchResult & { indexerName: string })[]): (NZBSearchResult & { indexerName: string })[] {
-    const seen = new Set<string>();
-    return results.filter((result) => {
-      const key = `${result.title}-${formatBytes(result.size)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
   }
 }

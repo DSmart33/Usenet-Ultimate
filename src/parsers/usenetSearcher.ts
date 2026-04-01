@@ -13,7 +13,6 @@ import { getLatestVersions } from '../versionFetcher.js';
 import { getAxiosProxyConfig, logProxyExitIp } from '../proxy.js';
 import { parseNewznabXmlWithMeta } from './newznabClient.js';
 import { stripDiacritics, isTextSearchMatch } from './titleMatching.js';
-import { formatBytes } from './metadataParsers.js';
 
 export class UsenetSearcher {
   constructor(private indexer: UsenetIndexer) {}
@@ -171,7 +170,7 @@ export class UsenetSearcher {
           console.log(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
           removed.forEach(r => console.log(`      ✂️  ${r.title}`));
         }
-        return this.deduplicateResults(filtered);
+        return filtered;
       }
 
       // If method requires an external ID that wasn't resolved, fall back to text search
@@ -189,7 +188,7 @@ export class UsenetSearcher {
           results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
             .forEach(r => console.log(`      ✂️  ${r.title}`));
         }
-        return this.deduplicateResults(filtered);
+        return filtered;
       }
 
       // ID-based search (IMDB, TMDB, TVDB)
@@ -271,7 +270,7 @@ export class UsenetSearcher {
         }
       }
 
-      return this.deduplicateResults(results);
+      return results;
     } catch (error: any) {
       console.error(`❌ Movie search error for ${this.indexer.name}:`);
       if (error.response) {
@@ -350,7 +349,7 @@ export class UsenetSearcher {
           filtered.push(...filteredPacks);
         }
 
-        return this.deduplicateResults(filtered);
+        return filtered;
       }
 
       // If method requires an external ID that wasn't resolved, fall back to text search
@@ -398,7 +397,7 @@ export class UsenetSearcher {
           filtered.push(...filteredPacks);
         }
 
-        return this.deduplicateResults(filtered);
+        return filtered;
       }
 
       // ID-based search (IMDB, TVDB, TVmaze)
@@ -512,7 +511,7 @@ export class UsenetSearcher {
         results.push(...filteredPacks);
       }
 
-      return this.deduplicateResults(results);
+      return results;
     } catch (error: any) {
       console.error(`❌ TV search error for ${this.indexer.name}:`);
       if (error.response) {
@@ -522,15 +521,5 @@ export class UsenetSearcher {
       }
       return [];
     }
-  }
-
-  private deduplicateResults(results: NZBSearchResult[]): NZBSearchResult[] {
-    const seen = new Set<string>();
-    return results.filter((result) => {
-      const key = `${result.title}-${formatBytes(result.size)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
   }
 }
