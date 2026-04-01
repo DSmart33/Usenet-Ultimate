@@ -6,6 +6,7 @@ import { Plus, X, Eye, EyeOff, Settings, Search, CheckCircle, XCircle, Save } fr
 import clsx from 'clsx';
 import indexerPresets from '../../indexerPresets.json';
 import type { IndexerCaps, IndexerPreset, NewIndexerForm } from '../../types';
+import { normalizeNewznabUrl } from '../../utils/normalizeNewznabUrl';
 
 const INDEXER_PRESETS: IndexerPreset[] = indexerPresets;
 
@@ -147,6 +148,7 @@ export function AddIndexerModal({
               type="text"
               value={newIndexer.url}
               onChange={(e) => setNewIndexer(prev => ({ ...prev, url: e.target.value }))}
+              onBlur={() => setNewIndexer(prev => ({ ...prev, url: normalizeNewznabUrl(prev.url) }))}
               placeholder="https://api.indexer.com/api"
               className="input"
               disabled={selectedPreset !== '' && selectedPreset !== 'Custom'}

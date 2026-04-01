@@ -435,7 +435,14 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(updates),
         });
-        if (response.ok) await fetchIndexers();
+        if (response.ok) {
+          const saved = await response.json();
+          // Reflect normalized URL (e.g. /api appended) back into the form
+          if (typeof saved?.url === 'string' && saved.url !== editFormRef.current.url) {
+            setEditForm(prev => ({ ...prev, url: saved.url }));
+          }
+          await fetchIndexers();
+        }
       } catch (error) {
         console.error('Failed to auto-save indexer:', error);
       }

@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { Settings, X, Eye, EyeOff, Search, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import type { Config, IndexerCaps, EditIndexerForm } from '../../types';
+import { normalizeNewznabUrl } from '../../utils/normalizeNewznabUrl';
 
 interface EditIndexerModalProps {
   onClose: () => void;
@@ -101,6 +102,7 @@ export function EditIndexerModal({
               type="text"
               value={editForm.url}
               onChange={(e) => setEditForm(prev => ({ ...prev, url: e.target.value }))}
+              onBlur={() => setEditForm(prev => ({ ...prev, url: normalizeNewznabUrl(prev.url) }))}
               disabled={zyclopsActive}
               className={clsx('input', zyclopsActive && 'opacity-50 cursor-not-allowed')}
             />

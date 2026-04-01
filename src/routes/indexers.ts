@@ -14,12 +14,17 @@ import { checkZyclopsUrlConflict } from '../utils/indexerHelpers.js';
  * when they mean https://indexer.example.com/api.
  */
 function normalizeNewznabUrl(raw: string): string {
+  if (!raw) return raw;
   const trimmed = raw.replace(/\/+$/, '');
   // Already ends with /api — nothing to do
   if (/\/api$/i.test(trimmed)) return trimmed;
   // Has a deeper path (e.g. /torznab/foo, /custom/v1) — leave it alone
-  const { pathname } = new URL(trimmed);
-  if (pathname !== '/' && pathname !== '') return trimmed;
+  try {
+    const { pathname } = new URL(trimmed);
+    if (pathname !== '/' && pathname !== '') return trimmed;
+  } catch {
+    return trimmed;
+  }
   return `${trimmed}/api`;
 }
 
