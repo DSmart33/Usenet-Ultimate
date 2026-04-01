@@ -406,7 +406,7 @@ See [`.env.example`](.env.example) for a fully commented template. All runtime o
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BASE_URL` | `http://localhost:1337` | Public URL used in Stremio manifests and stream URLs. Must be publicly accessible (HTTPS) for remote use |
+| `BASE_URL` | Auto-detected | Override for stream URLs. Auto-detected from the incoming request when not set. Set this if you need a fixed URL (custom domain, Docker networking, etc.) |
 | `PORT` | `1337` | HTTP server port |
 
 #### Indexer Configuration (one-time migration)

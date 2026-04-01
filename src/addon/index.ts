@@ -45,13 +45,12 @@ export function clearSearchCache(): void {
 }
 
 // Define addon manifest - tells Stremio what we support
-const BASE_URL = process.env.BASE_URL || 'http://localhost:1337';
 const manifest = {
   id: 'com.usenetultimate.addon',
   version: APP_VERSION,
   name: 'Usenet Ultimate',
   description: 'Search Usenet indexers and EasyNews for media content. Supports Newznab, Prowlarr, and NZBHydra with NZB health checking, quality-based sorting, and direct streaming via NZBDav or EasyNews.',
-  logo: `${BASE_URL}/pwa-512x512.png`,
+  logo: '/pwa-512x512.png',
   resources: ['stream'],           // We only provide streams
   types: ['movie', 'series'],      // Support movies and TV shows
   catalogs: [],                    // No catalogs (don't show in discover)

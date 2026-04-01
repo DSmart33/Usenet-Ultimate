@@ -20,7 +20,11 @@ import { requestContext } from '../requestContext.js';
 import { createFallbackGroup, type FallbackCandidate } from '../nzbdav/index.js';
 import { buildStreamDisplay } from './streamDisplay.js';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:1337';
+/** Resolve the base URL for stream/proxy URLs — uses the request's origin when available,
+ *  falls back to BASE_URL env or localhost for background tasks (auto-queue, health checks). */
+function getBaseUrl(): string {
+  return requestContext.getStore()?.baseUrl || process.env.BASE_URL || 'http://localhost:1337';
+}
 
 export interface StreamBuildContext {
   allResults: any[];
@@ -70,7 +74,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
             hash: meta.hash, filename: meta.filename, ext: meta.ext,
           });
           if (meta.sig) nzbParams.set('sig', meta.sig);
-          nzbUrl = `${BASE_URL}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
+          nzbUrl = `${getBaseUrl()}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
         }
         return { nzbUrl, title: r.title, indexerName: r.indexerName, isSeasonPack: r.isSeasonPack || false };
       });
@@ -194,14 +198,14 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       });
       if (meta.sig) nzbParams.set('sig', meta.sig);
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
-      const nzbProxyUrl = `${BASE_URL}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
+      const nzbProxyUrl = `${getBaseUrl()}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
 
       if (config.streamingMode === 'nzbdav') {
         const episodeParams = result.isSeasonPack && season !== undefined && episode !== undefined
           ? `&season=${season}&episode=${episode}&sp=1${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
           : '';
         const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-        const proxyUrl = `${BASE_URL}/${streamManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
+        const proxyUrl = `${getBaseUrl()}/${streamManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
         streams.push({
           name: streamName,
           title: streamTitle,
@@ -234,7 +238,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         downURL: meta.downURL,
       });
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
-      const resolveUrl = `${BASE_URL}/${streamManifestKey}/easynews/resolve?${resolveParams.toString()}`;
+      const resolveUrl = `${getBaseUrl()}/${streamManifestKey}/easynews/resolve?${resolveParams.toString()}`;
 
       streams.push({
         name: streamName,
@@ -253,7 +257,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         : '';
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
       const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-      const proxyUrl = `${BASE_URL}/${streamManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
+      const proxyUrl = `${getBaseUrl()}/${streamManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
 
       streams.push({
         name: streamName,

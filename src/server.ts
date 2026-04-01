@@ -181,7 +181,7 @@ app.use('/:manifestKey/nzbdav', validateManifestKey, createNzbdavStreamRoutes(nz
 const stremioRouter = express.Router({ mergeParams: false });
 stremioRouter.use(getRouter(addon));
 app.use('/:manifestKey', validateManifestKey, (req, res, next) => {
-  requestContext.run({ manifestKey: req.params.manifestKey }, () => next());
+  requestContext.run({ manifestKey: req.params.manifestKey, baseUrl: process.env.BASE_URL || `${req.protocol}://${req.get('host')}` }, () => next());
 }, stremioRouter);
 
 // SPA fallback — serve index.html for all non-API, non-asset routes
