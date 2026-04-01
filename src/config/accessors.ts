@@ -216,7 +216,9 @@ export const config: Config = {
         edition: {}
       },
       minFileSize: undefined,
+      minFileSizeMode: undefined,
       maxFileSize: undefined,
+      maxFileSizeMode: undefined,
       maxStreams: undefined,
       maxStreamsPerResolution: undefined,
       maxStreamsPerQuality: undefined,

@@ -125,14 +125,17 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
   let results = allResults;
 
   // Apply file size filters if configured
+  // For season packs, each filter independently compares against per-episode or full pack size
+  const getSizeForMode = (r: any, mode: 'episode' | 'pack' | undefined) =>
+    (mode ?? 'episode') === 'episode' ? (r.estimatedEpisodeSize ?? r.size) : r.size;
   if (filterConfig.minFileSize != null) {
     const before = results.length;
-    results = results.filter(r => r.size >= (filterConfig.minFileSize ?? 0));
+    results = results.filter(r => getSizeForMode(r, filterConfig.minFileSizeMode) >= (filterConfig.minFileSize ?? 0));
     if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by min file size (${results.length} remaining)`);
   }
   if (filterConfig.maxFileSize != null) {
     const before = results.length;
-    results = results.filter(r => r.size <= (filterConfig.maxFileSize ?? Infinity));
+    results = results.filter(r => getSizeForMode(r, filterConfig.maxFileSizeMode) <= (filterConfig.maxFileSize ?? Infinity));
     if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by max file size (${results.length} remaining)`);
   }
 

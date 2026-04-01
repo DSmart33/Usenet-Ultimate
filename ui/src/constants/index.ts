@@ -150,7 +150,9 @@ export const DEFAULT_FILTERS = {
     edition: {} as Record<string, boolean>
   },
   minFileSize: undefined as number | undefined,
+  minFileSizeMode: undefined as ('episode' | 'pack') | undefined,
   maxFileSize: undefined as number | undefined,
+  maxFileSizeMode: undefined as ('episode' | 'pack') | undefined,
   maxStreams: undefined as number | undefined,
   maxStreamsPerResolution: undefined as number | undefined,
   maxStreamsPerQuality: undefined as number | undefined,

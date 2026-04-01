@@ -16,12 +16,15 @@ interface StreamFilterFieldConfig {
   step: number;
   min: number;
   isFloat?: boolean;
+  modeKey?: keyof FiltersState;
 }
 
-function StreamFilterField({ config: field, value: rawValue, onChange }: {
+function StreamFilterField({ config: field, value: rawValue, onChange, modeValue, onModeChange }: {
   config: StreamFilterFieldConfig;
   value: number | undefined;
   onChange: (v: number | undefined) => void;
+  modeValue?: 'episode' | 'pack';
+  onModeChange?: (v: 'episode' | 'pack' | undefined) => void;
 }) {
   const isLimited = rawValue != null;
   const GB = 1024 * 1024 * 1024;
@@ -112,14 +115,33 @@ function StreamFilterField({ config: field, value: rawValue, onChange }: {
       ) : (
         <div className="text-xs text-slate-500">Unlimited</div>
       )}
+      {isLimited && onModeChange && (
+        <div className="ml-4 mt-2">
+          <label className="block text-xs font-medium text-slate-400 mb-1">Season Pack Size</label>
+          <div className="flex rounded-lg overflow-hidden border border-slate-700/40 w-fit">
+            {([['episode', 'Per-Episode'], ['pack', 'Full Pack']] as const).map(([mode, label]) => (
+              <button
+                key={mode}
+                onClick={() => onModeChange(mode === 'episode' ? undefined : mode)}
+                className={clsx(
+                  "px-3 py-1 text-xs font-medium transition-colors",
+                  (modeValue ?? 'episode') === mode
+                    ? "bg-purple-500/20 text-purple-300"
+                    : "bg-slate-800/40 text-slate-400 hover:text-slate-300"
+                )}
+              >{label}</button>
+            ))}
+          </div>
+        </div>
+      )}
       <p className="text-xs text-slate-500 mt-1">{field.description}</p>
     </div>
   );
 }
 
 const STREAM_FILTER_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
-  { key: 'minFileSize', config: { label: 'Minimum File Size', description: 'Filters out files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true } },
-  { key: 'maxFileSize', config: { label: 'Maximum File Size', description: 'Filters out files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
+  { key: 'minFileSize', config: { label: 'Minimum File Size', description: 'Filters out files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true, modeKey: 'minFileSizeMode' } },
+  { key: 'maxFileSize', config: { label: 'Maximum File Size', description: 'Filters out files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true, modeKey: 'maxFileSizeMode' } },
   { key: 'maxStreams', config: { label: 'Max Total Streams', description: 'Maximum total streams to display overall', defaultValue: 25, step: 1, min: 1 } },
   { key: 'maxStreamsPerResolution', config: { label: 'Max Streams Per Resolution', description: 'Limit streams per resolution level (4K, 1080p, etc.)', defaultValue: 10, step: 1, min: 1 } },
   { key: 'maxStreamsPerQuality', config: { label: 'Max Streams Per Quality', description: 'Limit streams per source quality (BluRay, WEB-DL, etc.)', defaultValue: 10, step: 1, min: 1 } },
@@ -297,6 +319,8 @@ export default function FiltersOverlay({
                 config={config}
                 value={activeFilters[key] as number | undefined}
                 onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
+                modeValue={config.modeKey ? activeFilters[config.modeKey] as 'episode' | 'pack' | undefined : undefined}
+                onModeChange={config.modeKey ? (v) => updateActiveFilters({ ...activeFilters, [config.modeKey!]: v }) : undefined}
               />
             ))}
           </div>
@@ -634,7 +658,9 @@ export default function FiltersOverlay({
                     edition: {}
                   },
                   minFileSize: undefined,
+                  minFileSizeMode: undefined,
                   maxFileSize: undefined,
+                  maxFileSizeMode: undefined,
                   maxStreams: undefined,
                   maxStreamsPerResolution: undefined,
                   maxStreamsPerQuality: undefined,

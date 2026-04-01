@@ -214,7 +214,9 @@ export interface FilterConfig {
     edition?: Record<string, boolean>;       // Which editions are enabled
   };
   minFileSize?: number;                      // Min file size in bytes (undefined = no minimum)
+  minFileSizeMode?: 'episode' | 'pack';      // Season pack comparison for min filter (default: episode)
   maxFileSize?: number;                      // Max file size in bytes (undefined = unlimited)
+  maxFileSizeMode?: 'episode' | 'pack';      // Season pack comparison for max filter (default: episode)
   maxStreams?: number;                       // Max total streams to return (default unlimited)
   maxStreamsPerResolution?: number;           // Max streams per resolution level (undefined = unlimited)
   maxStreamsPerQuality?: number;             // Max streams per video source quality level (undefined = unlimited)
