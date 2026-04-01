@@ -134,6 +134,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavSeasonPackTimeoutSeconds, setNzbdavSeasonPackTimeoutSeconds] = useState(30);
   const [nzbdavFallbackOrder, setNzbdavFallbackOrder] = useState<'selected' | 'top'>('selected');
   const [nzbdavCacheTimeouts, setNzbdavCacheTimeouts] = useState(true);
+  const [filterDeadNzbs, setFilterDeadNzbs] = useState(true);
   const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
   const [nzbdavProxyEnabled, setNzbdavProxyEnabled] = useState(true);
   const [healthyNzbDbMode, setHealthyNzbDbMode] = useState<'time' | 'storage'>('time');
@@ -312,10 +313,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
       healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB,
-      deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, nzbdavCacheTimeouts,
+      deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, nzbdavCacheTimeouts, filterDeadNzbs,
     }), 500);
     return () => clearTimeout(timer);
-  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, nzbdavCacheTimeouts, saveSettings]);
+  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, nzbdavCacheTimeouts, filterDeadNzbs, saveSettings]);
 
   // Auto-save: index manager type
   useEffect(() => {
@@ -776,6 +777,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavSeasonPackTimeoutSeconds(data.nzbdavSeasonPackTimeoutSeconds ?? legacyTimeout ?? 30);
       setNzbdavFallbackOrder(data.nzbdavFallbackOrder || 'selected');
       setNzbdavCacheTimeouts(data.nzbdavCacheTimeouts !== false);
+      setFilterDeadNzbs(data.filterDeadNzbs !== false);
       setNzbdavStreamBufferMB(data.nzbdavStreamBufferMB ?? 128);
       setNzbdavProxyEnabled(data.nzbdavProxyEnabled !== false);
       setHealthyNzbDbMode(data.healthyNzbDbMode || 'time');
@@ -1225,6 +1227,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbdavSeasonPackTimeoutSeconds, setNzbdavSeasonPackTimeoutSeconds,
     nzbdavFallbackOrder, setNzbdavFallbackOrder,
     nzbdavCacheTimeouts, setNzbdavCacheTimeouts,
+    filterDeadNzbs, setFilterDeadNzbs,
     nzbdavStreamBufferMB, setNzbdavStreamBufferMB,
     nzbdavProxyEnabled, setNzbdavProxyEnabled,
     healthyNzbDbMode, setHealthyNzbDbMode,

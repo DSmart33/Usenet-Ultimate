@@ -43,6 +43,7 @@ export function updateSettings(settings: {
   healthyNzbDbMode?: 'time' | 'storage';
   healthyNzbDbTTL?: number;
   healthyNzbDbMaxSizeMB?: number;
+  filterDeadNzbs?: boolean;
   deadNzbDbMode?: 'time' | 'storage';
   deadNzbDbTTL?: number;
   deadNzbDbMaxSizeMB?: number;
@@ -188,6 +189,9 @@ export function updateSettings(settings: {
   }
   if (settings.healthyNzbDbMaxSizeMB !== undefined) {
     configData.healthyNzbDbMaxSizeMB = Math.min(50, Math.max(1, settings.healthyNzbDbMaxSizeMB));
+  }
+  if (settings.filterDeadNzbs !== undefined) {
+    configData.filterDeadNzbs = settings.filterDeadNzbs;
   }
   if (settings.deadNzbDbMode !== undefined) {
     configData.deadNzbDbMode = settings.deadNzbDbMode;

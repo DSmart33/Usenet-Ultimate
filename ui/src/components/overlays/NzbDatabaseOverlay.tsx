@@ -46,6 +46,8 @@ interface NzbDatabaseOverlayProps {
   setDeadNzbDbMaxSizeMB: React.Dispatch<React.SetStateAction<number>>;
   nzbdavCacheTimeouts: boolean;
   setNzbdavCacheTimeouts: React.Dispatch<React.SetStateAction<boolean>>;
+  filterDeadNzbs: boolean;
+  setFilterDeadNzbs: React.Dispatch<React.SetStateAction<boolean>>;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
@@ -132,6 +134,7 @@ export function NzbDatabaseOverlay({
   deadNzbDbTTL, setDeadNzbDbTTL,
   deadNzbDbMaxSizeMB, setDeadNzbDbMaxSizeMB,
   nzbdavCacheTimeouts, setNzbdavCacheTimeouts,
+  filterDeadNzbs, setFilterDeadNzbs,
   apiFetch,
 }: NzbDatabaseOverlayProps) {
   const [readyEntries, setReadyEntries] = useState<CacheEntryReady[]>([]);
@@ -377,9 +380,24 @@ export function NzbDatabaseOverlay({
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
+                checked={filterDeadNzbs}
+                onChange={(e) => setFilterDeadNzbs(e.target.checked)}
+                className="w-4 h-4 flex-shrink-0 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800"
+              />
+              <div>
+                <span className="text-sm font-medium text-slate-300">Filter Dead NZBs from Results</span>
+                <p className="text-xs text-slate-500 mt-1">
+                  Automatically removes known-dead NZBs from search results before they appear in Stremio.
+                </p>
+              </div>
+            </label>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
                 checked={nzbdavCacheTimeouts}
                 onChange={(e) => setNzbdavCacheTimeouts(e.target.checked)}
-                className="w-5 h-5 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800"
+                className="w-4 h-4 flex-shrink-0 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800"
               />
               <div>
                 <span className="text-sm font-medium text-slate-300">Include Timed-Out NZBs</span>

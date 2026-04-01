@@ -144,6 +144,7 @@ export interface Config {
   healthyNzbDbMode?: 'time' | 'storage';      // Database limit mode for successful streams (default 'time')
   healthyNzbDbTTL?: number;                   // TTL in seconds for successful streams when mode is 'time' (default 259200 / 3 days)
   healthyNzbDbMaxSizeMB?: number;             // Max storage in MB for successful streams when mode is 'storage' (default 50)
+  filterDeadNzbs?: boolean;                    // Filter dead NZBs from search results (default true)
   deadNzbDbMode?: 'time' | 'storage';         // Database limit mode for dead NZBs (default 'storage')
   deadNzbDbTTL?: number;                      // TTL in seconds for dead NZBs when mode is 'time' (default 86400)
   deadNzbDbMaxSizeMB?: number;                // Max storage in MB for dead NZBs when mode is 'storage' (default 50)

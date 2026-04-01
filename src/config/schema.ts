@@ -49,6 +49,7 @@ export interface ConfigData {
   healthyNzbDbMode?: 'time' | 'storage';
   healthyNzbDbTTL?: number;
   healthyNzbDbMaxSizeMB?: number;
+  filterDeadNzbs?: boolean;
   deadNzbDbMode?: 'time' | 'storage';
   deadNzbDbTTL?: number;
   deadNzbDbMaxSizeMB?: number;

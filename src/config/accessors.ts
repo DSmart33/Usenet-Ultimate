@@ -136,6 +136,9 @@ export const config: Config = {
   get healthyNzbDbMaxSizeMB() {
     return Math.min(50, Math.max(1, configData.healthyNzbDbMaxSizeMB ?? 50));
   },
+  get filterDeadNzbs() {
+    return configData.filterDeadNzbs !== false;
+  },
   get deadNzbDbMode(): 'time' | 'storage' {
     return configData.deadNzbDbMode || 'storage';
   },

@@ -715,6 +715,8 @@ function App() {
           setDeadNzbDbMaxSizeMB={ac.setDeadNzbDbMaxSizeMB}
           nzbdavCacheTimeouts={ac.nzbdavCacheTimeouts}
           setNzbdavCacheTimeouts={ac.setNzbdavCacheTimeouts}
+          filterDeadNzbs={ac.filterDeadNzbs}
+          setFilterDeadNzbs={ac.setFilterDeadNzbs}
           apiFetch={apiFetch}
         />
       )}

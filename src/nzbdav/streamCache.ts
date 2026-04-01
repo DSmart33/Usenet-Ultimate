@@ -564,10 +564,30 @@ export function getCacheStats(): {
 
 // ── URL-only lookups (used by health check coordinator) ──────────────
 
-/** Check if a non-expired URL-only dead entry exists (health-check entries use bare URL as key) */
+/** Normalize URL for dead cache comparison — handles Prowlarr volatile params
+ *  and inconsistent query string delimiters (some URLs use & instead of ? after path) */
+function normalizeDeadUrl(url: string): string {
+  const normalized = normalizeProwlarrUrl(url);
+  // Some Newznab URLs store path&param=val instead of path?param=val — normalize the first & after .nzb to ?
+  return normalized.replace(/\.nzb&/, '.nzb?');
+}
+
+/** Check if any non-expired dead entry exists for this URL.
+ *  Matches both bare URL keys (from health checks) and URL::episodePattern keys (from streaming failures). */
 export function isDeadNzbByUrl(nzbUrl: string): boolean {
-  const entry = deadNzbCache.get(normalizeProwlarrUrl(nzbUrl));
-  return !!entry && entry.expiresAt > Date.now();
+  const normalized = normalizeDeadUrl(nzbUrl);
+  const now = Date.now();
+  // Check exact match first (bare URL from health checks)
+  const exact = deadNzbCache.get(normalized);
+  if (exact && exact.expiresAt > now) return true;
+  // Check episode-pattern keys (URL::S01E02 from streaming failures)
+  for (const [key, entry] of deadNzbCache) {
+    if (key.startsWith(normalized + '::') && entry.expiresAt > now) return true;
+    // Also check with alternate delimiter (& vs ? after .nzb)
+    const normalizedKey = normalizeDeadUrl(key.split('::')[0]);
+    if (normalizedKey === normalized && entry.expiresAt > now) return true;
+  }
+  return false;
 }
 
 /** Write a URL-only dead entry for a health-check-blocked NZB (caller must call saveCacheToDisk) */

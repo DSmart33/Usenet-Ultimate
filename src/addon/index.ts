@@ -31,6 +31,8 @@ import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { processResults } from './resultProcessor.js';
 import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav } from './healthCheckCoordinator.js';
 import { buildStreams } from './streamBuilder.js';
+import { isDeadNzbByUrl } from '../nzbdav/streamCache.js';
+import { requestContext } from '../requestContext.js';
 
 // Create cache for search results
 // Use stdTTL: 0 (no expiry) and manage TTL per-entry via cache.set() so runtime changes take effect
@@ -140,6 +142,26 @@ builder.defineStreamHandler(async ({ type, id }) => {
     // === STEP 3: DEDUP, FILTER, SORT ===
     const now = Date.now();
     let allResults = processResults(allRawResults, type, now, titleInfo.runtime, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year);
+
+    // === STEP 3.5: FILTER DEAD NZBs ===
+    if (config.filterDeadNzbs) {
+      const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
+      const manifestKey = requestContext.getStore()?.manifestKey || '';
+      const beforeDead = allResults.length;
+      allResults = allResults.filter(r => {
+        // For EasyNews results, construct the proxy URL used as the dead cache key
+        if (r.easynewsMeta) {
+          const meta = r.easynewsMeta;
+          const nzbParams = new URLSearchParams({ hash: meta.hash, filename: meta.filename, ext: meta.ext });
+          if (meta.sig) nzbParams.set('sig', meta.sig);
+          return !isDeadNzbByUrl(`${SELF_URL}/${manifestKey}/easynews/nzb?${nzbParams.toString()}`);
+        }
+        return !isDeadNzbByUrl(r.link);
+      });
+      if (allResults.length < beforeDead) {
+        console.log(`🚫 Filtered ${beforeDead - allResults.length} dead NZB(s) from results (${allResults.length} remaining)`);
+      }
+    }
 
     // === STEP 4: HEALTH CHECKS ===
     const { healthResults, filteredResults } = await coordinateHealthChecks({
