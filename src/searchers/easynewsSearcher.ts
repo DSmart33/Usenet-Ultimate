@@ -67,6 +67,8 @@ export class EasynewsSearcher {
     const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
     if (before !== filtered.length) {
       console.log(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
+      results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+        .forEach(r => console.log(`      ✂️  ${r.title}`));
     }
 
     // Alternative-title retry: if 0 results and alternative titles exist, retry with each
@@ -105,6 +107,8 @@ export class EasynewsSearcher {
     const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
     if (before !== filtered.length) {
       console.log(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
+      results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+        .forEach(r => console.log(`      ✂️  ${r.title}`));
     }
 
     // Season pack search if enabled
@@ -125,6 +129,15 @@ export class EasynewsSearcher {
           isSeasonPack: true,
           estimatedEpisodeSize: episodesInSeason > 0 ? Math.round(r.size / episodesInSeason) : undefined,
         }));
+      if (packResults.length !== packs.length) {
+        const removed = packResults.filter(r =>
+          !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles)
+        );
+        if (removed.length > 0) {
+          console.log(`   📦 EasyNews season pack filter: ${packResults.length} → ${packs.length}`);
+          removed.forEach(r => console.log(`      ✂️  ${r.title}${!seasonPackPattern.test(r.title) ? ' (no season match)' : ' (title mismatch)'}`));
+        }
+      }
       if (packs.length > 0) {
         console.log(`   📦 EasyNews: ${packs.length} season packs`);
         filtered.push(...packs);
