@@ -159,8 +159,8 @@ export function FallbackOverlay({
             </div>
             <p className="text-xs text-slate-500">
               {nzbdavProxyEnabled
-                ? 'Video streams through a local proxy with buffering and automatic reconnection. Recommended for Android devices.'
-                : 'Player is redirected directly to the WebDAV URL. Recommended for Apple devices.'}
+                ? 'Video streams through a local proxy with buffering and automatic reconnection. Recommended for most devices.'
+                : 'Player is redirected directly to the WebDAV URL. Only supported on select stremio applications.'}
             </p>
           </div>
 
