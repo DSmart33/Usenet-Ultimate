@@ -73,7 +73,7 @@ export const MOCK_STREAM_DATA: Record<string, MockStreamData> = {
     quality: 'BluRay',
     encode: 'avc',
     size: '45.8 GB',
-    displaySize: '~6.5 GB/ep (45.8 GB pack)',
+    displaySize: '6.5 GB/ep (45.8 GB pack)',
     visualTag: 'SDR',
     audioTag: 'DTS Lossless',
     releaseGroup: 'ROVERS',

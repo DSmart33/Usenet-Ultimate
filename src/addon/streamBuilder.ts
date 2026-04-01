@@ -143,7 +143,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
 
     // Build display size string
     const displaySize = result.isSeasonPack && result.estimatedEpisodeSize
-      ? `~${formatBytes(result.estimatedEpisodeSize)}/ep (${size} pack)`
+      ? `${formatBytes(result.estimatedEpisodeSize)}/ep (${size} pack)`
       : result.isSeasonPack
         ? `${size} (season pack)`
         : size;
