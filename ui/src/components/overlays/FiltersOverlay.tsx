@@ -2,10 +2,127 @@
 //   Filters & Sorting overlay with resolution priority, quality filtering, sort order,
 //   per-type (Movie/TV) overrides, and drag-to-reorder priority lists
 
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Filter, X, Check, GripVertical, ChevronDown, ArrowUpDown } from 'lucide-react';
 import clsx from 'clsx';
 import type { FiltersState } from '../../types';
+import { useHoldRepeat } from '../../hooks/useHoldRepeat';
+
+interface StreamFilterFieldConfig {
+  label: string;
+  description: string;
+  unit?: string;
+  defaultValue: number;
+  step: number;
+  min: number;
+  isFloat?: boolean;
+}
+
+function StreamFilterField({ config: field, value: rawValue, onChange }: {
+  config: StreamFilterFieldConfig;
+  value: number | undefined;
+  onChange: (v: number | undefined) => void;
+}) {
+  const isLimited = rawValue != null;
+  const GB = 1024 * 1024 * 1024;
+  const toDisplay = (v: number) => field.unit === 'GB' ? parseFloat((v / GB).toFixed(2)) : v;
+  const fromDisplay = (v: number) => field.unit === 'GB' ? v * GB : v;
+  const displayValue = isLimited ? toDisplay(rawValue) : undefined;
+
+  // Remember last value so toggling off→on restores it
+  // Resets to field default when externally cleared (Reset to Default)
+  const lastValue = useRef<number>(field.defaultValue);
+  const wasToggledOff = useRef(false);
+  if (displayValue != null) {
+    lastValue.current = displayValue;
+    wasToggledOff.current = false;
+  } else if (!wasToggledOff.current) {
+    lastValue.current = field.defaultValue;
+  }
+
+  const setDisplay = useCallback((v: number) => {
+    const clamped = Math.max(field.min, field.isFloat ? parseFloat(v.toFixed(2)) : Math.round(v));
+    onChange(fromDisplay(clamped));
+  }, [field.min, field.isFloat, onChange]);
+
+  const inc = useHoldRepeat(useCallback(() => setDisplay((displayValue ?? field.defaultValue) + field.step), [displayValue, field.defaultValue, field.step, setDisplay]));
+  const dec = useHoldRepeat(useCallback(() => setDisplay(Math.max(field.min, (displayValue ?? field.defaultValue) - field.step)), [displayValue, field.defaultValue, field.step, field.min, setDisplay]));
+
+  // Local string state allows free typing (clear, partial input, etc.)
+  // Commits to real value on blur or Enter
+  const [localText, setLocalText] = useState<string | null>(null);
+  const isEditing = localText !== null;
+  const shownValue = isEditing ? localText : (displayValue != null ? String(displayValue) : '');
+
+  const commitText = () => {
+    if (localText === null) return;
+    const v = field.isFloat ? parseFloat(localText) : parseInt(localText, 10);
+    if (!isNaN(v) && v >= field.min) {
+      setDisplay(v);
+    }
+    setLocalText(null);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <label className="text-sm font-medium text-slate-300">{field.label}</label>
+        <button
+          onClick={() => {
+            if (isLimited) {
+              wasToggledOff.current = true;
+              onChange(undefined);
+            } else {
+              setDisplay(lastValue.current);
+            }
+          }}
+          className={clsx(
+            "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+            isLimited ? "bg-purple-500" : "bg-slate-600"
+          )}
+        >
+          <div className={clsx(
+            "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+            isLimited ? "left-5" : "left-1"
+          )} />
+        </button>
+      </div>
+      {isLimited ? (
+        <div className="flex items-center gap-2">
+          <button
+            {...dec}
+            className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+          >−</button>
+          <input
+            type="text"
+            inputMode={field.isFloat ? 'decimal' : 'numeric'}
+            value={shownValue}
+            onFocus={() => setLocalText(displayValue != null ? String(displayValue) : '')}
+            onChange={(e) => setLocalText(e.target.value)}
+            onBlur={commitText}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitText(); }}
+            className="w-20 bg-slate-800/60 border border-slate-700/40 rounded-lg px-2 py-1 text-center text-sm font-medium text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
+          />
+          <button
+            {...inc}
+            className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+          >+</button>
+          {field.unit && <span className="text-xs text-slate-500">{field.unit}</span>}
+        </div>
+      ) : (
+        <div className="text-xs text-slate-500">Unlimited</div>
+      )}
+      <p className="text-xs text-slate-500 mt-1">{field.description}</p>
+    </div>
+  );
+}
+
+const STREAM_FILTER_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
+  { key: 'maxFileSize', config: { label: 'Maximum File Size', description: 'Filters out files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
+  { key: 'maxStreams', config: { label: 'Max Total Streams', description: 'Maximum total streams to display overall', defaultValue: 25, step: 1, min: 1 } },
+  { key: 'maxStreamsPerResolution', config: { label: 'Max Streams Per Resolution', description: 'Limit streams per resolution level (4K, 1080p, etc.)', defaultValue: 10, step: 1, min: 1 } },
+  { key: 'maxStreamsPerQuality', config: { label: 'Max Streams Per Quality', description: 'Limit streams per source quality (BluRay, WEB-DL, etc.)', defaultValue: 10, step: 1, min: 1 } },
+];
 
 const SORT_DIRECTION_LABELS: Record<string, Record<string, string>> = {
   size: { desc: 'Largest first', asc: 'Smallest first' },
@@ -173,94 +290,14 @@ export default function FiltersOverlay({
           {/* Stream Filters */}
           <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
             <div className="text-sm font-medium text-slate-300">Stream Filters</div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Maximum File Size
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="number"
-                  value={activeFilters.maxFileSize ? (activeFilters.maxFileSize / (1024 * 1024 * 1024)).toFixed(1) : ''}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    updateActiveFilters({
-                      ...activeFilters,
-                      maxFileSize: value ? parseFloat(value) * 1024 * 1024 * 1024 : undefined
-                    });
-                  }}
-                  placeholder="Unlimited"
-                  className="input-field w-28"
-                  step="0.1"
-                  min="0"
-                />
-                <span className="text-slate-400 text-sm">GB</span>
-              </div>
-              <p className="text-xs text-slate-500 mt-1">Leave empty for unlimited. Filters out larger files.</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Max Total Streams
-              </label>
-              <input
-                type="number"
-                value={activeFilters.maxStreams || ''}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  updateActiveFilters({
-                    ...activeFilters,
-                    maxStreams: value ? parseInt(value) : undefined
-                  });
-                }}
-                placeholder="Unlimited"
-                className="input-field w-28"
-                min="1"
+            {STREAM_FILTER_FIELDS.map(({ key, config }) => (
+              <StreamFilterField
+                key={key}
+                config={config}
+                value={activeFilters[key] as number | undefined}
+                onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
               />
-              <p className="text-xs text-slate-500 mt-1">Maximum total number of streams to display overall</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Max Streams Per Resolution
-              </label>
-              <input
-                type="number"
-                value={activeFilters.maxStreamsPerResolution || ''}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  updateActiveFilters({
-                    ...activeFilters,
-                    maxStreamsPerResolution: value ? parseInt(value) : undefined
-                  });
-                }}
-                placeholder="Unlimited"
-                className="input-field w-28"
-                min="1"
-              />
-              <p className="text-xs text-slate-500 mt-1">Limit how many streams of each resolution to return (e.g., 4K, 1080p, etc.)</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Max Streams Per Quality
-              </label>
-              <input
-                type="number"
-                value={activeFilters.maxStreamsPerQuality || ''}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  updateActiveFilters({
-                    ...activeFilters,
-                    maxStreamsPerQuality: value ? parseInt(value) : undefined
-                  });
-                }}
-                placeholder="Unlimited"
-                className="input-field w-28"
-                min="1"
-              />
-              <p className="text-xs text-slate-500 mt-1">Limit streams per video source quality level (e.g., BluRay, WEB-DL)</p>
-            </div>
+            ))}
           </div>
 
           {/* Sort Order Priority */}

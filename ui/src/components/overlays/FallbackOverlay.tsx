@@ -1,36 +1,10 @@
 // What this does:
 //   NZB Fallback configuration overlay with enable toggle, fallback order, wait times, and streaming method
 
-import { useRef, useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import { RotateCcw, X, Film, Tv, Layers } from 'lucide-react';
 import clsx from 'clsx';
-
-function useHoldRepeat(action: () => void, initialDelay = 500, minDelay = 200) {
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const delay = useRef(initialDelay);
-
-  const stop = useCallback(() => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    delay.current = initialDelay;
-  }, [initialDelay]);
-
-  const start = useCallback(() => {
-    action();
-    const tick = () => {
-      timer.current = setTimeout(() => {
-        action();
-        delay.current = Math.max(minDelay, delay.current * 0.95);
-        tick();
-      }, delay.current);
-    };
-    tick();
-  }, [action, minDelay]);
-
-  useEffect(() => stop, [stop]);
-
-  return { onPointerDown: start, onPointerUp: stop, onPointerLeave: stop, onPointerCancel: stop };
-}
+import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 
 interface FallbackOverlayProps {
   onClose: () => void;
