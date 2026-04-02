@@ -50,14 +50,16 @@ export function nzbdavError(message: string, isTimeout = false): Error & { isNzb
 }
 
 /**
- * Transport-layer error thrown when WebDAV returns 404/410 for a video file.
- * Carries the videoPath so callers can evict the stale cache entry.
+ * Transport-layer error thrown when WebDAV returns an error status (404, 410, etc.)
+ * for a video file. Carries the videoPath so callers can evict the stale cache entry.
  */
 export class WebDav404Error extends Error {
   readonly videoPath: string;
-  constructor(videoPath: string) {
-    super(`WebDAV upstream returned 404 for video path`);
+  readonly statusCode: number;
+  constructor(videoPath: string, statusCode: number = 404) {
+    super(`WebDAV upstream returned ${statusCode} for video path`);
     this.name = 'WebDav404Error';
     this.videoPath = videoPath;
+    this.statusCode = statusCode;
   }
 }

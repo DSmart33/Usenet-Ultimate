@@ -12,7 +12,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import type { CacheEntry, StreamData, NZBDavConfig } from './types.js';
 import { config as globalConfig } from '../config/index.js';
-import { clearFallbackGroups } from './fallbackManager.js';
+import { clearFallbackGroups, getFallbackGroupTTLMs } from './fallbackManager.js';
 import { clearDeliveryLog, MULTI_EPISODE_BLOCKED_ERROR } from './utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -36,6 +36,33 @@ function normalizeProwlarrUrl(url: string): string {
 
 /** Pending preparations — in-flight promises that resolve into readyCache or deadNzbCache */
 const pendingCache = new Map<string, CacheEntry>();
+
+// ============================================================================
+// Broken Video Path Tracking
+// ============================================================================
+// Video paths where WebDAV returned a server error (5xx). Prevents the
+// library check from repeatedly returning a file that exists on disk
+// (PROPFIND succeeds) but can't actually be served (GET returns 500).
+// TTL matches fallback group lifetime so the path stays marked for as
+// long as the fallback system could route to it.
+
+const brokenVideoPaths = new Map<string, number>(); // videoPath → expiresAt
+
+/** Mark a video path as broken (WebDAV can't serve it). */
+export function markVideoPathBroken(videoPath: string): void {
+  brokenVideoPaths.set(videoPath, Date.now() + getFallbackGroupTTLMs());
+}
+
+/** Check if a video path is currently marked as broken. */
+export function isVideoPathBroken(videoPath: string): boolean {
+  const expiresAt = brokenVideoPaths.get(videoPath);
+  if (expiresAt === undefined) return false;
+  if (Date.now() >= expiresAt) {
+    brokenVideoPaths.delete(videoPath);
+    return false;
+  }
+  return true;
+}
 
 /** Dynamic TTL helpers — when mode is 'storage', entries never expire by time */
 function getReadyTTLMs(): number {
@@ -201,6 +228,9 @@ export function cleanupExpiredCache(): void {
   }
   for (const [key, entry] of deadNzbCache.entries()) {
     if (entry.expiresAt < now) { deadNzbCache.delete(key); removed = true; }
+  }
+  for (const [path, expiresAt] of brokenVideoPaths) {
+    if (now >= expiresAt) brokenVideoPaths.delete(path);
   }
   if (removed) saveCacheToDisk();
 }
@@ -436,35 +466,40 @@ export function deleteCacheEntry(cacheKey: string): boolean {
 
 /**
  * Evict a ready cache entry by its videoPath (reverse lookup).
- * Creates an episode-specific dead entry for TV (so other episodes from the
- * same season pack remain accessible), or a URL-only dead entry for movies.
+ * When markDead is true (default), creates an episode-specific dead entry for TV
+ * (so other episodes from the same season pack remain accessible), or a URL-only
+ * dead entry for movies. When markDead is false, only removes from ready cache
+ * without blacklisting the NZB (used for transient errors like 5xx where the
+ * NZB itself isn't bad, just temporarily unavailable).
  * Returns the evicted cache key, or null if no match found.
  */
-export function evictReadyByVideoPath(videoPath: string): string | null {
+export function evictReadyByVideoPath(videoPath: string, markDead: boolean = true): string | null {
   for (const [key, entry] of readyCache.entries()) {
     if (entry.data.videoPath === videoPath) {
       readyCache.delete(key);
-      const sepIdx = key.indexOf('::');
-      if (sepIdx !== -1) {
-        const nzbUrl = key.substring(0, sepIdx);
-        // Extract episode pattern from cache key suffix — handles both old form (":S04E08",
-        // ":S04[. _-]?E08") and chain-aware form (":S04(?:[. _-]?E\d+)*[. _-]?E08(?!\d)")
-        const epMatch = key.match(/:S\d{2}[^:]*$/);
-        const episodePattern = epMatch ? epMatch[0].substring(1) : undefined;
-        const deadKey = getDeadCacheKey(nzbUrl, episodePattern);
-        if (!deadNzbCache.has(deadKey)) {
-          const now = Date.now();
-          const error = new Error('Video file no longer available (404)');
-          (error as any).isNzbdavFailure = true;
-          deadNzbCache.set(deadKey, {
-            title: extractTitle(key),
-            indexerName: entry.indexerName,
-            error,
-            createdAt: now,
-            expiresAt: now + getDeadTTLMs(),
-          });
-          if (globalConfig.deadNzbDbMode === 'storage') {
-            enforceStorageLimit(deadNzbCache, estimateDeadCacheSize, globalConfig.deadNzbDbMaxSizeMB ?? 50);
+      if (markDead) {
+        const sepIdx = key.indexOf('::');
+        if (sepIdx !== -1) {
+          const nzbUrl = key.substring(0, sepIdx);
+          // Extract episode pattern from cache key suffix — handles both old form (":S04E08",
+          // ":S04[. _-]?E08") and chain-aware form (":S04(?:[. _-]?E\d+)*[. _-]?E08(?!\d)")
+          const epMatch = key.match(/:S\d{2}[^:]*$/);
+          const episodePattern = epMatch ? epMatch[0].substring(1) : undefined;
+          const deadKey = getDeadCacheKey(nzbUrl, episodePattern);
+          if (!deadNzbCache.has(deadKey)) {
+            const now = Date.now();
+            const error = new Error('Video file no longer available (404)');
+            (error as any).isNzbdavFailure = true;
+            deadNzbCache.set(deadKey, {
+              title: extractTitle(key),
+              indexerName: entry.indexerName,
+              error,
+              createdAt: now,
+              expiresAt: now + getDeadTTLMs(),
+            });
+            if (globalConfig.deadNzbDbMode === 'storage') {
+              enforceStorageLimit(deadNzbCache, estimateDeadCacheSize, globalConfig.deadNzbDbMaxSizeMB ?? 50);
+            }
           }
         }
       }

@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
 import { waitForVideoFile, checkNzbLibrary } from './videoDiscovery.js';
-import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache } from './streamCache.js';
+import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache, isVideoPathBroken } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error } from './utils.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
@@ -169,8 +169,13 @@ export async function prepareStream(
   if (globalConfig.nzbdavLibraryCheckEnabled) {
     const libraryResult = await checkNzbLibrary(title, config, episodePattern, contentType, episodesInSeason);
     if (libraryResult) {
-      console.log(`\u2705 Stream ready (from library): ${title}\n`);
-      return libraryResult;
+      // Skip if this video path was recently marked as broken (WebDAV 5xx)
+      if (isVideoPathBroken(libraryResult.videoPath)) {
+        console.log(`\u{1F6AB} Library hit skipped (video path broken): ${libraryResult.videoPath}`);
+      } else {
+        console.log(`\u2705 Stream ready (from library): ${title}\n`);
+        return libraryResult;
+      }
     }
   } else {
     console.log(`\u{1F4DA} Library check disabled — skipping`);
@@ -187,6 +192,14 @@ export async function prepareStream(
 
   // Step 3: Find the video file — remaining budget
   const video = await waitForVideoFile(nzoId, title, config, episodePattern, contentType, episodesInSeason);
+
+  // Skip immediately if this path is already known to be broken (WebDAV 5xx).
+  // Avoids wasting ~6s on the probe when re-submission resolves to the same unservable file.
+  // Plain Error (not nzbdavError) so the NZB isn't marked dead — the NZB is fine, only the path is broken.
+  if (isVideoPathBroken(video.path)) {
+    console.log(`  \u{1F6AB} Video path already broken — skipping probe: ${video.path}`);
+    throw new Error(`Video path broken (WebDAV 5xx): ${video.path}`);
+  }
 
   // Step 4: Verify the video is actually servable via WebDAV (GET first byte).
   // HEAD isn't reliable — NZBDav returns 200 for HEAD even when content is gone.
