@@ -59,15 +59,16 @@ export class EasynewsSearcher {
     year?: string,
     country?: string,
     additionalTitles?: string[],
+    titleYear?: string,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const query = year ? `${title} ${year}` : title;
     console.log(`🔍 EasyNews movie search: "${query}"`);
     const results = await this.search(query);
     const before = results.length;
-    const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+    const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
     if (before !== filtered.length) {
       console.log(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
-      results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+      results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
         .forEach(r => console.log(`      ✂️  ${r.title}`));
     }
 
@@ -77,7 +78,7 @@ export class EasynewsSearcher {
         const altQuery = year ? `${altTitle} ${year}` : altTitle;
         console.log(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
         const altResults = await this.search(altQuery);
-        const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country));
+        const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
         console.log(`   🎯 EasyNews alt-title filter: ${altResults.length} → ${altFiltered.length}`);
         if (altFiltered.length > 0) {
           filtered.push(...altFiltered);
@@ -97,6 +98,7 @@ export class EasynewsSearcher {
     year?: string,
     country?: string,
     additionalTitles?: string[],
+    titleYear?: string,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
@@ -104,10 +106,10 @@ export class EasynewsSearcher {
     console.log(`🔍 EasyNews TV search: "${query}"`);
     const results = await this.search(query);
     const before = results.length;
-    const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+    const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
     if (before !== filtered.length) {
       console.log(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
-      results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+      results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
         .forEach(r => console.log(`      ✂️  ${r.title}`));
     }
 
@@ -122,7 +124,7 @@ export class EasynewsSearcher {
       const seasonPackPattern = new RegExp(`S0?${season}(?![._\\s-]?E\\d)`, 'i');
       const existingHashes = new Set(filtered.map(r => r.easynewsMeta!.hash));
       const packs = packResults
-        .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
+        .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
         .filter(r => !existingHashes.has(r.easynewsMeta!.hash))
         .map(r => ({
           ...r,
@@ -131,7 +133,7 @@ export class EasynewsSearcher {
         }));
       if (packResults.length !== packs.length) {
         const removed = packResults.filter(r =>
-          !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles)
+          !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear)
         );
         if (removed.length > 0) {
           console.log(`   📦 EasyNews season pack filter: ${packResults.length} → ${packs.length}`);
@@ -150,7 +152,7 @@ export class EasynewsSearcher {
         const altQuery = `${altTitle} S${s}E${e}`;
         console.log(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
         const altResults = await this.search(altQuery);
-        const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country));
+        const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
         console.log(`   🎯 EasyNews alt-title filter: ${altResults.length} → ${altFiltered.length}`);
         if (altFiltered.length > 0) {
           // Also check for season packs with the alternative title
@@ -163,7 +165,7 @@ export class EasynewsSearcher {
             const seasonPackPattern = new RegExp(`S0?${season}(?![._\\s-]?E\\d)`, 'i');
             const existingHashes = new Set(altFiltered.map(r => r.easynewsMeta!.hash));
             const altPacks = altPackResults
-              .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(altTitle, r.title, year, country))
+              .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
               .filter(r => !existingHashes.has(r.easynewsMeta!.hash))
               .map(r => ({
                 ...r,
@@ -172,7 +174,7 @@ export class EasynewsSearcher {
               }));
             if (altPackResults.length !== altPacks.length) {
               const removed = altPackResults.filter(r =>
-                !seasonPackPattern.test(r.title) || !isTextSearchMatch(altTitle, r.title, year, country)
+                !seasonPackPattern.test(r.title) || !isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear)
               );
               if (removed.length > 0) {
                 console.log(`   📦 EasyNews alt-title season pack filter: ${altPackResults.length} → ${altPacks.length}`);

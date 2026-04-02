@@ -129,6 +129,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
       additionalTitles: titleInfo.additionalTitles,
       isAnime: titleInfo.isAnime,
       useTextForAnime: titleInfo.useTextForAnime,
+      titleYear: titleInfo.titleYear,
     };
 
     const [indexManagerResults, easynewsResults] = await Promise.all([
@@ -140,7 +141,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
     // === STEP 3: DEDUP, FILTER, SORT ===
     const now = Date.now();
-    let allResults = processResults(allRawResults, type, now, titleInfo.runtime, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year);
+    let allResults = processResults(allRawResults, type, now, titleInfo.runtime, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear);
 
     // === STEP 3.5: FILTER DEAD NZBs ===
     if (config.filterDeadNzbs) {

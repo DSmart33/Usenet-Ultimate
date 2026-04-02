@@ -74,8 +74,15 @@ export function deduplicateByPriority(allResults: any[]): any[] {
  * match the expected year within ±1. Episode filtering is skipped when episodeName is unavailable.
  * Returns two arrays: results kept in their normal position, and packs deprioritized to the end.
  */
-export function applyRemakeFilter(allResults: any[], hasRemake?: boolean, episodeName?: string, year?: string): { results: any[]; deprioritizedPacks: any[] } {
+export function applyRemakeFilter(allResults: any[], hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string): { results: any[]; deprioritizedPacks: any[] } {
   if (!hasRemake || !year) return { results: allResults, deprioritizedPacks: [] };
+
+  const yearMatchesAny = (parsed: string) => {
+    const p = parseInt(parsed, 10);
+    if (Math.abs(p - parseInt(year, 10)) <= 1) return true;
+    if (titleYear && Math.abs(p - parseInt(titleYear, 10)) <= 1) return true;
+    return false;
+  };
 
   const removed: string[] = [];
   const deprioritizedTitles: string[] = [];
@@ -89,14 +96,14 @@ export function applyRemakeFilter(allResults: any[], hasRemake?: boolean, episod
         deprioritizedTitles.push(r.title);
         return false;
       }
-      if (Math.abs(parseInt(parsedYear, 10) - parseInt(year, 10)) > 1) {
+      if (!yearMatchesAny(parsedYear)) {
         removed.push(r.title);
         return false;
       }
       return true;
     }
     // Regular episode — skip if episodeName unavailable (e.g. TVDB lookup failed)
-    if (episodeName && isRemakeFiltered(r.title, episodeName, year)) {
+    if (episodeName && isRemakeFiltered(r.title, episodeName, year, titleYear)) {
       removed.push(r.title);
       return false;
     }
@@ -375,13 +382,13 @@ export function applyStreamLimits(allResults: any[], filterConfig?: FilterConfig
  * Full processing pipeline: dedup → remake filter → quality filter → sort → limit.
  * Yearless season packs for remake shows are appended after the sorted results.
  */
-export function processResults(allResults: any[], type: string, now?: number, runtime?: number, hasRemake?: boolean, episodeName?: string, year?: string): any[] {
+export function processResults(allResults: any[], type: string, now?: number, runtime?: number, hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string): any[] {
   // Step 1: Cross-indexer dedup by priority
   let results = deduplicateByPriority(allResults);
 
   // Step 2: Remake filter — applies globally regardless of search method.
   // Yearless season packs for remake shows are separated and appended after sorting.
-  const { results: remakeFiltered, deprioritizedPacks } = applyRemakeFilter(results, hasRemake, episodeName, year);
+  const { results: remakeFiltered, deprioritizedPacks } = applyRemakeFilter(results, hasRemake, episodeName, year, titleYear);
   results = remakeFiltered;
 
   // Step 3: Select per-type filter config, falling back to global filters

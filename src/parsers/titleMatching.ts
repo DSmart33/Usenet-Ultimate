@@ -100,13 +100,13 @@ const ALL_COUNTRY_CODES = new Set(Object.values(COUNTRY_CODES).flat());
  *  Returns true if the normalized titles are close enough.
  *  Optionally accepts additional titles (e.g. Cinemeta title alongside TMDB title)
  *  and returns true if ANY title matches. */
-export function isTextSearchMatch(expectedTitle: string, releaseTitle: string, year?: string, country?: string, additionalTitles?: string[]): boolean {
-  if (isTextSearchMatchSingle(expectedTitle, releaseTitle, year, country)) return true;
+export function isTextSearchMatch(expectedTitle: string, releaseTitle: string, year?: string, country?: string, additionalTitles?: string[], titleYear?: string): boolean {
+  if (isTextSearchMatchSingle(expectedTitle, releaseTitle, year, country, titleYear)) return true;
 
   // Try additional titles (e.g. Cinemeta title when primary is TMDB, or vice versa)
   if (additionalTitles) {
     for (const altTitle of additionalTitles) {
-      if (altTitle && altTitle !== expectedTitle && isTextSearchMatchSingle(altTitle, releaseTitle, year, country)) {
+      if (altTitle && altTitle !== expectedTitle && isTextSearchMatchSingle(altTitle, releaseTitle, year, country, titleYear)) {
         return true;
       }
     }
@@ -144,7 +144,7 @@ export function isStylizedTitle(candidate: string, reference: string): boolean {
  * Year-present releases are rejected if the year differs significantly from the expected version.
  * Yearless releases must contain the episode name to prove they are the correct version.
  */
-export function isRemakeFiltered(releaseTitle: string, episodeName: string, year: string): boolean {
+export function isRemakeFiltered(releaseTitle: string, episodeName: string, year: string, titleYear?: string): boolean {
   const parsedYear = parseYear(releaseTitle);
   if (!parsedYear) {
     // Yearless release — must contain the episode name to prove it's the correct version
@@ -153,8 +153,11 @@ export function isRemakeFiltered(releaseTitle: string, episodeName: string, year
       return true;
     }
   } else {
-    // Year-present release — reject if the year differs significantly from the expected version
-    if (Math.abs(parseInt(parsedYear, 10) - parseInt(year, 10)) > 1) {
+    // Year-present release — reject if the year differs from all accepted years
+    const p = parseInt(parsedYear, 10);
+    const yearOk = Math.abs(p - parseInt(year, 10)) <= 1;
+    const titleYearOk = titleYear ? Math.abs(p - parseInt(titleYear, 10)) <= 1 : false;
+    if (!yearOk && !titleYearOk) {
       return true;
     }
   }
@@ -162,18 +165,26 @@ export function isRemakeFiltered(releaseTitle: string, episodeName: string, year
 }
 
 /** Core single-title matching logic */
-function isTextSearchMatchSingle(expectedTitle: string, releaseTitle: string, year?: string, country?: string): boolean {
+function isTextSearchMatchSingle(expectedTitle: string, releaseTitle: string, year?: string, country?: string, titleYear?: string): boolean {
+  // Miniseries keyword mismatch: reject if one has "miniseries" and the other doesn't
+  const miniseriesRegex = /\bmini[.\s_-]?series\b/i;
+  if (miniseriesRegex.test(releaseTitle) !== miniseriesRegex.test(expectedTitle)) {
+    return false;
+  }
+
   const extracted = extractTitleFromRelease(releaseTitle);
   const normExpected = normalizeTitle(expectedTitle);
   const normExtracted = normalizeTitle(extracted);
 
-  // Year validation: use the library parser to extract the year from the release title.
-  // Reject if the parsed year differs significantly from the expected year.
-  if (year) {
-    const expectedYear = parseInt(year, 10);
+  // Year validation: reject if the parsed year doesn't match any accepted year (±1 tolerance each).
+  // When titleYear is available (extracted from TVDB title suffix), accept releases matching either year.
+  if (year || titleYear) {
     const parsedYear = parseYear(releaseTitle);
     if (parsedYear && !expectedTitle.includes(parsedYear)) {
-      if (Math.abs(parseInt(parsedYear, 10) - expectedYear) > 1) {
+      const p = parseInt(parsedYear, 10);
+      const yearOk = year ? Math.abs(p - parseInt(year, 10)) <= 1 : false;
+      const titleYearOk = titleYear ? Math.abs(p - parseInt(titleYear, 10)) <= 1 : false;
+      if (!yearOk && !titleYearOk) {
         return false;
       }
     }

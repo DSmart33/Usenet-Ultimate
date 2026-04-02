@@ -36,6 +36,8 @@ export interface ResolvedTitleInfo {
   episodeName?: string;
   /** Whether this show has a known remake/reboot (detected via TMDB search) */
   hasRemake?: boolean;
+  /** Year extracted from parenthetical suffix in resolved title, e.g. "2003" from "Show (2003)" */
+  titleYear?: string;
 }
 
 /**
@@ -139,6 +141,20 @@ export async function resolveTitle(
       }
     }
   }
+  // Strip parenthetical year suffix from resolved title (e.g. "Show (2003)" → "Show")
+  // TVDB/TMDB add these for disambiguation but release groups don't use them
+  let titleYear: string | undefined;
+  if (resolvedTitle) {
+    const yearMatch = resolvedTitle.match(/\s*\((\d{4})\)\s*$/);
+    if (yearMatch) {
+      titleYear = yearMatch[1];
+      const originalTitle = resolvedTitle;
+      resolvedTitle = resolvedTitle.replace(/\s*\(\d{4}\)\s*$/, '');
+      const minYear = Math.min(parseInt(titleYear, 10), year ? parseInt(year, 10) : parseInt(titleYear, 10)) - 1;
+      const maxYear = Math.max(parseInt(titleYear, 10), year ? parseInt(year, 10) : parseInt(titleYear, 10)) + 1;
+      console.log(`📅 Stripped year suffix from resolved title: "${originalTitle}" → "${resolvedTitle}" (titleYear: ${titleYear}, accepted range: ${minYear}–${maxYear})`);
+    }
+  }
   // Detect stylized titles (digit-for-letter substitutions like 1→i, 3→e, 0→o)
   // Prefer Cinemeta for search since release groups use the natural spelling
   let title: string;
@@ -184,5 +200,6 @@ export async function resolveTitle(
     runtime,
     episodeName,
     hasRemake,
+    titleYear,
   };
 }

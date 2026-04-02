@@ -25,13 +25,14 @@ export interface SearchContext {
   additionalTitles?: string[];
   isAnime: boolean;
   useTextForAnime: boolean;
+  titleYear?: string;
 }
 
 /**
  * Search via the configured index manager (Prowlarr, NZBHydra, or Newznab).
  */
 export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
-  const { type, imdbId, title, year, country, season, episode, episodesInSeason, additionalTitles, isAnime, useTextForAnime } = ctx;
+  const { type, imdbId, title, year, country, season, episode, episodesInSeason, additionalTitles, isAnime, useTextForAnime, titleYear } = ctx;
 
   if (config.indexManager === 'prowlarr' && config.prowlarrUrl && config.prowlarrApiKey) {
     // === PROWLARR MODE ===
@@ -73,9 +74,9 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     try {
       let results: any[];
       if (type === 'movie') {
-        results = await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles);
+        results = await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles, titleYear);
       } else if (type === 'series' && season !== undefined && episode !== undefined) {
-        results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles);
+        results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear);
       } else {
         results = [];
       }
@@ -136,9 +137,9 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     try {
       let results: any[];
       if (type === 'movie') {
-        results = await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles);
+        results = await searcher.searchMovie(imdbId, title, year, country, resolvedIds, additionalTitles, titleYear);
       } else if (type === 'series' && season !== undefined && episode !== undefined) {
-        results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles);
+        results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, resolvedIds, additionalTitles, titleYear);
       } else {
         results = [];
       }
@@ -209,10 +210,10 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
               : null;
 
             if (type === 'movie') {
-              const results = await searcher.searchMovie(imdbId, title, year, country, externalId || undefined, method, additionalTitles);
+              const results = await searcher.searchMovie(imdbId, title, year, country, externalId || undefined, method, additionalTitles, titleYear);
               allMethodResults.push(...results);
             } else if (type === 'series' && season !== undefined && episode !== undefined) {
-              const results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, externalId || undefined, method, additionalTitles);
+              const results = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, externalId || undefined, method, additionalTitles, titleYear);
               allMethodResults.push(...results);
             }
           }
@@ -249,9 +250,9 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
           try {
             let fbResults: any[] = [];
             if (type === 'movie') {
-              fbResults = await searcher.searchMovie(imdbId, title, year, country, undefined, 'text', additionalTitles);
+              fbResults = await searcher.searchMovie(imdbId, title, year, country, undefined, 'text', additionalTitles, titleYear);
             } else if (type === 'series' && season !== undefined && episode !== undefined) {
-              fbResults = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, undefined, 'text', additionalTitles);
+              fbResults = await searcher.searchTVShow(imdbId, title, season, episode, episodesInSeason, year, country, undefined, 'text', additionalTitles, titleYear);
             }
             const responseTime = Date.now() - startTime;
             trackQuery(indexer.name, true, responseTime, fbResults.length);
@@ -280,9 +281,9 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
           try {
             let altResults: any[] = [];
             if (type === 'movie') {
-              altResults = await searcher.searchMovie(imdbId, altTitle, year, country, undefined, 'text');
+              altResults = await searcher.searchMovie(imdbId, altTitle, year, country, undefined, 'text', undefined, titleYear);
             } else if (type === 'series' && season !== undefined && episode !== undefined) {
-              altResults = await searcher.searchTVShow(imdbId, altTitle, season, episode, episodesInSeason, year, country, undefined, 'text');
+              altResults = await searcher.searchTVShow(imdbId, altTitle, season, episode, episodesInSeason, year, country, undefined, 'text', undefined, titleYear);
             }
             const responseTime = Date.now() - startTime;
             trackQuery(indexer.name, true, responseTime, altResults.length);
@@ -316,7 +317,7 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
     return [];
   }
 
-  const { type, title, year, country, season, episode, episodesInSeason, additionalTitles } = ctx;
+  const { type, title, year, country, season, episode, episodesInSeason, additionalTitles, titleYear } = ctx;
   const easynewsStartTime = Date.now();
   const searcher = new EasynewsSearcher(
     config.easynewsUsername,
@@ -327,9 +328,9 @@ export async function easynewsSearch(ctx: SearchContext): Promise<any[]> {
   try {
     let results: any[];
     if (type === 'movie') {
-      results = await searcher.searchMovie(title, year, country, additionalTitles);
+      results = await searcher.searchMovie(title, year, country, additionalTitles, titleYear);
     } else if (type === 'series' && season !== undefined && episode !== undefined) {
-      results = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles);
+      results = await searcher.searchTVShow(title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear);
     } else {
       results = [];
     }
