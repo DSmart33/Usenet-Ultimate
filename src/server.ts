@@ -11,7 +11,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import addonSDK from 'stremio-addon-sdk';
-import addon, { clearSearchCache } from './addon/index.js';
+import addon, { clearSearchCache, addonManifest } from './addon/index.js';
 import { config, getIndexers, addIndexer, updateIndexer, deleteIndexer, reorderIndexers, reorderSyncedIndexers, updateSettings, getProviders, addProvider, updateProvider, deleteProvider, reorderProviders } from './config/index.js';
 import { getLogBuffer, subscribeToLogs } from './logBuffer.js';
 import { getAllStats, getIndexerStats, resetIndexerStats, resetAllStats, trackGrab } from './statsTracker.js';
@@ -55,13 +55,15 @@ app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json());
 // Serve static files — hashed assets get long cache, non-hashed files (sw.js, index.html) get no-cache
-app.use(express.static('ui/dist', {
+const staticMiddleware = express.static('ui/dist', {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html') || filePath.endsWith('sw.js') || filePath.endsWith('registerSW.js') || filePath.endsWith('manifest.webmanifest')) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     }
   }
-}));
+});
+app.use(staticMiddleware);
+app.use('/stremio', staticMiddleware);
 
 // Health check (public — used by Docker HEALTHCHECK)
 app.get('/health', (req, res) => {
@@ -169,20 +171,33 @@ app.use('/api/logs', createLogRoutes({
 }));
 
 // --- Key-protected proxy routes (no JWT auth, validated by manifest key) ---
+// Mounted at both /:manifestKey/ (legacy) and /stremio/:manifestKey/ (recommended for reverse proxy setups)
 
-// EasyNews resolve and NZB proxy — /:manifestKey/easynews/*
-app.use('/:manifestKey/easynews', validateManifestKey, createEasynewsProxyRoutes({ config, getLatestVersions }));
-
-// NZBDav stream proxy — /:manifestKey/nzbdav/*
-app.use('/:manifestKey/nzbdav', validateManifestKey, createNzbdavStreamRoutes(nzbdavDeps));
-
-// Mount Stremio addon routes under /:manifestKey/ (key-protected)
-// mergeParams: false isolates the SDK's internal /:config? param from our :manifestKey
+const easynewsRoutes = createEasynewsProxyRoutes({ config, getLatestVersions });
+const nzbdavRoutes = createNzbdavStreamRoutes(nzbdavDeps);
 const stremioRouter = express.Router({ mergeParams: false });
+// Serve manifest with absolute logo URL (Stremio doesn't resolve relative paths correctly)
+stremioRouter.get('/manifest.json', (req, res) => {
+  const baseUrl = requestContext.getStore()?.baseUrl || process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify({ ...addonManifest, logo: `${baseUrl}/pwa-512x512.png` }));
+});
 stremioRouter.use(getRouter(addon));
-app.use('/:manifestKey', validateManifestKey, (req, res, next) => {
-  requestContext.run({ manifestKey: req.params.manifestKey, baseUrl: process.env.BASE_URL || `${req.protocol}://${req.get('host')}` }, () => next());
-}, stremioRouter);
+
+const contextMiddleware = (pathPrefix: string) => (req: express.Request, _res: express.Response, next: express.NextFunction) => {
+  requestContext.run({ manifestKey: req.params.manifestKey, baseUrl: process.env.BASE_URL || `${req.protocol}://${req.get('host')}`, pathPrefix }, () => next());
+};
+
+// /stremio/ prefixed routes (recommended for new installations and reverse proxy setups)
+// Must be mounted BEFORE root-level routes so /stremio/:manifestKey matches before /:manifestKey captures "stremio"
+app.use('/stremio/:manifestKey/easynews', validateManifestKey, easynewsRoutes);
+app.use('/stremio/:manifestKey/nzbdav', validateManifestKey, nzbdavRoutes);
+app.use('/stremio/:manifestKey', validateManifestKey, contextMiddleware('/stremio'), stremioRouter);
+
+// Root-level routes (legacy, still works for existing installations)
+app.use('/:manifestKey/easynews', validateManifestKey, easynewsRoutes);
+app.use('/:manifestKey/nzbdav', validateManifestKey, nzbdavRoutes);
+app.use('/:manifestKey', validateManifestKey, contextMiddleware(''), stremioRouter);
 
 // SPA fallback — serve index.html for all non-API, non-asset routes
 app.get('*', (req, res) => {

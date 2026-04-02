@@ -38,7 +38,7 @@ export function InstallTab({ manifests, setManifests, hasIndexers, apiFetch }: I
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const getManifestUrl = (id: string) => `${window.location.origin}/${id}/manifest.json`;
+  const getManifestUrl = (id: string) => `${window.location.origin}/stremio/${id}/manifest.json`;
   const getStremioUrl = (id: string) => getManifestUrl(id).replace(/^https?:\/\//, 'stremio://');
 
   const copyUrl = useCallback(async (id: string) => {
@@ -284,7 +284,7 @@ function InstallCard({
   onCancelEdit: () => void;
   getStremioUrl: (id: string) => string;
 }) {
-  const manifestUrl = `${window.location.origin}/${manifest.id}/manifest.json`;
+  const manifestUrl = `${window.location.origin}/stremio/${manifest.id}/manifest.json`;
   const isActive = manifest.lastUsedAt && (Date.now() - new Date(manifest.lastUsedAt).getTime()) < 24 * 60 * 60 * 1000;
   const [editName, setEditName] = useState(manifest.name);
   const editRef = useRef<HTMLInputElement>(null);

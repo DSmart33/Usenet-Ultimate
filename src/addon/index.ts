@@ -208,4 +208,5 @@ builder.defineStreamHandler(async ({ type, id }) => {
   }
 });
 
+export { manifest as addonManifest };
 export default builder.getInterface();
