@@ -598,7 +598,7 @@ export function IndexManagerOverlay({
                     />
                     <label htmlFor="allow-multi-episode-files" className="flex-1 cursor-pointer">
                       <div className="text-sm font-medium text-slate-300">Allow Multi-Episode Files</div>
-                      <div className="text-xs text-slate-500 mt-0.5">Allow streaming from files that contain multiple episodes (e.g. S01E01E02.mkv). When disabled, combined multi-episode files are skipped. Enabling this option will flush previously blocked multi-episode NZBs from the dead NZB database.</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Allow results that contain multiple episodes (e.g. S01E01E02.mkv). When disabled, multi-episode results are filtered out and won't appear in streams. Enabling this option will flush previously blocked multi-episode NZBs from the dead NZB database.</div>
                     </label>
                   </div>
                 </div>
