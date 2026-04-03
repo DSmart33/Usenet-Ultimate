@@ -394,15 +394,18 @@ export function processResults(allResults: any[], type: string, now?: number, ru
   // Step 2.5: Filter multi-episode results if setting is disabled
   if (type !== 'movie' && config.searchConfig?.allowMultiEpisodeFiles === false) {
     const multiEpRegex = /S\d+[. _-]?E\d+(?:[. _-]?E\d+|[. _-]\d+)/i;
-    const before = results.length;
+    const filtered: string[] = [];
     results = results.filter(r => {
       if (multiEpRegex.test(r.title)) {
-        console.log(`🎯 Filtered multi-episode: ${r.title}`);
+        filtered.push(r.title);
         return false;
       }
       return true;
     });
-    if (before > results.length) console.log(`🎯 Filtered ${before - results.length} multi-episode result(s) (${results.length} remaining)`);
+    if (filtered.length > 0) {
+      console.log(`🎯 Filtered ${filtered.length} multi-episode result(s) (${results.length} remaining)`);
+      for (const title of filtered) console.log(`   ✂️  "${title}"`);
+    }
   }
 
   // Step 3: Select per-type filter config, falling back to global filters
