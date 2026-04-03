@@ -115,11 +115,13 @@ function StreamFilterField({ config: field, value: rawValue, onChange, modeValue
       ) : (
         <div className="text-xs text-slate-500">Unlimited</div>
       )}
+      <p className="text-xs text-slate-500 mt-1">{field.description}</p>
       {isLimited && onModeChange && (
-        <div className="ml-4 mt-2">
-          <label className="block text-xs font-medium text-slate-400 mb-1">Season Pack Size</label>
+        <div className="mt-2 pl-3 border-l border-slate-700/50">
+          <label className="block text-xs font-medium text-slate-400 mb-1">Season Pack Filtering</label>
+          <p className="text-xs text-slate-500 mb-2">For season packs, choose whether to compare the per-episode or full pack size against the limit above</p>
           <div className="flex rounded-lg overflow-hidden border border-slate-700/40 w-fit">
-            {([['episode', 'Per-Episode'], ['pack', 'Full Pack']] as const).map(([mode, label]) => (
+            {([['episode', 'Per-Episode Size'], ['pack', 'Full Pack Size']] as const).map(([mode, label]) => (
               <button
                 key={mode}
                 onClick={() => onModeChange(mode === 'episode' ? undefined : mode)}
@@ -134,7 +136,6 @@ function StreamFilterField({ config: field, value: rawValue, onChange, modeValue
           </div>
         </div>
       )}
-      <p className="text-xs text-slate-500 mt-1">{field.description}</p>
     </div>
   );
 }
