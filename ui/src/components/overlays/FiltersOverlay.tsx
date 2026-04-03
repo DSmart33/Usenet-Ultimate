@@ -319,8 +319,8 @@ export default function FiltersOverlay({
                 config={config}
                 value={activeFilters[key] as number | undefined}
                 onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
-                modeValue={config.modeKey ? activeFilters[config.modeKey] as 'episode' | 'pack' | undefined : undefined}
-                onModeChange={config.modeKey ? (v) => updateActiveFilters({ ...activeFilters, [config.modeKey!]: v }) : undefined}
+                modeValue={config.modeKey && filterTab !== 'movie' ? activeFilters[config.modeKey] as 'episode' | 'pack' | undefined : undefined}
+                onModeChange={config.modeKey && filterTab !== 'movie' ? (v) => updateActiveFilters({ ...activeFilters, [config.modeKey!]: v }) : undefined}
               />
             ))}
           </div>
