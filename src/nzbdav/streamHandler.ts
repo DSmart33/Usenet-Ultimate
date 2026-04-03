@@ -364,8 +364,8 @@ export async function handleStream(
     const e = parseInt(episodeParam, 10).toString().padStart(2, '0');
     const allowMultiEp = globalConfig.searchConfig?.allowMultiEpisodeFiles !== false;
     episodePattern = allowMultiEp
-      ? `S${s}(?:[. _-]?E\\d+)*[. _-]?E${e}(?!\\d)`
-      : `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d)`;
+      ? `S${s}(?:[. _-]?E\\d+|-\\d{1,2})*(?:[. _-]?E${e}|-${e})(?!\\d)`
+      : `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d|-\\d)`;
   }
 
   // Build the list of candidates to try (primary first, then fallbacks)
@@ -428,8 +428,8 @@ export async function handleStream(
         const e = parseInt(group.episode, 10).toString().padStart(2, '0');
         const allowMultiEp = globalConfig.searchConfig?.allowMultiEpisodeFiles !== false;
         episodePattern = allowMultiEp
-          ? `S${s}(?:[. _-]?E\\d+)*[. _-]?E${e}(?!\\d)`
-          : `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d)`;
+          ? `S${s}(?:[. _-]?E\\d+|-\\d{1,2})*(?:[. _-]?E${e}|-${e})(?!\\d)`
+          : `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d|-\\d)`;
       }
     }
   }

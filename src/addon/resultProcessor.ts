@@ -393,7 +393,7 @@ export function processResults(allResults: any[], type: string, now?: number, ru
 
   // Step 2.5: Filter multi-episode results if setting is disabled
   if (type !== 'movie' && config.searchConfig?.allowMultiEpisodeFiles === false) {
-    const multiEpRegex = /S\d+[. _-]?E\d+(?:[. _-]?E\d+|[. _-]\d+)/i;
+    const multiEpRegex = /S\d+[. _-]?E\d+(?:[. _-]?E\d+|-\d{1,2}(?!\d))/i;
     const filtered: string[] = [];
     results = results.filter(r => {
       if (multiEpRegex.test(r.title)) {

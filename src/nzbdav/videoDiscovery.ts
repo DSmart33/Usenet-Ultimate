@@ -84,7 +84,7 @@ export async function findVideoFile(
           // (only captures first ep in chain — ep-in-chain check below handles the rest)
           const epRegex = allowMultiEp
             ? /S\d+E(\d+)/i
-            : /S\d+E(\d+)(?!\d|[. _-]?E\d)/i;
+            : /S\d+E(\d+)(?!\d|[. _-]?E\d|-\d)/i;
           const numbered = videos
             .map(v => ({ ...v, ep: parseInt((v.path.match(epRegex)?.[1] || '0'), 10) }))
             .filter(v => v.ep > 0);
@@ -97,7 +97,7 @@ export async function findVideoFile(
           // (handles separators like dots/dashes between chained episode numbers)
           if (allowMultiEp) {
             const teStr = targetEp.toString().padStart(2, '0');
-            const epInChain = new RegExp(`S\\d+(?:[. _-]?E\\d+)*[. _-]?E${teStr}(?!\\d)`, 'i');
+            const epInChain = new RegExp(`S\\d+(?:[. _-]?E\\d+|-\\d{1,2})*(?:[. _-]?E${teStr}|-${teStr})(?!\\d)`, 'i');
             const chainMatch = videos.find(v => epInChain.test(v.path));
             if (chainMatch) return chainMatch;
           }
@@ -106,7 +106,7 @@ export async function findVideoFile(
           if (!allowMultiEp) {
             const te = targetEp.toString().padStart(2, '0');
             const multiEpRegex = new RegExp(
-              `E${te}[. _-]?E\\d+|E\\d+[. _-]?E${te}`, 'i'
+              `E${te}(?:[. _-]?E\\d+|-\\d{1,2}(?!\\d))|E\\d+(?:[. _-]?E${te}|-${te}(?!\\d))`, 'i'
             );
             if (videos.some(v => multiEpRegex.test(v.path.split('/').pop() || ''))) {
               throw nzbdavError(MULTI_EPISODE_BLOCKED_ERROR);
