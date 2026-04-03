@@ -73,7 +73,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [showApiKey, setShowApiKey] = useState<{ new: boolean; edit: boolean }>({ new: false, edit: false });
 
   // ─── Cache ──────────────────────────────────────────────────────────
-  const [cacheTTL, setCacheTTL] = useState<number>(0);
+  const [cacheTTL, setCacheTTL] = useState<number>(9000);
 
   // ─── Streaming & Index Manager ──────────────────────────────────────
   const [streamingMode, setStreamingMode] = useState<'nzbdav' | 'stremio'>('nzbdav');
@@ -399,6 +399,14 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     const timer = setTimeout(() => saveSettings({ autoPlay }), 500);
     return () => clearTimeout(timer);
   }, [autoPlay, saveSettings]);
+
+  // Enforce minimum cacheTTL when auto play is enabled
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    if (autoPlay.enabled && cacheTTL < 9000) {
+      setCacheTTL(9000);
+    }
+  }, [autoPlay.enabled]);
 
   // Auto-save: prowlarr settings
   useEffect(() => {

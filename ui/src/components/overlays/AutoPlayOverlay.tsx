@@ -142,6 +142,9 @@ export function AutoPlayOverlay({
                   Auto-play uses Stremio's <span className="text-orange-400 font-mono">bingeGroup</span> hint to suggest the next stream.
                   For this to work, you must also have auto-play enabled in your Stremio settings. Only applies to series (TV shows).
                 </p>
+                <p className="text-xs text-amber-400/80 mt-1">
+                  When enabled, a minimum search cache of 2.5 hours is enforced.
+                </p>
               </div>
             </>
           )}

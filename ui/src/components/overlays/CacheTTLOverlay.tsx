@@ -9,6 +9,7 @@ interface CacheTTLOverlayProps {
   cacheTTL: number;
   setCacheTTL: React.Dispatch<React.SetStateAction<number>>;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
+  autoPlayEnabled: boolean;
 }
 
 export function CacheTTLOverlay({
@@ -16,6 +17,7 @@ export function CacheTTLOverlay({
   cacheTTL,
   setCacheTTL,
   apiFetch,
+  autoPlayEnabled,
 }: CacheTTLOverlayProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
@@ -40,7 +42,8 @@ export function CacheTTLOverlay({
                   const h = unit === 'hours' ? value : hours;
                   const m = unit === 'minutes' ? value : minutes;
                   const s = unit === 'seconds' ? value : seconds;
-                  setCacheTTL(Math.min(345600, composeTTL(d, h, m, s)));
+                  const composed = Math.min(345600, composeTTL(d, h, m, s));
+                  setCacheTTL(autoPlayEnabled ? Math.max(9000, composed) : composed);
                 };
                 return (
                   <div className="space-y-3">
@@ -84,13 +87,18 @@ export function CacheTTLOverlay({
               <p className="text-xs text-slate-500 mt-1">
                 Fallback groups also expire with this TTL. When caching is disabled, fallback groups persist for 2 hours.
               </p>
+              {autoPlayEnabled && (
+                <p className="text-xs text-amber-400/80 mt-1">
+                  Auto play requires a minimum search cache of 2.5 hours
+                </p>
+              )}
             </div>
             <div className="pt-4 border-t border-slate-700 space-y-2">
               <button
-                onClick={() => setCacheTTL(0)}
+                onClick={() => setCacheTTL(9000)}
                 className="btn-secondary w-full"
               >
-                Reset to Default (Disabled)
+                Reset to Default (2.5 Hours)
               </button>
               <button
                 onClick={async () => {

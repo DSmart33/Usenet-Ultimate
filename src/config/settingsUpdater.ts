@@ -283,6 +283,11 @@ export function updateSettings(settings: {
     configData.streamDisplayConfig = settings.streamDisplayConfig;
   }
 
+  // Enforce minimum cacheTTL when auto play is enabled
+  if ((configData.autoPlay?.enabled ?? true) && configData.cacheTTL < 9000) {
+    configData.cacheTTL = 9000;
+  }
+
   // Mutual exclusion: force enabled + disable proxy/health checks for Zyclops-enabled indexers
   for (const indexer of configData.indexers) {
     enforceZyclopsEnabled(indexer, 'settings save');

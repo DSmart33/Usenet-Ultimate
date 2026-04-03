@@ -12,6 +12,7 @@
  *  - Single-string zyclops backbone → array
  *  - Pagination defaults migration
  *  - maxStreamsPerQuality → maxStreamsPerResolution rename
+ *  - Auto play minimum cache TTL enforcement
  */
 
 import 'dotenv/config';
@@ -352,5 +353,15 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   if (migrated) {
     saveConfigFile(configData);
     console.log('✅ Migrated maxStreamsPerQuality → maxStreamsPerResolution');
+  }
+}
+
+// Enforce minimum cache TTL when auto play is enabled (auto play defaults to enabled)
+{
+  const autoPlayEnabled = (configData as any).autoPlay?.enabled !== false;
+  if (autoPlayEnabled && (configData.cacheTTL ?? 0) < 9000) {
+    configData.cacheTTL = 9000;
+    saveConfigFile(configData);
+    console.log('✅ Set search cache to 2.5 hours (minimum for auto play)');
   }
 }

@@ -728,6 +728,7 @@ function App() {
           cacheTTL={ac.cacheTTL}
           setCacheTTL={ac.setCacheTTL}
           apiFetch={apiFetch}
+          autoPlayEnabled={ac.autoPlay.enabled}
         />
       )}
 
