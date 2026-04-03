@@ -167,6 +167,7 @@ export function StreamDisplayOverlay({
                     <div>
                       <span className="text-xs text-slate-300">Clean Titles</span>
                       <p className="text-[10px] text-slate-500 mt-0.5">{streamDisplayConfig.cleanTitles ? 'Parsed title (e.g. "Neon Horizon")' : 'Raw release name (e.g. "Neon.Horizon.2025.2160p...")'}</p>
+                      <p className="text-[10px] text-amber-400/80 mt-0.5">AIOStreams requires this to be disabled</p>
                     </div>
                     <button
                       onClick={() => setStreamDisplayConfig(prev => ({ ...prev, cleanTitles: !prev.cleanTitles }))}
