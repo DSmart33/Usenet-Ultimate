@@ -50,7 +50,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
 
   router.post('/', (req, res) => {
     try {
-      const { name, url: rawUrl, apiKey, website, logo, movieSearchMethod, tvSearchMethod, caps, zyclops } = req.body;
+      const { name, url: rawUrl, apiKey, website, logo, movieSearchMethod, tvSearchMethod, animeMovieSearchMethod, animeTvSearchMethod, caps, zyclops } = req.body;
 
       if (!name || !rawUrl || !apiKey) {
         return res.status(400).json({ error: 'Name, URL, and API key are required' });
@@ -68,7 +68,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
       if (zyclops?.enabled) {
         console.log(`\u{1F916} Adding indexer ${name} with Zyclops enabled (backbone: ${zyclops.backbone?.join(',') || 'none'}, provider_host: ${zyclops.providerHosts || 'none'})`);
       }
-      const indexer = addIndexer({ name, url, apiKey, website, logo, movieSearchMethod, tvSearchMethod, caps, zyclops });
+      const indexer = addIndexer({ name, url, apiKey, website, logo, movieSearchMethod, tvSearchMethod, animeMovieSearchMethod, animeTvSearchMethod, caps, zyclops });
       res.status(201).json(indexer);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });

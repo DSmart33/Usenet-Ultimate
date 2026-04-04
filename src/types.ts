@@ -46,6 +46,8 @@ export interface UsenetIndexer {
   logo?: string;     // Logo/favicon URL
   movieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];   // Per-indexer movie search methods
   tvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];    // Per-indexer TV search methods
+  animeMovieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];   // Per-indexer anime movie search methods
+  animeTvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];    // Per-indexer anime TV search methods
   caps?: IndexerCaps;  // Discovered capabilities from ?t=caps
   pagination?: boolean; // Enable paginated search (default false)
   maxPages?: number;    // Max extra pages to fetch when pagination enabled (1-10, default 3)
@@ -296,6 +298,8 @@ export interface SyncedIndexer {
   enabledForHealthCheck: boolean;   // Include in health checks
   movieSearchMethod: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
   tvSearchMethod: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
+  animeMovieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
+  animeTvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
   capabilities?: IndexerCaps;
   logo?: string;
   pagination?: boolean;             // Enable paginated search (default false)

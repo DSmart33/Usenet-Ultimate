@@ -10,6 +10,7 @@ import axios from 'axios';
 import { config } from '../config/index.js';
 import { resolveTitleFromTmdb, resolveTitleFromTvdb, resolveEpisodeCountFromTvdb, resolveRuntimeFromTmdb, detectRemake } from '../idResolver.js';
 import { isStylizedTitle } from '../parsers/titleMatching.js';
+import { isAnimeByImdbId, lookupByImdbId, getKitsuImdbEntries } from '../anime/animeDatabase.js';
 
 export interface ResolvedTitleInfo {
   /** Final title to use for search (TVDB/TMDB resolved, or Cinemeta fallback) */
@@ -28,8 +29,6 @@ export interface ResolvedTitleInfo {
   additionalTitles?: string[];
   /** Whether this content is detected as anime (Animation + Japan) */
   isAnime: boolean;
-  /** Whether text search should be forced for anime */
-  useTextForAnime: boolean;
   /** Estimated runtime in seconds (from TMDB/TVDB/Cinemeta) for bitrate estimation */
   runtime?: number;
   /** Episode name from TVDB (for remake/version detection via episode name cross-referencing) */
@@ -114,16 +113,25 @@ export async function resolveTitle(
   }
   console.log(`📌 Title: "${cinemetaTitle}"${year ? ` (${year})` : ''}${country ? ` [${country}]` : ''}${episodesInSeason ? ` — ${episodesInSeason} eps in season` : ''}`);
 
-  // Step 3: Anime detection
-  const isAnime = !!(country?.includes('Japan') && genres?.some(g => g.toLowerCase() === 'animation'));
-  const skipAnimeResolve = config.searchConfig?.skipAnimeTitleResolve !== false; // default true
-  const useTextForAnime = config.searchConfig?.useTextSearchForAnime !== false; // default true
+  // Step 3: Anime detection — database lookup first (authoritative), Cinemeta fallback
+  const isAnime = isAnimeByImdbId(imdbId) || !!(country?.includes('Japan') && genres?.some(g => g.toLowerCase() === 'animation'));
 
-  // Step 4: Resolve canonical title — TVDB for TV, TMDB for movies
-  // Skip for anime to avoid Japanese title conversion
+  // Step 4: Resolve canonical title
+  // For anime: use Kitsu-IMDB title (series-level canonical name), skip TVDB/TMDB
+  // For non-anime: TVDB for TV, TMDB for movies
   let resolvedTitle: string | null = null;
-  if (isAnime && skipAnimeResolve) {
-    console.log(`🎌 Anime detected — using Cinemeta title "${cinemetaTitle}" (skipping TVDB/TMDB resolution)`);
+  if (isAnime) {
+    const fribb = lookupByImdbId(imdbId);
+    if (fribb?.kitsu_id) {
+      const kitsuEntries = getKitsuImdbEntries(fribb.kitsu_id);
+      if (kitsuEntries.length > 0 && kitsuEntries[0].title) {
+        resolvedTitle = kitsuEntries[0].title;
+        console.log(`🎌 Anime detected — using Kitsu title "${resolvedTitle}" (Cinemeta: "${cinemetaTitle}")`);
+      }
+    }
+    if (!resolvedTitle) {
+      console.log(`🎌 Anime detected — no Kitsu title found, using Cinemeta title "${cinemetaTitle}"`);
+    }
   } else {
     if (type === 'series') {
       const tvdbTitleResult = await resolveTitleFromTvdb(imdbId, 'series');
@@ -173,7 +181,11 @@ export async function resolveTitle(
     additionalTitles = [cinemetaTitle];
   }
   if (resolvedTitle && resolvedTitle !== cinemetaTitle && title === resolvedTitle) {
-    console.log(`🎯 Using resolved title "${resolvedTitle}" for search (Cinemeta: "${cinemetaTitle}")`);
+    if (isAnime && additionalTitles?.length) {
+      console.log(`🎯 Anime search titles: "${resolvedTitle}" + "${cinemetaTitle}"`);
+    } else {
+      console.log(`🎯 Using resolved title "${resolvedTitle}" for search (Cinemeta: "${cinemetaTitle}")`);
+    }
   }
 
   // Step 5: Resolve runtime — TMDB for movies (if key configured and Cinemeta didn't provide it or for higher accuracy)
@@ -196,7 +208,6 @@ export async function resolveTitle(
     episodesInSeason,
     additionalTitles,
     isAnime,
-    useTextForAnime,
     runtime,
     episodeName,
     hasRemake,

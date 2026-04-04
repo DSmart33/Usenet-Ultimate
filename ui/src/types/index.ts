@@ -35,6 +35,8 @@ export interface Indexer {
   logo?: string;
   movieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
   tvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
+  animeMovieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
+  animeTvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
   caps?: IndexerCaps;
   pagination?: boolean;
   maxPages?: number;
@@ -48,6 +50,8 @@ export interface SyncedIndexer {
   enabledForHealthCheck: boolean;
   movieSearchMethod: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
   tvSearchMethod: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
+  animeMovieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
+  animeTvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
   capabilities?: IndexerCaps;
   logo?: string;
   pagination?: boolean;
@@ -238,6 +242,8 @@ export interface NewIndexerForm {
   logo: string;
   movieSearchMethod: string[];
   tvSearchMethod: string[];
+  animeMovieSearchMethod: string[];
+  animeTvSearchMethod: string[];
   caps: IndexerCaps | null;
   pagination: boolean;
   maxPages: number;
@@ -252,6 +258,8 @@ export interface EditIndexerForm {
   logo: string;
   movieSearchMethod: string[];
   tvSearchMethod: string[];
+  animeMovieSearchMethod: string[];
+  animeTvSearchMethod: string[];
   caps: IndexerCaps | null;
   pagination: boolean;
   maxPages: number;

@@ -23,6 +23,7 @@ import { hasAnyUsers, createUser, authenticateUser, generateToken, verifyToken, 
 import { createManifestRoutes } from './routes/manifests.js';
 import { requireAuth, validateManifestKey } from './auth/authMiddleware.js';
 import { requestContext } from './requestContext.js';
+import { initAnimeDatabase, startDailyRefresh, stopDailyRefresh, getDatabaseStatus } from './anime/animeDatabase.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'node:module';
@@ -67,11 +68,15 @@ app.use('/stremio', staticMiddleware);
 
 // Health check (public — used by Docker HEALTHCHECK)
 app.get('/health', (req, res) => {
+  const animeDb = getDatabaseStatus();
   res.json({
     status: 'ok',
     indexers: config.indexers.length,
     syncedIndexers: (config.syncedIndexers || []).length,
     easynewsEnabled: config.easynewsEnabled ?? false,
+    animeDbLoaded: animeDb.loaded,
+    animeDbLastRefresh: animeDb.lastRefresh,
+    animeDbMappings: animeDb.totalMappings,
     version: APP_VERSION,
   });
 });
@@ -213,23 +218,36 @@ try { fs.unlinkSync(path.join(__dirname, '..', 'config', 'segment-cache.json'));
 // Graceful shutdown — persist caches before exit
 process.on('SIGTERM', () => {
   console.log('[shutdown] SIGTERM received, saving caches...');
+  stopDailyRefresh();
   saveCacheToDisk();
   process.exit(0);
 });
 process.on('SIGINT', () => {
   console.log('[shutdown] SIGINT received, saving caches...');
+  stopDailyRefresh();
   saveCacheToDisk();
   process.exit(0);
 });
 
-app.listen(PORT, () => {
-  console.log(`\n\u{1F680} Usenet Ultimate is running!\n`);
-  console.log(`\u{1F3A8} Configuration UI: http://localhost:${PORT}`);
-  console.log(`\u{1F4CB} Configured indexers: ${config.indexers.length} Newznab, ${(config.syncedIndexers || []).length} synced${config.easynewsEnabled ? ', EasyNews enabled' : ''}`);
-  console.log(`\u{1F512} Auth: ${hasAnyUsers() ? 'Configured' : 'Setup required (first run)'}\n`);
-
-  const totalSources = config.indexers.length + (config.syncedIndexers || []).length + (config.easynewsEnabled ? 1 : 0);
-  if (totalSources === 0) {
-    console.warn('\u26A0\uFE0F  No indexers configured! Please add indexers via the UI or configure Prowlarr/NZBHydra/EasyNews\n');
+// Async startup: load anime databases, then start listening
+(async () => {
+  try {
+    await initAnimeDatabase();
+    startDailyRefresh();
+  } catch (err) {
+    console.error('⚠️  Anime database initialization failed (addon will still work for IMDB IDs):', (err as Error).message);
   }
-});
+
+  app.listen(PORT, () => {
+    console.log(`\n\u{1F680} Usenet Ultimate is running!\n`);
+    console.log(`\u{1F3A8} Configuration UI: http://localhost:${PORT}`);
+    console.log(`\u{1F4CB} Configured indexers: ${config.indexers.length} Newznab, ${(config.syncedIndexers || []).length} synced${config.easynewsEnabled ? ', EasyNews enabled' : ''}`);
+    console.log(`\u{1F512} Auth: ${hasAnyUsers() ? 'Configured' : 'Setup required (first run)'}\n`);
+
+    const totalSources = config.indexers.length + (config.syncedIndexers || []).length + (config.easynewsEnabled ? 1 : 0);
+    if (totalSources === 0) {
+      console.warn('\u26A0\uFE0F  No indexers configured! Please add indexers via the UI or configure Prowlarr/NZBHydra/EasyNews\n');
+    }
+
+  });
+})();

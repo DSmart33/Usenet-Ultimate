@@ -33,6 +33,8 @@ import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav } f
 import { buildStreams } from './streamBuilder.js';
 import { isDeadNzbByUrl } from '../nzbdav/streamCache.js';
 import { requestContext } from '../requestContext.js';
+import { parseAnimeId, resolveAnimeId } from '../anime/animeIdResolver.js';
+import { isDatabaseLoaded } from '../anime/animeDatabase.js';
 
 // Create cache for search results
 // Use stdTTL: 0 (no expiry) and manage TTL per-entry via cache.set() so runtime changes take effect
@@ -54,7 +56,7 @@ const manifest = {
   resources: ['stream'],           // We only provide streams
   types: ['movie', 'series'],      // Support movies and TV shows
   catalogs: [],                    // No catalogs (don't show in discover)
-  idPrefixes: ['tt'],              // Only handle IMDB IDs (tt1234567)
+  idPrefixes: ['tt', 'kitsu:', 'mal:', 'anilist:', 'anidb:'],
   behaviorHints: {
     configurable: true,            // We have a config UI
     configurationRequired: false,  // But it's optional
@@ -72,13 +74,34 @@ builder.defineStreamHandler(async ({ type, id }) => {
       return { streams: [] };
     }
 
-    // Parse the ID
-    // Movies: tt1234567
-    // Series: tt1234567:1:1 (imdbId:season:episode)
-    const parts = id.split(':');
-    const imdbId = parts[0];
-    const season = parts[1] ? parseInt(parts[1], 10) : undefined;
-    const episode = parts[2] ? parseInt(parts[2], 10) : undefined;
+    // Parse the ID — check for anime ID prefixes first, then IMDB
+    const animeId = parseAnimeId(id);
+    let imdbId: string;
+    let season: number | undefined;
+    let episode: number | undefined;
+    let animeResolved: ReturnType<typeof resolveAnimeId> = null;
+
+    if (animeId) {
+      // Anime ID (kitsu:, mal:, anilist:, anidb:)
+      if (!isDatabaseLoaded()) {
+        console.warn(`⚠️  Anime ID ${id} received but anime databases not loaded — returning empty`);
+        return { streams: [] };
+      }
+      animeResolved = resolveAnimeId(animeId);
+      if (!animeResolved || (!animeResolved.imdbId && !animeResolved.title)) {
+        console.warn(`⚠️  Could not resolve anime ID ${id} — no mapping found`);
+        return { streams: [] };
+      }
+      imdbId = animeResolved.imdbId || `${animeId.prefix}:${animeId.id}`;
+      season = animeResolved.season;
+      episode = animeResolved.episode;
+    } else {
+      // Standard IMDB ID: tt1234567 or tt1234567:1:1
+      const parts = id.split(':');
+      imdbId = parts[0];
+      season = parts[1] ? parseInt(parts[1], 10) : undefined;
+      episode = parts[2] ? parseInt(parts[2], 10) : undefined;
+    }
 
     // Build cache key based on index manager mode
     const easynewsSuffix = config.easynewsEnabled ? ':en' : '';
@@ -116,7 +139,30 @@ builder.defineStreamHandler(async ({ type, id }) => {
     console.log(`\n🔍 Searching for ${type} ${imdbId}${season !== undefined ? ` S${season}E${episode}` : ''} [${config.indexManager}]`);
 
     // === STEP 1: TITLE RESOLUTION ===
-    const titleInfo = await resolveTitle(type, imdbId, season, episode);
+    let titleInfo;
+    if (animeResolved && !animeResolved.imdbId && animeResolved.title) {
+      // Anime ID with no IMDB mapping — use anime DB title directly, skip Cinemeta
+      titleInfo = {
+        title: animeResolved.title,
+        cinemetaTitle: animeResolved.title,
+        year: animeResolved.year,
+        country: 'Japan',
+        genres: ['Animation'],
+        isAnime: true,
+        episodesInSeason: undefined,
+        additionalTitles: undefined,
+        runtime: undefined,
+        episodeName: undefined,
+        hasRemake: undefined,
+        titleYear: undefined,
+      };
+    } else {
+      titleInfo = await resolveTitle(type, imdbId, season, episode);
+      // If we came from an anime ID, force anime detection
+      if (animeId) {
+        titleInfo.isAnime = true;
+      }
+    }
 
     // === STEP 2: PARALLEL SEARCH ===
     const searchCtx = {
@@ -128,8 +174,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
       episodesInSeason: titleInfo.episodesInSeason,
       additionalTitles: titleInfo.additionalTitles,
       isAnime: titleInfo.isAnime,
-      useTextForAnime: titleInfo.useTextForAnime,
       titleYear: titleInfo.titleYear,
+      animeResolvedIds: animeResolved ? { tmdbId: animeResolved.tmdbId, tvdbId: animeResolved.tvdbId } : undefined,
     };
 
     const [indexManagerResults, easynewsResults] = await Promise.all([

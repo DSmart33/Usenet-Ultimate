@@ -179,6 +179,10 @@ function App() {
     return methods;
   };
 
+  // Anime methods use the same indexer capabilities as movie/TV
+  const getAvailableAnimeMovieMethods = getAvailableMovieMethods;
+  const getAvailableAnimeTvMethods = getAvailableTvMethods;
+
   // ── Inline handler: discoverCaps ──────────────────────────────────────
   const discoverCaps = async (url: string, apiKey: string, target: 'new' | 'edit') => {
     if (!url || !apiKey) return;
@@ -199,13 +203,17 @@ function App() {
           ac.setNewIndexer(prev => {
             const movieFiltered = prev.movieSearchMethod.filter(m => availableMovieValues.includes(m));
             const tvFiltered = prev.tvSearchMethod.filter(m => availableTvValues.includes(m));
-            return { ...prev, caps, movieSearchMethod: movieFiltered.length > 0 ? movieFiltered : [bestMovie], tvSearchMethod: tvFiltered.length > 0 ? tvFiltered : [bestTv] };
+            const animeMovieFiltered = prev.animeMovieSearchMethod.filter(m => availableMovieValues.includes(m));
+            const animeTvFiltered = prev.animeTvSearchMethod.filter(m => availableTvValues.includes(m));
+            return { ...prev, caps, movieSearchMethod: movieFiltered.length > 0 ? movieFiltered : [bestMovie], tvSearchMethod: tvFiltered.length > 0 ? tvFiltered : [bestTv], animeMovieSearchMethod: animeMovieFiltered.length > 0 ? animeMovieFiltered : ['text'], animeTvSearchMethod: animeTvFiltered.length > 0 ? animeTvFiltered : ['text'] };
           });
         } else {
           ac.setEditForm(prev => {
             const movieFiltered = prev.movieSearchMethod.filter(m => availableMovieValues.includes(m));
             const tvFiltered = prev.tvSearchMethod.filter(m => availableTvValues.includes(m));
-            return { ...prev, caps, movieSearchMethod: movieFiltered.length > 0 ? movieFiltered : [bestMovie], tvSearchMethod: tvFiltered.length > 0 ? tvFiltered : [bestTv] };
+            const animeMovieFiltered = prev.animeMovieSearchMethod.filter(m => availableMovieValues.includes(m));
+            const animeTvFiltered = prev.animeTvSearchMethod.filter(m => availableTvValues.includes(m));
+            return { ...prev, caps, movieSearchMethod: movieFiltered.length > 0 ? movieFiltered : [bestMovie], tvSearchMethod: tvFiltered.length > 0 ? tvFiltered : [bestTv], animeMovieSearchMethod: animeMovieFiltered.length > 0 ? animeMovieFiltered : ['text'], animeTvSearchMethod: animeTvFiltered.length > 0 ? animeTvFiltered : ['text'] };
           });
         }
       }
@@ -228,6 +236,8 @@ function App() {
         logo: preset.logo,
         movieSearchMethod: ['text'],
         tvSearchMethod: ['text'],
+        animeMovieSearchMethod: ['text'],
+        animeTvSearchMethod: ['text'],
         caps: null,
         pagination: false,
         maxPages: 3,
@@ -261,7 +271,7 @@ function App() {
         body: JSON.stringify(ac.newIndexer),
       });
       if (response.ok) {
-        ac.setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+        ac.setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
         ac.setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
         ac.setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
         ac.setShowAddIndexer(false);
@@ -287,6 +297,8 @@ function App() {
       logo: indexer.logo || '',
       movieSearchMethod: Array.isArray(indexer.movieSearchMethod) ? indexer.movieSearchMethod : [indexer.movieSearchMethod || 'text'],
       tvSearchMethod: Array.isArray(indexer.tvSearchMethod) ? indexer.tvSearchMethod : [indexer.tvSearchMethod || 'text'],
+      animeMovieSearchMethod: Array.isArray(indexer.animeMovieSearchMethod) ? indexer.animeMovieSearchMethod : [indexer.animeMovieSearchMethod || 'text'],
+      animeTvSearchMethod: Array.isArray(indexer.animeTvSearchMethod) ? indexer.animeTvSearchMethod : [indexer.animeTvSearchMethod || 'text'],
       caps: indexer.caps || null,
       pagination: indexer.pagination === true,
       maxPages: indexer.maxPages ?? 3,
@@ -497,6 +509,8 @@ function App() {
           discoverCaps={discoverCaps}
           getAvailableMovieMethods={getAvailableMovieMethods}
           getAvailableTvMethods={getAvailableTvMethods}
+          getAvailableAnimeMovieMethods={getAvailableAnimeMovieMethods}
+          getAvailableAnimeTvMethods={getAvailableAnimeTvMethods}
           renderMethodLabel={renderMethodLabel}
           handleTestIndexer={handleTestIndexer}
           handleAddIndexer={handleAddIndexer}
@@ -521,6 +535,8 @@ function App() {
           discoverCaps={discoverCaps}
           getAvailableMovieMethods={getAvailableMovieMethods}
           getAvailableTvMethods={getAvailableTvMethods}
+          getAvailableAnimeMovieMethods={getAvailableAnimeMovieMethods}
+          getAvailableAnimeTvMethods={getAvailableAnimeTvMethods}
           renderMethodLabel={renderMethodLabel}
           handleTestIndexer={handleTestIndexer}
           setDeleteConfirmation={ac.setDeleteConfirmation}
@@ -557,10 +573,6 @@ function App() {
           setSeasonPackPagination={ac.setSeasonPackPagination}
           seasonPackAdditionalPages={ac.seasonPackAdditionalPages}
           setSeasonPackAdditionalPages={ac.setSeasonPackAdditionalPages}
-          useTextSearchForAnime={ac.useTextSearchForAnime}
-          setUseTextSearchForAnime={ac.setUseTextSearchForAnime}
-          skipAnimeTitleResolve={ac.skipAnimeTitleResolve}
-          setSkipAnimeTitleResolve={ac.setSkipAnimeTitleResolve}
           enableRemakeFiltering={ac.enableRemakeFiltering}
           setEnableRemakeFiltering={ac.setEnableRemakeFiltering}
           allowMultiEpisodeFiles={ac.allowMultiEpisodeFiles}
@@ -624,6 +636,8 @@ function App() {
           setFailedLogos={ac.setFailedLogos}
           getAvailableMovieMethods={getAvailableMovieMethods}
           getAvailableTvMethods={getAvailableTvMethods}
+          getAvailableAnimeMovieMethods={getAvailableAnimeMovieMethods}
+          getAvailableAnimeTvMethods={getAvailableAnimeTvMethods}
           renderMethodLabel={renderMethodLabel}
           setShowAddIndexer={ac.setShowAddIndexer}
           expandedIndexer={ac.expandedIndexer}

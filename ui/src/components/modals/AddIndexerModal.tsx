@@ -29,6 +29,8 @@ interface AddIndexerModalProps {
   discoverCaps: (url: string, apiKey: string, target: 'new' | 'edit') => void;
   getAvailableMovieMethods: (caps: IndexerCaps | null) => { value: string; label: string }[];
   getAvailableTvMethods: (caps: IndexerCaps | null) => { value: string; label: string }[];
+  getAvailableAnimeMovieMethods: (caps: IndexerCaps | null) => { value: string; label: string }[];
+  getAvailableAnimeTvMethods: (caps: IndexerCaps | null) => { value: string; label: string }[];
   renderMethodLabel: (m: { value: string; label: string }) => React.ReactNode;
   handleTestIndexer: (indexerName: string) => void;
   handleAddIndexer: () => void;
@@ -53,6 +55,8 @@ export function AddIndexerModal({
   discoverCaps,
   getAvailableMovieMethods,
   getAvailableTvMethods,
+  getAvailableAnimeMovieMethods,
+  getAvailableAnimeTvMethods,
   renderMethodLabel,
   handleTestIndexer,
   handleAddIndexer,
@@ -73,7 +77,7 @@ export function AddIndexerModal({
   return (
     <div className="fixed inset-0 z-[55] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => {
       onClose();
-      setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+      setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
       setSelectedPreset('');
       setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
       setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
@@ -88,7 +92,7 @@ export function AddIndexerModal({
             <button
               onClick={() => {
                 onClose();
-                setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+                setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
                 setSelectedPreset('');
                 setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
                 setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
@@ -242,6 +246,48 @@ export function AddIndexerModal({
                             ? [...prev.tvSearchMethod, m.value]
                             : prev.tvSearchMethod.filter(v => v !== m.value);
                           return { ...prev, tvSearchMethod: updated.length > 0 ? updated : prev.tvSearchMethod };
+                        })}
+                        className="accent-blue-500"
+                      />
+                      {renderMethodLabel(m)}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Anime Movies</label>
+                <div className="flex flex-wrap gap-3">
+                  {getAvailableAnimeMovieMethods(newIndexer.caps).map(m => (
+                    <label key={m.value} className="flex items-center gap-1.5 text-sm text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newIndexer.animeMovieSearchMethod.includes(m.value)}
+                        onChange={(e) => setNewIndexer(prev => {
+                          const updated = e.target.checked
+                            ? [...prev.animeMovieSearchMethod, m.value]
+                            : prev.animeMovieSearchMethod.filter(v => v !== m.value);
+                          return { ...prev, animeMovieSearchMethod: updated.length > 0 ? updated : prev.animeMovieSearchMethod };
+                        })}
+                        className="accent-blue-500"
+                      />
+                      {renderMethodLabel(m)}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Anime TV Shows</label>
+                <div className="flex flex-wrap gap-3">
+                  {getAvailableAnimeTvMethods(newIndexer.caps).map(m => (
+                    <label key={m.value} className="flex items-center gap-1.5 text-sm text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newIndexer.animeTvSearchMethod.includes(m.value)}
+                        onChange={(e) => setNewIndexer(prev => {
+                          const updated = e.target.checked
+                            ? [...prev.animeTvSearchMethod, m.value]
+                            : prev.animeTvSearchMethod.filter(v => v !== m.value);
+                          return { ...prev, animeTvSearchMethod: updated.length > 0 ? updated : prev.animeTvSearchMethod };
                         })}
                         className="accent-blue-500"
                       />

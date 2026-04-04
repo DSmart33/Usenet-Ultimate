@@ -13,6 +13,7 @@
  *  - Pagination defaults migration
  *  - maxStreamsPerQuality → maxStreamsPerResolution rename
  *  - Auto play minimum cache TTL enforcement
+ *  - Global useTextSearchForAnime → per-indexer anime search methods
  */
 
 import 'dotenv/config';
@@ -363,5 +364,30 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
     configData.cacheTTL = 9000;
     saveConfigFile(configData);
     console.log('✅ Set search cache to 2.5 hours (minimum for auto play)');
+  }
+}
+
+// Ensure all indexers have anime search method defaults
+{
+  const useText = (configData as any).searchConfig?.useTextSearchForAnime;
+  let migrated = false;
+  for (const indexer of configData.indexers) {
+    if (!(indexer as any).animeMovieSearchMethod) {
+      // If global useTextSearchForAnime was explicitly false, inherit from normal methods; otherwise default to text
+      (indexer as any).animeMovieSearchMethod = (useText === false) ? ((indexer as any).movieSearchMethod || ['text']) : ['text'];
+      (indexer as any).animeTvSearchMethod = (useText === false) ? ((indexer as any).tvSearchMethod || ['text']) : ['text'];
+      migrated = true;
+    }
+  }
+  for (const indexer of (configData as any).syncedIndexers || []) {
+    if (!indexer.animeMovieSearchMethod) {
+      indexer.animeMovieSearchMethod = (useText === false) ? (indexer.movieSearchMethod || ['text']) : ['text'];
+      indexer.animeTvSearchMethod = (useText === false) ? (indexer.tvSearchMethod || ['text']) : ['text'];
+      migrated = true;
+    }
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ Set anime search method defaults for indexers');
   }
 }

@@ -37,6 +37,8 @@ function buildConfigResponse(config: Config) {
       logo: i.logo,
       movieSearchMethod: i.movieSearchMethod,
       tvSearchMethod: i.tvSearchMethod,
+      animeMovieSearchMethod: i.animeMovieSearchMethod,
+      animeTvSearchMethod: i.animeTvSearchMethod,
       caps: i.caps,
       pagination: i.pagination,
       maxPages: i.maxPages,

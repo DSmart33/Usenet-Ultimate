@@ -41,12 +41,14 @@ const DEFAULT_CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit
 const DEFAULT_NEW_INDEXER: NewIndexerForm = {
   name: '', url: '', apiKey: '', website: '', logo: '',
   movieSearchMethod: ['text'], tvSearchMethod: ['text'],
+  animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'],
   caps: null, pagination: false, maxPages: 3,
 };
 
 const DEFAULT_EDIT_FORM: EditIndexerForm = {
   name: '', url: '', apiKey: '', enabled: true, website: '', logo: '',
   movieSearchMethod: ['text'], tvSearchMethod: ['text'],
+  animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'],
   caps: null, pagination: false, maxPages: 3,
 };
 
@@ -93,8 +95,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [includeSeasonPacks, setIncludeSeasonPacks] = useState(true);
   const [seasonPackPagination, setSeasonPackPagination] = useState(true);
   const [seasonPackAdditionalPages, setSeasonPackAdditionalPages] = useState(1);
-  const [useTextSearchForAnime, setUseTextSearchForAnime] = useState(true);
-  const [skipAnimeTitleResolve, setSkipAnimeTitleResolve] = useState(true);
   const [indexerPriorityDedup, setIndexerPriorityDedup] = useState(false);
   const [enableRemakeFiltering, setEnableRemakeFiltering] = useState(true);
   const [allowMultiEpisodeFiles, setAllowMultiEpisodeFiles] = useState(true);
@@ -349,8 +349,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         includeSeasonPacks,
         seasonPackPagination: includeSeasonPacks ? seasonPackPagination : undefined,
         seasonPackAdditionalPages: includeSeasonPacks && seasonPackPagination ? seasonPackAdditionalPages : undefined,
-        useTextSearchForAnime,
-        skipAnimeTitleResolve,
         indexerPriorityDedup,
         enableRemakeFiltering,
         allowMultiEpisodeFiles,
@@ -358,7 +356,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, useTextSearchForAnime, skipAnimeTitleResolve, indexerPriorityDedup, enableRemakeFiltering, allowMultiEpisodeFiles, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, enableRemakeFiltering, allowMultiEpisodeFiles, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -457,7 +455,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     }, 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editForm.name, editForm.url, editForm.apiKey, editForm.enabled, JSON.stringify(editForm.movieSearchMethod), JSON.stringify(editForm.tvSearchMethod), editForm.caps, editForm.website, editForm.logo, editForm.pagination, editForm.maxPages, expandedIndexer]);
+  }, [editForm.name, editForm.url, editForm.apiKey, editForm.enabled, JSON.stringify(editForm.movieSearchMethod), JSON.stringify(editForm.tvSearchMethod), JSON.stringify(editForm.animeMovieSearchMethod), JSON.stringify(editForm.animeTvSearchMethod), editForm.caps, editForm.website, editForm.logo, editForm.pagination, editForm.maxPages, expandedIndexer]);
 
   // Reset NZBDav connection status when fields change after initial load
   useEffect(() => {
@@ -508,8 +506,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setIncludeSeasonPacks(sc?.includeSeasonPacks ?? data.includeSeasonPacks ?? true);
       setSeasonPackPagination(sc?.seasonPackPagination ?? true);
       setSeasonPackAdditionalPages(sc?.seasonPackAdditionalPages || 1);
-      setUseTextSearchForAnime(sc?.useTextSearchForAnime !== false);
-      setSkipAnimeTitleResolve(sc?.skipAnimeTitleResolve !== false);
       setIndexerPriorityDedup(sc?.indexerPriorityDedup ?? false);
       setEnableRemakeFiltering(sc?.enableRemakeFiltering !== false);
       setAllowMultiEpisodeFiles(sc?.allowMultiEpisodeFiles !== false);
@@ -1202,8 +1198,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     includeSeasonPacks, setIncludeSeasonPacks,
     seasonPackPagination, setSeasonPackPagination,
     seasonPackAdditionalPages, setSeasonPackAdditionalPages,
-    useTextSearchForAnime, setUseTextSearchForAnime,
-    skipAnimeTitleResolve, setSkipAnimeTitleResolve,
     indexerPriorityDedup, setIndexerPriorityDedup,
     enableRemakeFiltering, setEnableRemakeFiltering,
     allowMultiEpisodeFiles, setAllowMultiEpisodeFiles,

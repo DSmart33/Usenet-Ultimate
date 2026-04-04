@@ -58,12 +58,6 @@ interface IndexManagerOverlayProps {
   seasonPackAdditionalPages: number;
   setSeasonPackAdditionalPages: React.Dispatch<React.SetStateAction<number>>;
 
-  // Anime
-  useTextSearchForAnime: boolean;
-  setUseTextSearchForAnime: React.Dispatch<React.SetStateAction<boolean>>;
-  skipAnimeTitleResolve: boolean;
-  setSkipAnimeTitleResolve: React.Dispatch<React.SetStateAction<boolean>>;
-
   // Remake detection
   enableRemakeFiltering: boolean;
   setEnableRemakeFiltering: React.Dispatch<React.SetStateAction<boolean>>;
@@ -144,6 +138,8 @@ interface IndexManagerOverlayProps {
   // Helper functions for search methods
   getAvailableMovieMethods: (caps: IndexerCaps | null) => { value: string; label: string }[];
   getAvailableTvMethods: (caps: IndexerCaps | null) => { value: string; label: string }[];
+  getAvailableAnimeMovieMethods: (caps: IndexerCaps | null) => { value: string; label: string }[];
+  getAvailableAnimeTvMethods: (caps: IndexerCaps | null) => { value: string; label: string }[];
   renderMethodLabel: (m: { value: string; label: string }) => React.ReactNode;
 
   // Newznab indexer management
@@ -190,10 +186,6 @@ export function IndexManagerOverlay({
   setSeasonPackPagination,
   seasonPackAdditionalPages,
   setSeasonPackAdditionalPages,
-  useTextSearchForAnime,
-  setUseTextSearchForAnime,
-  skipAnimeTitleResolve,
-  setSkipAnimeTitleResolve,
   enableRemakeFiltering,
   setEnableRemakeFiltering,
   allowMultiEpisodeFiles,
@@ -257,6 +249,8 @@ export function IndexManagerOverlay({
   setFailedLogos,
   getAvailableMovieMethods,
   getAvailableTvMethods,
+  getAvailableAnimeMovieMethods,
+  getAvailableAnimeTvMethods,
   renderMethodLabel,
   setShowAddIndexer,
   expandedIndexer,
@@ -396,9 +390,13 @@ export function IndexManagerOverlay({
                         <Search className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
                         <span><span className="text-slate-300 font-medium">Universal Compatibility</span> — Works with every indexer regardless of API capabilities — no IMDB/TMDB/TVDB ID support required</span>
                       </div>
+                      <div className="flex items-start gap-2 text-xs text-slate-400">
+                        <Crown className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+                        <span><span className="text-slate-300 font-medium">Anime-Aware Search</span> — Uses Kitsu canonical titles for anime with Cinemeta as fallback, searching both when they differ to maximize results</span>
+                      </div>
                     </div>
                     <p className="text-xs text-amber-400/60 italic">
-                      Enable Ultimate Text Search per-indexer below, or globally for anime in the Anime section. For best results pair with TMDB and TVDB API keys.
+                      Enable Ultimate Text Search per-indexer below. For best results pair with TMDB and TVDB API keys.
                     </p>
                   </div>
                 </div>
@@ -538,34 +536,11 @@ export function IndexManagerOverlay({
                 {/* Anime Settings */}
                 <div className="pt-3 border-t border-slate-700/30">
                   <div className="text-sm font-medium text-slate-300 mb-2">Anime</div>
-                  <div className="text-xs text-slate-500 mb-3">Anime is detected automatically via Cinemeta metadata (Animation genre + Japan country).</div>
-                  <div className="space-y-3 pl-7">
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        id="use-text-search-anime"
-                        checked={useTextSearchForAnime}
-                        onChange={(e) => setUseTextSearchForAnime(e.target.checked)}
-                        className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
-                      />
-                      <label htmlFor="use-text-search-anime" className="flex-1 cursor-pointer">
-                        <div className="text-sm font-medium text-slate-300">Use <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent font-semibold">Ultimate Text Search</span> for anime</div>
-                        <div className="text-xs text-slate-500 mt-0.5">Override per-indexer search methods to use Ultimate Text Search for anime titles, which returns more accurate results than ID-based searches.</div>
-                      </label>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        id="skip-anime-title-resolve"
-                        checked={skipAnimeTitleResolve}
-                        onChange={(e) => setSkipAnimeTitleResolve(e.target.checked)}
-                        className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
-                      />
-                      <label htmlFor="skip-anime-title-resolve" className="flex-1 cursor-pointer">
-                        <div className="text-sm font-medium text-slate-300">Skip title resolution for anime</div>
-                        <div className="text-xs text-slate-500 mt-0.5">Use Cinemeta English title for anime instead of TVDB/TMDB which often returns Japanese titles.</div>
-                      </label>
-                    </div>
+                  <div className="text-xs text-slate-500 mb-3">Anime is detected automatically via the Fribb anime database or Cinemeta metadata. Configure anime search methods per-indexer below.</div>
+                  <div className="mt-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
+                    <div className="text-xs font-medium text-slate-400 mb-1">Supported Anime IDs</div>
+                    <div className="text-xs text-slate-500">Kitsu · MAL · AniList · AniDB</div>
+                    <div className="text-xs text-slate-500 mt-1">Incoming anime IDs from metadata addons like AIOMetadata or Anime Kitsu are automatically resolved and mapped to the search methods configured per-indexer below.</div>
                   </div>
                 </div>
 
@@ -1046,6 +1021,50 @@ export function IndexManagerOverlay({
                                   ))}
                                 </div>
                               </div>
+                              <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Anime Movie Search</label>
+                                <div className="flex flex-wrap gap-2">
+                                  {getAvailableAnimeMovieMethods(indexer.capabilities || null).map(m => (
+                                    <label key={m.value} className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={(indexer.animeMovieSearchMethod || ['text']).includes(m.value as any)}
+                                        onChange={(e) => {
+                                          const current = indexer.animeMovieSearchMethod || ['text'];
+                                          const updated = e.target.checked
+                                            ? [...current, m.value]
+                                            : current.filter(v => v !== m.value);
+                                          if (updated.length > 0) updateSynced({ animeMovieSearchMethod: updated as any });
+                                        }}
+                                        className="accent-blue-500"
+                                      />
+                                      {renderMethodLabel(m)}
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Anime TV Shows Search</label>
+                                <div className="flex flex-wrap gap-2">
+                                  {getAvailableAnimeTvMethods(indexer.capabilities || null).map(m => (
+                                    <label key={m.value} className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={(indexer.animeTvSearchMethod || ['text']).includes(m.value as any)}
+                                        onChange={(e) => {
+                                          const current = indexer.animeTvSearchMethod || ['text'];
+                                          const updated = e.target.checked
+                                            ? [...current, m.value]
+                                            : current.filter(v => v !== m.value);
+                                          if (updated.length > 0) updateSynced({ animeTvSearchMethod: updated as any });
+                                        }}
+                                        className="accent-blue-500"
+                                      />
+                                      {renderMethodLabel(m)}
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
                             <div className="flex gap-4 text-xs">
                               <label className="flex items-center gap-1.5 text-slate-400 cursor-pointer">
@@ -1307,6 +1326,50 @@ export function IndexManagerOverlay({
                                             ? [...current, m.value]
                                             : current.filter(v => v !== m.value);
                                           if (updated.length > 0) updateSynced({ tvSearchMethod: updated as any });
+                                        }}
+                                        className="accent-blue-500"
+                                      />
+                                      {renderMethodLabel(m)}
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Anime Movie Search</label>
+                                <div className="flex flex-wrap gap-2">
+                                  {getAvailableAnimeMovieMethods(indexer.capabilities || null).map(m => (
+                                    <label key={m.value} className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={(indexer.animeMovieSearchMethod || ['text']).includes(m.value as any)}
+                                        onChange={(e) => {
+                                          const current = indexer.animeMovieSearchMethod || ['text'];
+                                          const updated = e.target.checked
+                                            ? [...current, m.value]
+                                            : current.filter(v => v !== m.value);
+                                          if (updated.length > 0) updateSynced({ animeMovieSearchMethod: updated as any });
+                                        }}
+                                        className="accent-blue-500"
+                                      />
+                                      {renderMethodLabel(m)}
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-400 mb-1 block">Anime TV Shows Search</label>
+                                <div className="flex flex-wrap gap-2">
+                                  {getAvailableAnimeTvMethods(indexer.capabilities || null).map(m => (
+                                    <label key={m.value} className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={(indexer.animeTvSearchMethod || ['text']).includes(m.value as any)}
+                                        onChange={(e) => {
+                                          const current = indexer.animeTvSearchMethod || ['text'];
+                                          const updated = e.target.checked
+                                            ? [...current, m.value]
+                                            : current.filter(v => v !== m.value);
+                                          if (updated.length > 0) updateSynced({ animeTvSearchMethod: updated as any });
                                         }}
                                         className="accent-blue-500"
                                       />
