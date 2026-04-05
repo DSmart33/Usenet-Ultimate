@@ -125,14 +125,41 @@ builder.defineStreamHandler(async ({ type, id }) => {
       const cached = cache.get<{ streams: Stream[]; _fallback?: { id: string; candidates: FallbackCandidate[]; type: string; season?: string; episode?: string } }>(cacheKey);
       if (cached) {
         console.log(`💾 Cache hit for ${type} ${imdbId}`);
+
+        // Filter dead NZBs from cached results (NZBs may have died since the cache was populated)
+        let streams = cached.streams;
+        if (config.filterDeadNzbs) {
+          const before = streams.length;
+          streams = streams.filter(s => {
+            // NZBDav/EasyNews NZB proxy streams: extract NZB URL from query param
+            if (s.url) {
+              try {
+                const nzb = new URL(s.url).searchParams.get('nzb');
+                if (nzb && isDeadNzbByUrl(decodeURIComponent(nzb))) return false;
+              } catch {}
+            }
+            // Native mode: check externalUrl directly
+            if (s.externalUrl && isDeadNzbByUrl(s.externalUrl)) return false;
+            return true;
+          });
+          if (streams.length < before) {
+            console.log(`🚫 Filtered ${before - streams.length} dead NZB(s) from cached results (${streams.length} remaining)`);
+          }
+        }
+
         // Re-create the fallback group so cached stream URLs have a live fallback target
         // (fallback groups expire after 30 min but search cache can last hours)
         if (cached._fallback) {
           const fb = cached._fallback;
-          createFallbackGroup(fb.id, fb.candidates, fb.type, fb.season, fb.episode);
+          // Also filter dead NZBs from fallback candidates
+          const candidates = config.filterDeadNzbs
+            ? fb.candidates.filter(c => !isDeadNzbByUrl(c.nzbUrl))
+            : fb.candidates;
+          if (candidates.length > 0) {
+            createFallbackGroup(fb.id, candidates, fb.type, fb.season, fb.episode);
+          }
         }
-        const { _fallback, ...response } = cached;
-        return response;
+        return { streams };
       }
     }
 
