@@ -91,6 +91,12 @@ export const config: Config = {
   get nzbdavLibraryCheckEnabled() {
     const env = envBool('NZBDAV_LIBRARY_CHECK');
     if (env !== undefined) return env;
+    // Force on when auto-resolve is active (relies on library checks)
+    if (configData.autoResolveOnSearch !== false
+        && configData.nzbdavFallbackEnabled
+        && configData.nzbdavFallbackOrder === 'top') {
+      return true;
+    }
     return configData.nzbdavLibraryCheckEnabled !== false;
   },
   get nzbdavMaxFallbacks() {

@@ -13,6 +13,7 @@
 
 import { Router } from 'express';
 import type { Config } from '../types.js';
+import { configData } from '../config/schema.js';
 import { recalculateTTLExpirations, clearMultiEpisodeDeadEntries, clearTimeoutDeadEntries } from '../nzbdav/streamCache.js';
 
 interface SettingsDeps {
@@ -62,7 +63,7 @@ function buildConfigResponse(config: Config) {
     nzbdavMoviesCategory: config.nzbdavMoviesCategory,
     nzbdavTvCategory: config.nzbdavTvCategory,
     nzbdavFallbackEnabled: config.nzbdavFallbackEnabled,
-    nzbdavLibraryCheckEnabled: config.nzbdavLibraryCheckEnabled,
+    nzbdavLibraryCheckEnabled: configData.nzbdavLibraryCheckEnabled !== false,
     nzbdavMaxFallbacks: config.nzbdavMaxFallbacks,
     nzbdavJobTimeoutSeconds: config.nzbdavJobTimeoutSeconds,
     nzbdavMoviesTimeoutSeconds: config.nzbdavMoviesTimeoutSeconds,

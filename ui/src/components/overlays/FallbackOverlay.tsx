@@ -91,11 +91,11 @@ export function FallbackOverlay({
           </div>
 
           {/* Library Check Toggle */}
-          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 transition-opacity", !nzbdavFallbackEnabled && "opacity-40 pointer-events-none")}>
+          <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 transition-opacity", (!nzbdavFallbackEnabled || (autoResolveOnSearch && nzbdavFallbackOrder === 'top')) && "opacity-40 pointer-events-none")}>
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
-                checked={nzbdavLibraryCheckEnabled}
+                checked={nzbdavLibraryCheckEnabled || (autoResolveOnSearch && nzbdavFallbackOrder === 'top')}
                 onChange={(e) => setNzbdavLibraryCheckEnabled(e.target.checked)}
                 className="w-5 h-5 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800"
               />
