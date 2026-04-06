@@ -66,6 +66,10 @@ interface IndexManagerOverlayProps {
   allowMultiEpisodeFiles: boolean;
   setAllowMultiEpisodeFiles: React.Dispatch<React.SetStateAction<boolean>>;
 
+  // URL dedup
+  urlDedup: boolean;
+  setUrlDedup: React.Dispatch<React.SetStateAction<boolean>>;
+
   // Indexer priority dedup
   indexerPriorityDedup: boolean;
   setIndexerPriorityDedup: React.Dispatch<React.SetStateAction<boolean>>;
@@ -190,6 +194,8 @@ export function IndexManagerOverlay({
   setEnableRemakeFiltering,
   allowMultiEpisodeFiles,
   setAllowMultiEpisodeFiles,
+  urlDedup,
+  setUrlDedup,
   indexerPriorityDedup,
   setIndexerPriorityDedup,
   indexerPriority,
@@ -573,7 +579,24 @@ export function IndexManagerOverlay({
                     />
                     <label htmlFor="allow-multi-episode-files" className="flex-1 cursor-pointer">
                       <div className="text-sm font-medium text-slate-300">Allow Multi-Episode Files</div>
-                      <div className="text-xs text-slate-500 mt-0.5">Allow results that contain multiple episodes (e.g. S01E01E02.mkv). When disabled, multi-episode results are filtered out and won't appear in streams. Enabling this option will flush previously blocked multi-episode NZBs from the dead NZB database.</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Allow results that contain multiple episodes (e.g. S01E01E02.mkv). When disabled, multi-episode results are filtered out and won't appear in results. Enabling this option will flush previously blocked multi-episode NZBs from the dead NZB database.</div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* URL Deduplication */}
+                <div className="pt-3 border-t border-slate-700/30">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="url-dedup"
+                      checked={urlDedup}
+                      onChange={(e) => setUrlDedup(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                    />
+                    <label htmlFor="url-dedup" className="flex-1 cursor-pointer">
+                      <div className="text-sm font-medium text-slate-300">URL Deduplication</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Remove duplicate results that share the same download URL. These NZBs always reference the same articles, so keeping only the first occurrence has no effect on results.</div>
                     </label>
                   </div>
                 </div>

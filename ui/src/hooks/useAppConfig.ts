@@ -98,6 +98,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [indexerPriorityDedup, setIndexerPriorityDedup] = useState(false);
   const [enableRemakeFiltering, setEnableRemakeFiltering] = useState(true);
   const [allowMultiEpisodeFiles, setAllowMultiEpisodeFiles] = useState(true);
+  const [urlDedup, setUrlDedup] = useState(true);
   const [indexerPriority, setIndexerPriority] = useState<string[]>([]);
   const [dedupDraggedItem, setDedupDraggedItem] = useState<string | null>(null);
   const [dedupDragOverItem, setDedupDragOverItem] = useState<string | null>(null);
@@ -352,11 +353,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         indexerPriorityDedup,
         enableRemakeFiltering,
         allowMultiEpisodeFiles,
+        urlDedup,
       },
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, enableRemakeFiltering, allowMultiEpisodeFiles, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, enableRemakeFiltering, allowMultiEpisodeFiles, urlDedup, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -509,6 +511,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setIndexerPriorityDedup(sc?.indexerPriorityDedup ?? false);
       setEnableRemakeFiltering(sc?.enableRemakeFiltering !== false);
       setAllowMultiEpisodeFiles(sc?.allowMultiEpisodeFiles !== false);
+      setUrlDedup(sc?.urlDedup !== false);
       setIndexerPriority(data.indexerPriority || []);
       setEasynewsEnabled(data.easynewsEnabled || false);
       setEasynewsUsername(data.easynewsUsername || '');
@@ -1201,6 +1204,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     indexerPriorityDedup, setIndexerPriorityDedup,
     enableRemakeFiltering, setEnableRemakeFiltering,
     allowMultiEpisodeFiles, setAllowMultiEpisodeFiles,
+    urlDedup, setUrlDedup,
     indexerPriority, setIndexerPriority,
     dedupDraggedItem, setDedupDraggedItem,
     dedupDragOverItem, setDedupDragOverItem,

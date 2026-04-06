@@ -11,6 +11,34 @@ import { isRemakeFiltered } from '../parsers/titleMatching.js';
 import type { FilterConfig } from '../types.js';
 
 /**
+ * URL deduplication — removes results with identical download URLs.
+ * First occurrence wins; subsequent duplicates are dropped.
+ */
+function deduplicateByUrl(allResults: any[]): any[] {
+  if (config.searchConfig?.urlDedup === false || allResults.length === 0) return allResults;
+
+  const seen = new Map<string, string>(); // link → indexerName of first occurrence
+  const duplicates: { title: string; indexer: string }[] = [];
+  const deduped = allResults.filter(r => {
+    if (!r.link) return true;
+    const existing = seen.get(r.link);
+    if (existing) {
+      duplicates.push({ title: r.title, indexer: existing });
+      return false;
+    }
+    seen.set(r.link, r.indexerName || 'Unknown');
+    return true;
+  });
+
+  if (duplicates.length > 0) {
+    console.log(`🔗 URL dedup: removed ${duplicates.length} duplicate(s) (${deduped.length} remaining)`);
+    for (const d of duplicates) console.log(`   ✂️  "${d.title}" (duplicate of ${d.indexer} result)`);
+  }
+
+  return deduped;
+}
+
+/**
  * Cross-indexer deduplication by indexer priority.
  * Keeps only the copy from the highest-priority indexer when the same
  * title+size combination appears from multiple indexers.
@@ -413,6 +441,7 @@ export function deduplicateAndPreFilter(allResults: any[], type: string, hasRema
  * and appended after sorting but before stream limits.
  */
 export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[]): any[] {
+  results = deduplicateByUrl(results);
   const filterConfig = (type === 'movie' ? config.movieFilters : config.tvFilters) || config.filters;
   results = applyQualityFilters(results, filterConfig);
   const filteredDeprioritized = deprioritizedPacks?.length ? applyQualityFilters(deprioritizedPacks, filterConfig) : [];

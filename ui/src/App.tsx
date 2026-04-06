@@ -577,6 +577,8 @@ function App() {
           setEnableRemakeFiltering={ac.setEnableRemakeFiltering}
           allowMultiEpisodeFiles={ac.allowMultiEpisodeFiles}
           setAllowMultiEpisodeFiles={ac.setAllowMultiEpisodeFiles}
+          urlDedup={ac.urlDedup}
+          setUrlDedup={ac.setUrlDedup}
           indexerPriorityDedup={ac.indexerPriorityDedup}
           setIndexerPriorityDedup={ac.setIndexerPriorityDedup}
           indexerPriority={ac.indexerPriority}

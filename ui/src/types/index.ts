@@ -81,6 +81,7 @@ export interface SearchConfig {
   indexerPriorityDedup?: boolean;
   enableRemakeFiltering?: boolean;
   allowMultiEpisodeFiles?: boolean;
+  urlDedup?: boolean;
   movieSearchMethod?: string;
   tvSearchMethod?: string;
 }
