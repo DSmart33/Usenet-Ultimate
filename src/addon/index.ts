@@ -259,7 +259,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     console.log(`📊 Found ${allRawResults.length} total results (indexer: ${indexManagerResults.length}, easynews: ${easynewsResults.length})`);
 
     // === STEP 3: DEDUP + CONTENT-DEPENDENT PRE-FILTERING (cacheable) ===
-    const { results: rawResults, deprioritizedPacks } = deduplicateAndPreFilter(allRawResults, type, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear);
+    const { results: rawResults, deprioritizedPacks } = deduplicateAndPreFilter(allRawResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear);
 
     // === STEP 4: FILTER, SORT, HEALTH CHECK, BUILD (user-preference-dependent) ===
     const now = Date.now();

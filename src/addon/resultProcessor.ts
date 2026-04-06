@@ -407,22 +407,31 @@ export function applyStreamLimits(allResults: any[], filterConfig?: FilterConfig
 }
 
 /**
- * Content-dependent pre-processing: dedup, remake filter, multi-episode filter.
+ * Content-dependent pre-processing: dedup, remake filter.
  * These steps depend on the content, not user preferences — safe to cache.
  */
-export function deduplicateAndPreFilter(allResults: any[], type: string, hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string): { results: any[]; deprioritizedPacks: any[] } {
+export function deduplicateAndPreFilter(allResults: any[], hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string): { results: any[]; deprioritizedPacks: any[] } {
   let results = deduplicateByPriority(allResults);
   const { results: remakeFiltered, deprioritizedPacks } = applyRemakeFilter(results, hasRemake, episodeName, year, titleYear);
   results = remakeFiltered;
+
+  return { results, deprioritizedPacks };
+}
+
+/**
+ * User-preference-dependent processing: multi-episode filter, quality filter, sort, stream limits.
+ * Runs on every request (including cache hits) to reflect current settings.
+ * Deprioritized packs (yearless remake season packs) are filtered separately
+ * and appended after sorting but before stream limits.
+ */
+export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[]): any[] {
+  results = deduplicateByUrl(results);
 
   if (type !== 'movie' && config.searchConfig?.allowMultiEpisodeFiles === false) {
     const multiEpRegex = /S\d+[. _-]?E\d+(?:[. _-]?E\d+|-\d{1,2}(?!\d))/i;
     const filtered: string[] = [];
     results = results.filter(r => {
-      if (multiEpRegex.test(r.title)) {
-        filtered.push(r.title);
-        return false;
-      }
+      if (multiEpRegex.test(r.title)) { filtered.push(r.title); return false; }
       return true;
     });
     if (filtered.length > 0) {
@@ -431,17 +440,6 @@ export function deduplicateAndPreFilter(allResults: any[], type: string, hasRema
     }
   }
 
-  return { results, deprioritizedPacks };
-}
-
-/**
- * User-preference-dependent processing: quality filter, sort, stream limits.
- * Runs on every request (including cache hits) to reflect current settings.
- * Deprioritized packs (yearless remake season packs) are filtered separately
- * and appended after sorting but before stream limits.
- */
-export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[]): any[] {
-  results = deduplicateByUrl(results);
   const filterConfig = (type === 'movie' ? config.movieFilters : config.tvFilters) || config.filters;
   results = applyQualityFilters(results, filterConfig);
   const filteredDeprioritized = deprioritizedPacks?.length ? applyQualityFilters(deprioritizedPacks, filterConfig) : [];
