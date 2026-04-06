@@ -157,7 +157,7 @@ export interface Config {
   easynewsPagination?: boolean;  // Enable paginated search (default false)
   easynewsMaxPages?: number;     // Additional pages when pagination enabled (1-10, default 3)
   easynewsMode?: 'ddl' | 'nzb'; // DDL = direct download/stream, NZB = send to download client
-  easynewsHealthCheck?: boolean; // Include EasyNews NZB results in health checks (default false = auto healthy)
+  easynewsHealthCheck?: boolean; // Include EasyNews NZB results in health checks (default true)
   indexerPriority?: string[];    // Ordered indexer names for dedup priority (position 0 = highest priority)
 }
 
@@ -223,9 +223,6 @@ export interface FilterConfig {
   maxSeasonPackSize?: number;                // Max season pack total size in bytes (undefined = unlimited)
   minSeasonPackEpisodeSize?: number;         // Min per-episode size for season packs in bytes (undefined = no minimum)
   maxSeasonPackEpisodeSize?: number;         // Max per-episode size for season packs in bytes (undefined = unlimited)
-  // Legacy fields kept for migration — no longer used
-  minFileSizeMode?: 'episode' | 'pack';
-  maxFileSizeMode?: 'episode' | 'pack';
   maxStreams?: number;                       // Max total streams to return (default unlimited)
   maxStreamsPerResolution?: number;           // Max streams per resolution level (undefined = unlimited)
   maxStreamsPerQuality?: number;             // Max streams per video source quality level (undefined = unlimited)

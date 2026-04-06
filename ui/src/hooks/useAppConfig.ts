@@ -155,7 +155,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [easynewsPagination, setEasynewsPagination] = useState(false);
   const [easynewsMaxPages, setEasynewsMaxPages] = useState(3);
   const [easynewsMode, setEasynewsMode] = useState<'ddl' | 'nzb'>('nzb');
-  const [easynewsHealthCheck, setEasynewsHealthCheck] = useState(false);
+  const [easynewsHealthCheck, setEasynewsHealthCheck] = useState(true);
   const [showEasynewsPassword, setShowEasynewsPassword] = useState(false);
   const [easynewsTestStatus, setEasynewsTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [easynewsTestMessage, setEasynewsTestMessage] = useState('');
@@ -519,7 +519,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setEasynewsPagination(data.easynewsPagination || false);
       setEasynewsMaxPages(data.easynewsMaxPages || 3);
       setEasynewsMode(data.easynewsMode || 'nzb');
-      setEasynewsHealthCheck(data.easynewsHealthCheck || false);
+      setEasynewsHealthCheck(data.easynewsHealthCheck ?? true);
       setZyclopsEndpoint(data.zyclopsEndpoint || 'https://zyclops.elfhosted.com');
 
       // Ensure all cards are in cardOrder (backward compat)

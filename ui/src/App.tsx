@@ -599,8 +599,6 @@ function App() {
           setEasynewsMaxPages={ac.setEasynewsMaxPages}
           easynewsMode={ac.easynewsMode}
           setEasynewsMode={ac.setEasynewsMode}
-          easynewsHealthCheck={ac.easynewsHealthCheck}
-          setEasynewsHealthCheck={ac.setEasynewsHealthCheck}
           showEasynewsPassword={ac.showEasynewsPassword}
           setShowEasynewsPassword={ac.setShowEasynewsPassword}
           easynewsTestStatus={ac.easynewsTestStatus}
@@ -803,6 +801,8 @@ function App() {
           failedLogos={ac.failedLogos}
           setFailedLogos={ac.setFailedLogos}
           apiFetch={apiFetch}
+          easynewsHealthCheck={ac.easynewsHealthCheck}
+          setEasynewsHealthCheck={ac.setEasynewsHealthCheck}
         />
       )}
 

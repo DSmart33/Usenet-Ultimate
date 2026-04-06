@@ -240,6 +240,15 @@ export function parseYear(title: string): string | undefined {
   return parseTorrentTitle(title).year;
 }
 
+export function buildStreamFilename(title: string, type: string, season?: number, episode?: number): string {
+  const parsed = parseCleanTitle(title);
+  const year = type === 'movie' ? parseYear(title) : undefined;
+  const clean = year ? `${parsed} (${year})` : parsed;
+  return type === 'series' && season != null && episode != null
+    ? `${parsed.replace(/\s*S\d+$/i, '')} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`
+    : clean;
+}
+
 // ── Utilities ────────────────────────────────────────────────────────
 
 export function formatBytes(bytes: number): string {

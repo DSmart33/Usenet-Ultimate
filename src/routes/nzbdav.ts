@@ -203,6 +203,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
 
   // NZBDav stream endpoint (key-protected)
   // Uses history API polling to detect job completion/failure
+  // :filename? is cosmetic — external video players display the URL path as the stream name
   router.get('/stream/:filename?', async (req, res) => {
     const nzbUrl = req.query.nzb as string;
     const title = req.query.title as string || 'Unknown';

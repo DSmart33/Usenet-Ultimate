@@ -13,7 +13,7 @@
 
 import crypto from 'crypto';
 import { config } from '../config/index.js';
-import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseReleaseGroup, parseCleanTitle, parseYear, parseEdition, parseLanguage, resolutionToDisplay, formatBytes, formatAge, formatBitrate, parseDurationAttr } from '../parsers/metadataParsers.js';
+import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseReleaseGroup, parseCleanTitle, parseYear, parseEdition, parseLanguage, resolutionToDisplay, formatBytes, formatAge, formatBitrate, parseDurationAttr, buildStreamFilename } from '../parsers/metadataParsers.js';
 import type { Stream, AutoPlayConfig } from '../types.js';
 import type { HealthCheckResult } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
@@ -104,9 +104,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     const parsedCleanTitle = parseCleanTitle(result.title);
     const year = type === 'movie' ? parseYear(result.title) : undefined;
     const cleanTitle = year ? `${parsedCleanTitle} (${year})` : parsedCleanTitle;
-    const streamFilename = type === 'series' && season != null && episode != null
-      ? `${parsedCleanTitle.replace(/\s*S\d+$/i, '')} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`
-      : cleanTitle;
+    const streamFilename = buildStreamFilename(result.title, type, season, episode);
     const encode = parseCodec(result.title);
     const visualTag = parseVisualTag(result.title);
     const audioTag = parseAudioTag(result.title);

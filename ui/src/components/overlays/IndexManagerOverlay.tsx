@@ -93,8 +93,6 @@ interface IndexManagerOverlayProps {
   setEasynewsMaxPages: React.Dispatch<React.SetStateAction<number>>;
   easynewsMode: 'ddl' | 'nzb';
   setEasynewsMode: React.Dispatch<React.SetStateAction<'ddl' | 'nzb'>>;
-  easynewsHealthCheck: boolean;
-  setEasynewsHealthCheck: React.Dispatch<React.SetStateAction<boolean>>;
   showEasynewsPassword: boolean;
   setShowEasynewsPassword: React.Dispatch<React.SetStateAction<boolean>>;
   easynewsTestStatus: 'idle' | 'testing' | 'success' | 'error';
@@ -216,8 +214,6 @@ export function IndexManagerOverlay({
   setEasynewsMaxPages,
   easynewsMode,
   setEasynewsMode,
-  easynewsHealthCheck,
-  setEasynewsHealthCheck,
   showEasynewsPassword,
   setShowEasynewsPassword,
   easynewsTestStatus,
@@ -725,22 +721,6 @@ export function IndexManagerOverlay({
                           : 'Sends NZB to your download client for faster start times.'}
                       </p>
                     </div>
-                    {easynewsMode === 'nzb' && (
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={easynewsHealthCheck}
-                          onChange={(e) => setEasynewsHealthCheck(e.target.checked)}
-                          className="accent-primary-500"
-                        />
-                        <span className="text-xs font-medium text-slate-300">Include in Health Checks</span>
-                        <span className="text-xs text-slate-500">
-                          {easynewsHealthCheck
-                            ? 'EasyNews NZBs will be verified via NNTP.'
-                            : 'EasyNews results auto-marked as healthy.'}
-                        </span>
-                      </label>
-                    )}
                     <div>
                       <label className="block text-xs font-medium text-slate-400 mb-1">Username</label>
                       <input

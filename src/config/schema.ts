@@ -82,9 +82,7 @@ export interface ConfigData {
   filters?: {
     sortOrder: string[];
     minFileSize?: number;
-    minFileSizeMode?: 'episode' | 'pack';
     maxFileSize?: number;
-    maxFileSizeMode?: 'episode' | 'pack';
     maxStreamsPerResolution?: number;
     maxStreamsPerQuality?: number;
     videoPriority?: string[];

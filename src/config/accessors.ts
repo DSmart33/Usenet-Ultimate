@@ -380,7 +380,7 @@ export const config: Config = {
     return configData.easynewsMode || 'nzb';
   },
   get easynewsHealthCheck() {
-    return configData.easynewsHealthCheck || false;
+    return configData.easynewsHealthCheck ?? true;
   },
   get indexerPriority() {
     return configData.indexerPriority;
