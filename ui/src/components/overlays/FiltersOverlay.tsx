@@ -671,14 +671,9 @@ export default function FiltersOverlay({
                   editionPriority: ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'],
                   preferNonStandardEdition: false
                 };
-                if (filterTab === 'tv') {
-                  defaults.sortOrder = ['edition', 'quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'age', 'bitrate'];
-                  defaults.enabledSorts.edition = true;
-                  defaults.preferNonStandardEdition = true;
-                  defaults.enabledPriorities.edition = { 'IMAX Edition': true, 'Theatrical': true, 'Remastered': true };
-                  defaults.maxStreams = undefined;
-                }
                 updateActiveFilters(defaults);
+                setMovieFilters(null);
+                setTvFilters(null);
               }}
               className="btn-secondary w-full"
             >

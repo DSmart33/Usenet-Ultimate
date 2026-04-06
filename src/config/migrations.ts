@@ -10,8 +10,8 @@
  *  - Global search methods → per-indexer
  *  - Single-string search methods → arrays
  *  - Single-string zyclops backbone → array
- *  - Pagination defaults migration
- *  - maxStreamsPerQuality → maxStreamsPerResolution rename
+ *  - One-time filter/sort reset (v1.3.0)
+ *  - Stream display age/bitrate injection
  *  - Auto play minimum cache TTL enforcement
  *  - Global useTextSearchForAnime → per-indexer anime search methods
  */
@@ -154,155 +154,15 @@ if (configData.indexers.some(i => i.zyclops?.backbone && !Array.isArray(i.zyclop
   console.log(`✅ Migrated single-string zyclops backbone to array for ${configData.indexers.length} indexer(s)`);
 }
 
-// Migrate pagination: old default was true (pagination !== false), new default is false.
-// Existing indexers with pagination undefined (old implicit true) get explicit pagination: true + maxPages: 3.
-if (configData.indexers.length > 0 && configData.indexers.some(i => i.pagination === undefined && i.maxPages === undefined)) {
-  for (const indexer of configData.indexers) {
-    if (indexer.pagination === undefined && indexer.maxPages === undefined) {
-      // Old default was enabled — preserve behavior
-      indexer.pagination = true;
-      indexer.maxPages = 3;
-    }
-  }
-  saveConfigFile(configData);
-  console.log(`✅ Migrated pagination defaults for ${configData.indexers.length} indexer(s) (old default true → explicit true + maxPages 3)`);
-}
-
-// ── Filter key migration: old parser format → library format ─────────
-// Resolution: 2160p → 4k. Codec groups: HEVC/h265/x265→hevc, AVC/h264/x264→x264, etc.
-// Audio: DTS:X/DTS-HD MA→DTS Lossless, DTS-HD→DTS Lossy, DD+→DDP.
-const FILTER_KEY_MIGRATION: Record<string, string> = {
-  '2160p': '4k',
-  'AV1': 'av1', 'HEVC': 'hevc', 'AVC': 'avc',
-  'h265': 'hevc', 'x265': 'hevc', 'h264': 'avc', 'x264': 'avc',
-  'divx': 'xvid', 'dvix': 'xvid',
-  'DTS:X': 'DTS Lossless', 'DTS-HD MA': 'DTS Lossless', 'DTS-HD': 'DTS Lossy', 'DD+': 'DDP', 'EAC3': 'DDP', 'AC3': 'DD',
-  'HDR10': 'HDR',
-  'Extended': 'Extended Edition', 'IMAX Edition': 'IMAX',
-};
-
-function migrateFilterKeys(filters: any): boolean {
-  if (!filters) return false;
-  let changed = false;
-
-  // Values to remove entirely from priority arrays
-  const REMOVE_VALUES = new Set(['IMAX', 'HC HD-Rip', 'EAC3', 'AC3']);
-
-  // Migrate priority arrays
-  for (const key of ['resolutionPriority', 'encodePriority', 'audioTagPriority', 'visualTagPriority', 'editionPriority']) {
-    const arr = filters[key] as string[] | undefined;
-    if (!arr) continue;
-    const newArr: string[] = [];
-    for (const item of arr) {
-      if (REMOVE_VALUES.has(item) && !(item === 'IMAX' && key === 'editionPriority')) { changed = true; continue; }
-      // Atmos splits into two values
-      if (item === 'Atmos') {
-        if (!newArr.includes('Atmos (TrueHD)')) newArr.push('Atmos (TrueHD)');
-        if (!newArr.includes('Atmos (DDP)')) newArr.push('Atmos (DDP)');
-        changed = true;
-        continue;
-      }
-      const mapped = FILTER_KEY_MIGRATION[item];
-      if (mapped) {
-        if (!newArr.includes(mapped)) newArr.push(mapped);
-        changed = true;
-      } else if (!newArr.includes(item)) {
-        newArr.push(item);
-      }
-    }
-    filters[key] = newArr;
-  }
-
-  // Migrate enabledPriorities keys
-  const ep = filters.enabledPriorities;
-  if (ep) {
-    for (const category of ['resolution', 'encode', 'audioTag', 'visualTag', 'edition']) {
-      const cat = ep[category];
-      if (!cat) continue;
-      for (const key of REMOVE_VALUES) {
-        if (cat[key] !== undefined) { delete cat[key]; changed = true; }
-      }
-      // Atmos splits into two keys with same value
-      if (cat['Atmos'] !== undefined) {
-        const val = cat['Atmos'];
-        delete cat['Atmos'];
-        cat['Atmos (TrueHD)'] = val;
-        cat['Atmos (DDP)'] = val;
-        changed = true;
-      }
-      for (const [oldKey, newKey] of Object.entries(FILTER_KEY_MIGRATION)) {
-        if (cat[oldKey] !== undefined) {
-          const val = cat[oldKey];
-          delete cat[oldKey];
-          cat[newKey] = val;
-          changed = true;
-        }
-      }
-    }
-  }
-
-  // Append any new values from defaults that aren't in the user's saved arrays
-  const DEFAULTS: Record<string, string[]> = {
-    resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'],
-    videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'],
-    encodePriority: ['av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'],
-    visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'],
-    audioTagPriority: ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'],
-    editionPriority: ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'],
-  };
-  for (const [key, defaults] of Object.entries(DEFAULTS)) {
-    const arr = filters[key] as string[] | undefined;
-    if (!arr) continue;
-    for (const val of defaults) {
-      if (!arr.includes(val)) {
-        // For editions, insert before Standard to keep it last
-        if (key === 'editionPriority' && val !== 'Standard') {
-          const standardIdx = arr.indexOf('Standard');
-          if (standardIdx >= 0) {
-            arr.splice(standardIdx, 0, val);
-          } else {
-            arr.push(val);
-          }
-        // For visual tags, insert before Unknown to keep it last
-        } else if (key === 'visualTagPriority' && val !== 'Unknown') {
-          const unknownIdx = arr.indexOf('Unknown');
-          if (unknownIdx >= 0) {
-            arr.splice(unknownIdx, 0, val);
-          } else {
-            arr.push(val);
-          }
-        } else {
-          arr.push(val);
-        }
-        changed = true;
-      }
-    }
-  }
-
-  // Seed '3D' as disabled by default for existing configs
-  if (!filters.enabledPriorities) {
-    filters.enabledPriorities = {};
-  }
-  if (!filters.enabledPriorities.visualTag) {
-    filters.enabledPriorities.visualTag = {};
-  }
-  if (filters.enabledPriorities.visualTag['3D'] === undefined) {
-    filters.enabledPriorities.visualTag['3D'] = false;
-    changed = true;
-  }
-
-  return changed;
-}
-
-// Apply to default filters, movie filters, and TV filters
+// One-time filter reset: 540p was added in this release — its absence signals pre-update filters
 {
-  let migrated = false;
-  if (migrateFilterKeys((configData as any).filters)) migrated = true;
-  if (migrateFilterKeys((configData as any).movieFilters)) migrated = true;
-  if (migrateFilterKeys((configData as any).tvFilters)) migrated = true;
-  if (migrated) {
+  const needsReset = (configData.filters as any)?.resolutionPriority && !(configData.filters as any).resolutionPriority.includes('540p');
+  if (needsReset) {
+    delete (configData as any).filters;
+    delete (configData as any).movieFilters;
+    delete (configData as any).tvFilters;
     saveConfigFile(configData);
-    console.log('✅ Migrated filter keys to library format (resolution, codec, audio)');
+    console.log('✅ One-time reset: filter/sort configs reset to defaults');
   }
 }
 
@@ -319,42 +179,6 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   }
   saveConfigFile(configData);
   console.log('✅ Migrated streamDisplayConfig: added age/bitrate display elements');
-}
-
-// Migrate filters: inject age/bitrate sort options if missing
-{
-  let migrated = false;
-  for (const filterObj of [configData.filters, (configData as any).movieFilters, (configData as any).tvFilters]) {
-    if (!filterObj?.sortOrder) continue;
-    if (!filterObj.sortOrder.includes('age')) {
-      filterObj.sortOrder.push('age', 'bitrate');
-      if (!filterObj.enabledSorts) filterObj.enabledSorts = {};
-      if (filterObj.enabledSorts.age === undefined) filterObj.enabledSorts.age = false;
-      if (filterObj.enabledSorts.bitrate === undefined) filterObj.enabledSorts.bitrate = false;
-      migrated = true;
-    }
-  }
-  if (migrated) {
-    saveConfigFile(configData);
-    console.log('✅ Migrated filter configs: added age/bitrate sort options');
-  }
-}
-
-// Migrate maxStreamsPerQuality → maxStreamsPerResolution (field was misnamed: it limits per resolution, not video source quality)
-{
-  let migrated = false;
-  for (const filterObj of [configData.filters, (configData as any).movieFilters, (configData as any).tvFilters]) {
-    if (!filterObj) continue;
-    if (filterObj.maxStreamsPerQuality !== undefined && filterObj.maxStreamsPerResolution === undefined) {
-      filterObj.maxStreamsPerResolution = filterObj.maxStreamsPerQuality;
-      delete filterObj.maxStreamsPerQuality;
-      migrated = true;
-    }
-  }
-  if (migrated) {
-    saveConfigFile(configData);
-    console.log('✅ Migrated maxStreamsPerQuality → maxStreamsPerResolution');
-  }
 }
 
 // Enforce minimum cache TTL when auto play is enabled (auto play defaults to enabled)
@@ -391,3 +215,4 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
     console.log('✅ Set anime search method defaults for indexers');
   }
 }
+

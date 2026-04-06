@@ -733,32 +733,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
 
       setFilters(filterConfig);
       setMovieFilters(data.movieFilters || null);
-      // Default TV filters: edition sort at #1 and enabled
-      // Only create defaults on first-time setup (undefined), not when
-      // the user has explicitly chosen "use global" (null)
-      if (data.tvFilters === undefined) {
-        const tvDefaults = JSON.parse(JSON.stringify(filterConfig));
-        const edIdx = tvDefaults.sortOrder.indexOf('edition');
-        if (edIdx > 0) {
-          tvDefaults.sortOrder.splice(edIdx, 1);
-          tvDefaults.sortOrder.unshift('edition');
-        }
-        tvDefaults.enabledSorts = { ...tvDefaults.enabledSorts, edition: true };
-        tvDefaults.preferNonStandardEdition = true;
-        tvDefaults.enabledPriorities = {
-          ...tvDefaults.enabledPriorities,
-          edition: {
-            ...tvDefaults.enabledPriorities?.edition,
-            'IMAX Edition': true,
-            'Theatrical': true,
-            'Remastered': true,
-          }
-        };
-        tvDefaults.maxStreams = undefined;
-        setTvFilters(tvDefaults);
-      } else {
-        setTvFilters(data.tvFilters);
-      }
+      setTvFilters(data.tvFilters || null);
 
       setHealthChecks({
         ...DEFAULT_HEALTH_CHECKS,
