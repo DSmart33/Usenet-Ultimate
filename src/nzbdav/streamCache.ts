@@ -274,17 +274,20 @@ export async function getOrCreateStream(
   episodesInSeason?: number,
   indexerName?: string,
   verbose = true,
-  isSeasonPack?: boolean
+  isSeasonPack?: boolean,
+  skipReadyCache?: boolean
 ): Promise<StreamData> {
   cleanupExpiredCache();
 
   const cacheKey = getCacheKey(nzbUrl, title) + (episodePattern ? `:${episodePattern}` : '');
 
   // Check healthy cache — return immediately if already prepared
-  const ready = readyCache.get(cacheKey);
-  if (ready && ready.expiresAt > Date.now()) {
-    if (verbose) console.log(`\u2705 NZB Database (healthy): ${title}`);
-    return ready.data;
+  if (!skipReadyCache) {
+    const ready = readyCache.get(cacheKey);
+    if (ready && ready.expiresAt > Date.now()) {
+      if (verbose) console.log(`\u2705 NZB Database (healthy): ${title}`);
+      return ready.data;
+    }
   }
 
   // Check dead NZB cache — known-bad NZBs are skipped instantly

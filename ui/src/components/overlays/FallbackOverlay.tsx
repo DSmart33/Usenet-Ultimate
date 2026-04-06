@@ -24,6 +24,8 @@ interface FallbackOverlayProps {
   setNzbdavMaxFallbacks: React.Dispatch<React.SetStateAction<number>>;
   nzbdavProxyEnabled: boolean;
   setNzbdavProxyEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  autoResolveOnSearch: boolean;
+  setAutoResolveOnSearch: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export function FallbackOverlay({
@@ -44,6 +46,8 @@ export function FallbackOverlay({
   setNzbdavMaxFallbacks,
   nzbdavProxyEnabled,
   setNzbdavProxyEnabled,
+  autoResolveOnSearch,
+  setAutoResolveOnSearch,
 }: FallbackOverlayProps) {
   const movieDec = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.max(1, v - 1)), [setNzbdavMoviesTimeoutSeconds]));
   const movieInc = useHoldRepeat(useCallback(() => setNzbdavMoviesTimeoutSeconds(v => Math.min(90, v + 1)), [setNzbdavMoviesTimeoutSeconds]));
@@ -303,6 +307,34 @@ export function FallbackOverlay({
               <input
                 type="radio"
                 name="fallbackOrder"
+                checked={nzbdavFallbackOrder === 'top'}
+                onChange={() => setNzbdavFallbackOrder('top')}
+                className="mt-1 accent-amber-400"
+              />
+              <div>
+                <div className="text-sm text-slate-200 font-medium">From Top of List</div>
+                <p className="text-xs text-slate-500">Try the stream you selected first, then fall back from the top of the results list.</p>
+              </div>
+            </label>
+            <div className={clsx("ml-6 space-y-3 transition-opacity", nzbdavFallbackOrder !== 'top' && "opacity-40 pointer-events-none")}>
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="auto-resolve-search"
+                  checked={autoResolveOnSearch}
+                  onChange={(e) => setAutoResolveOnSearch(e.target.checked)}
+                  className="mt-1 w-3 h-3 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800 cursor-pointer"
+                />
+                <label htmlFor="auto-resolve-search" className="flex-1 cursor-pointer">
+                  <div className="text-sm font-medium text-slate-300">Auto Resolve on Search</div>
+                  <div className="text-xs text-slate-500 mt-0.5">Pre-resolve NZBs in the background when search results are fetched, including for auto play.</div>
+                </label>
+              </div>
+            </div>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="fallbackOrder"
                 checked={nzbdavFallbackOrder === 'selected'}
                 onChange={() => setNzbdavFallbackOrder('selected')}
                 className="mt-1 accent-amber-400"
@@ -310,19 +342,6 @@ export function FallbackOverlay({
               <div>
                 <div className="text-sm text-slate-200 font-medium">From Selected</div>
                 <p className="text-xs text-slate-500">Start with the NZB you clicked, then try alternatives in displayed order.</p>
-              </div>
-            </label>
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="fallbackOrder"
-                checked={nzbdavFallbackOrder === 'top'}
-                onChange={() => setNzbdavFallbackOrder('top')}
-                className="mt-1 accent-amber-400"
-              />
-              <div>
-                <div className="text-sm text-slate-200 font-medium">From Top of List</div>
-                <p className="text-xs text-slate-500">Always start from the highest-ranked search result, regardless of which stream you selected.</p>
               </div>
             </label>
           </div>
@@ -379,9 +398,11 @@ export function FallbackOverlay({
                 setNzbdavLibraryCheckEnabled(true);
                 setNzbdavMoviesTimeoutSeconds(30);
                 setNzbdavTvTimeoutSeconds(15);
-                setNzbdavFallbackOrder('selected');
+                setNzbdavSeasonPackTimeoutSeconds(30);
+                setNzbdavFallbackOrder('top');
                 setNzbdavMaxFallbacks(0);
                 setNzbdavProxyEnabled(true);
+                setAutoResolveOnSearch(true);
               }}
               className="btn-secondary w-full"
             >

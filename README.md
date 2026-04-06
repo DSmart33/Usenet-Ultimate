@@ -460,14 +460,15 @@ These are migrated into `config/config.json` on first startup. After that, manag
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NZBDAV_FALLBACK_ENABLED` | `false` | Enable automatic fallback to alternative NZBs on failure |
-| `NZBDAV_FALLBACK_ORDER` | `selected` | Candidate ordering: `selected` (start from clicked NZB) or `top` (start from highest-ranked) |
+| `NZBDAV_FALLBACK_ORDER` | `top` | Candidate ordering: `top` (start from highest-ranked) or `selected` (start from clicked NZB) |
 | `NZBDAV_MAX_FALLBACKS` | `0` | Max fallback attempts. `0` = unlimited (try all search results), `1-20` = limit |
 | `NZBDAV_LIBRARY_CHECK` | `true` | Check WebDAV library for existing files before grabbing a new NZB |
 | `NZBDAV_MOVIES_TIMEOUT` | `30` | Seconds to wait for a movie stream before trying the next fallback (1-90) |
 | `NZBDAV_TV_TIMEOUT` | `15` | Seconds to wait for a TV episode stream before trying the next fallback (1-90) |
 | `NZBDAV_SEASON_PACK_TIMEOUT` | `30` | Seconds to wait for a season pack stream before trying the next fallback (1-90) |
 | `NZBDAV_JOB_TIMEOUT` | `120` | Legacy: sets both movie and TV timeouts if the specific ones aren't configured (clamped to 1-90) |
-| `NZBDAV_MAX_SELF_REDIRECTS` | `100` | Max Stremio self-redirects during fallback chains before giving up |
+| `NZBDAV_MAX_SELF_REDIRECTS` | `500` | Max Stremio self-redirects during fallback chains before giving up |
+| `AUTO_RESOLVE_ON_SEARCH` | `true` | Pre-resolve NZBs when search results appear (requires "from top" fallback order) |
 
 #### Stream Proxy
 

@@ -112,7 +112,12 @@ export const config: Config = {
     return Math.max(1, Math.min(90, raw));
   },
   get nzbdavFallbackOrder() {
-    return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'selected';
+    return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'top';
+  },
+  get autoResolveOnSearch() {
+    const env = envBool('AUTO_RESOLVE_ON_SEARCH');
+    if (env !== undefined) return env;
+    return configData.autoResolveOnSearch !== false;
   },
   get nzbdavCacheTimeouts() {
     const env = envBool('INCLUDE_TIMEOUTS_AS_DEAD_NZBS');

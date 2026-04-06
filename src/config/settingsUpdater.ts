@@ -37,6 +37,7 @@ export function updateSettings(settings: {
   nzbdavTvTimeoutSeconds?: number;
   nzbdavSeasonPackTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
+  autoResolveOnSearch?: boolean;
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
   nzbdavCacheTimeouts?: boolean;
@@ -172,6 +173,9 @@ export function updateSettings(settings: {
   if (settings.nzbdavFallbackOrder !== undefined) {
     configData.nzbdavFallbackOrder = settings.nzbdavFallbackOrder;
   }
+  if (settings.autoResolveOnSearch !== undefined) {
+    configData.autoResolveOnSearch = settings.autoResolveOnSearch;
+  }
   if (settings.nzbdavStreamBufferMB !== undefined) {
     configData.nzbdavStreamBufferMB = settings.nzbdavStreamBufferMB;
   }
@@ -286,6 +290,13 @@ export function updateSettings(settings: {
   // Enforce minimum cacheTTL when auto play is enabled
   if ((configData.autoPlay?.enabled ?? true) && configData.cacheTTL < 9000) {
     configData.cacheTTL = 9000;
+  }
+
+  // Cancel auto-resolves when preconditions change
+  if (settings.nzbdavFallbackEnabled === false
+      || settings.nzbdavFallbackOrder === 'selected'
+      || settings.autoResolveOnSearch === false) {
+    import('../nzbdav/autoResolve.js').then(m => m.cancelAllAutoResolves()).catch(() => {});
   }
 
   // Mutual exclusion: force enabled + disable proxy/health checks for Zyclops-enabled indexers

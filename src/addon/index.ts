@@ -24,7 +24,7 @@ const _require = createRequire(import.meta.url);
 const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config } from '../config/index.js';
-import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries } from '../nzbdav/index.js';
+import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, autoResolveFromCandidates, buildNzbdavConfig, buildEpisodePattern } from '../nzbdav/index.js';
 import { resolveTitle } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
 import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
@@ -140,6 +140,23 @@ builder.defineStreamHandler(async ({ type, id }) => {
       return filtered;
     };
 
+    // === SHARED: Trigger auto-resolve if enabled ===
+    const triggerAutoResolve = (fallbackCandidates: any[] | undefined, episodesInSeason?: number) => {
+      if (!fallbackCandidates?.length
+          || !config.autoResolveOnSearch
+          || config.nzbdavFallbackOrder !== 'top'
+          || !config.nzbdavFallbackEnabled) return;
+
+      const contentKey = `${type}:${imdbId}:${season ?? ''}:${episode ?? ''}`;
+      const nzbdavConfig = buildNzbdavConfig();
+      const epPattern = (type === 'series' && season !== undefined && episode !== undefined)
+        ? buildEpisodePattern(season, episode, config.searchConfig?.allowMultiEpisodeFiles !== false)
+        : undefined;
+      autoResolveFromCandidates(
+        contentKey, fallbackCandidates, nzbdavConfig, epPattern, type, episodesInSeason,
+      ).catch(err => console.error('❌ Auto-resolve error:', err));
+    };
+
     // === SHARED: Process from raw results → streams (filter, sort, health check, build) ===
     const processFromRaw = async (rawResults: any[], deprioritizedPacks: any[], healthMap: Map<string, any>, titleMeta: { type: string; season?: number; episode?: number; episodesInSeason?: number; now: number; runtime?: number }) => {
       // Filter dead NZBs
@@ -207,6 +224,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
           createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString());
         }
 
+        triggerAutoResolve(fallbackCandidates, cached._meta.episodesInSeason);
         return { streams };
       }
     }
@@ -283,6 +301,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
     if (fallbackGroupId && fallbackCandidates) {
       createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString());
     }
+
+    triggerAutoResolve(fallbackCandidates, titleInfo.episodesInSeason);
 
     return { streams };
   } catch (error) {

@@ -141,6 +141,7 @@ export interface Config {
   nzbdavTvTimeoutSeconds?: number;             // Max seconds to wait for TV streams (1-90, default 15)
   nzbdavSeasonPackTimeoutSeconds?: number;     // Max seconds to wait for season pack streams (1-90, default 30)
   nzbdavFallbackOrder?: 'selected' | 'top';   // Start from clicked NZB or top of quality-sorted list
+  autoResolveOnSearch?: boolean;              // Pre-resolve NZBs when search results appear (default true, requires "from top")
   nzbdavCacheTimeouts?: boolean;              // Store timed-out NZBs in dead cache (default true)
   nzbdavStreamBufferMB?: number;              // WebDAV proxy buffer size in MB (default 128)
   nzbdavProxyEnabled?: boolean;               // Stream through local proxy (buffer+reconnect) or direct WebDAV redirect (default true)

@@ -43,6 +43,7 @@ export interface ConfigData {
   nzbdavTvTimeoutSeconds?: number;
   nzbdavSeasonPackTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
+  autoResolveOnSearch?: boolean;
   nzbdavCacheTimeouts?: boolean;
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
@@ -177,6 +178,7 @@ const ENV_OVERRIDES: readonly string[] = [
   'NZBHYDRA_URL', 'NZBHYDRA_API_KEY', 'NZBHYDRA_USERNAME', 'NZBHYDRA_PASSWORD',
   'EASYNEWS_ENABLED', 'EASYNEWS_USERNAME', 'EASYNEWS_PASSWORD',
   'PROXY_MODE', 'PROXY_URL',
+  'AUTO_RESOLVE_ON_SEARCH',
   'INCLUDE_TIMEOUTS_AS_DEAD_NZBS', 'FILTER_DEAD_NZBS',
   'ENABLE_REMAKE_DETECTION', 'ALLOW_MULTI_EPISODE_FILES', 'URL_DEDUP',
   'HEALTH_CHECK_ENABLED', 'HEALTH_CHECK_NNTP_HOST', 'HEALTH_CHECK_NNTP_PORT',

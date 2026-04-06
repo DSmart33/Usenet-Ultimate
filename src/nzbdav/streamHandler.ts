@@ -15,7 +15,7 @@ import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
 import { waitForVideoFile, checkNzbLibrary } from './videoDiscovery.js';
 import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache, isVideoPathBroken } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
-import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error } from './utils.js';
+import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern } from './utils.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
 
 const pipelineAsync = promisify(pipeline);
@@ -39,7 +39,7 @@ const STREAM_LOG_INTERVAL_MS = 30_000;   // 30 seconds
 const STREAM_LOG_STATE_TTL_MS = 3_600_000; // 1 hour — evict stale entries to prevent unbounded growth
 const STREMIO_TIMEOUT_MS = 60_000;       // Stremio's built-in HTTP timeout
 const STREMIO_SAFETY_MARGIN_MS = 5_000;  // Safety buffer when deciding whether to self-redirect
-const MAX_SELF_REDIRECTS = Number(process.env.NZBDAV_MAX_SELF_REDIRECTS) || 100; // Safety cap on self-redirects — supports large fallback chains without infinite loops
+const MAX_SELF_REDIRECTS = Number(process.env.NZBDAV_MAX_SELF_REDIRECTS) || 500; // Safety cap on self-redirects — supports large fallback chains without infinite loops
 const EXO_PLAYER_BUDGET_MS = 8_000;      // Max blocking time per post-redirect request (keeps ExoPlayer alive on Android)
 // Self-redirect query params (internal, appended to stream URL during 302 redirects):
 //   _rc — redirect count: how many self-redirects have occurred (prevents infinite loops)
@@ -360,12 +360,11 @@ export async function handleStream(
   const episodesInSeason = epcountParam ? parseInt(epcountParam, 10) : undefined;
   const isSeasonPackRequest = req.query.sp === '1';
   if (seasonParam && episodeParam) {
-    const s = parseInt(seasonParam, 10).toString().padStart(2, '0');
-    const e = parseInt(episodeParam, 10).toString().padStart(2, '0');
-    const allowMultiEp = globalConfig.searchConfig?.allowMultiEpisodeFiles !== false;
-    episodePattern = allowMultiEp
-      ? `S${s}(?:[. _-]?E\\d+|-\\d{1,2})*(?:[. _-]?E${e}|-${e})(?!\\d)`
-      : `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d|-\\d)`;
+    episodePattern = buildEpisodePattern(
+      parseInt(seasonParam, 10),
+      parseInt(episodeParam, 10),
+      globalConfig.searchConfig?.allowMultiEpisodeFiles !== false,
+    );
   }
 
   // Build the list of candidates to try (primary first, then fallbacks)
@@ -385,7 +384,7 @@ export async function handleStream(
   if (fallbackGroupId && fallbackEnabled) {
     const group = getFallbackGroup(fallbackGroupId);
     if (group) {
-      const fallbackOrder = globalConfig.nzbdavFallbackOrder || 'selected';
+      const fallbackOrder = globalConfig.nzbdavFallbackOrder || 'top';
       if (fallbackOrder === 'top') {
         // Try the clicked NZB first, then continue from the top of the list (skipping it)
         candidates.length = 0;

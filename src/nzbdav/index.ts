@@ -15,5 +15,11 @@ export { getOrCreateStream, getDeadCacheKey, isStreamCached, isDeadNzbByUrl, add
 // Cache utilities
 export { getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, saveCacheToDisk } from './cacheUtils.js';
 
+// Auto-resolve (background NZB pre-resolution)
+export { autoResolveFromCandidates, cancelAllAutoResolves } from './autoResolve.js';
+
+// Shared utilities
+export { buildEpisodePattern, buildNzbdavConfig } from './utils.js';
+
 // Stream handler (Express endpoint)
 export { handleStream } from './streamHandler.js';

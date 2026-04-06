@@ -159,6 +159,7 @@ export interface Config {
   nzbdavMoviesTimeoutSeconds?: number;
   nzbdavTvTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
+  autoResolveOnSearch?: boolean;
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
   easynewsEnabled?: boolean;

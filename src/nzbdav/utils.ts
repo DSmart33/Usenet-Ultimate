@@ -3,6 +3,38 @@
  * Common helpers used across the NZBDav module.
  */
 
+import { config as globalConfig } from '../config/index.js';
+import type { NZBDavConfig } from './types.js';
+
+/**
+ * Build an episode pattern regex for matching season/episode in filenames.
+ * Used by stream resolution and auto-resolve to locate the correct episode
+ * within a season pack or multi-episode release.
+ */
+export function buildEpisodePattern(season: number, episode: number, allowMultiEpisodeFiles: boolean): string {
+  const s = season.toString().padStart(2, '0');
+  const e = episode.toString().padStart(2, '0');
+  return allowMultiEpisodeFiles
+    ? `S${s}(?:[. _-]?E\\d+|-\\d{1,2})*(?:[. _-]?E${e}|-${e})(?!\\d)`
+    : `S${s}[. _-]?E${e}(?!\\d|[. _-]?E\\d|-\\d)`;
+}
+
+/**
+ * Build an NZBDavConfig from the global config.
+ * Centralizes the config → NZBDavConfig mapping used by routes and auto-resolve.
+ */
+export function buildNzbdavConfig(): NZBDavConfig {
+  return {
+    url: globalConfig.nzbdavUrl || 'http://localhost:3000',
+    apiKey: globalConfig.nzbdavApiKey || '',
+    webdavUrl: globalConfig.nzbdavWebdavUrl || globalConfig.nzbdavUrl || 'http://localhost:3000',
+    webdavUser: globalConfig.nzbdavWebdavUser || '',
+    webdavPassword: globalConfig.nzbdavWebdavPassword || '',
+    moviesCategory: globalConfig.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies',
+    tvCategory: globalConfig.nzbdavTvCategory || 'Usenet-Ultimate-TV',
+  };
+}
+
 /**
  * Encode a raw WebDAV file path for use in URLs.
  * Splits on '/', filters out empty segments and traversal components,

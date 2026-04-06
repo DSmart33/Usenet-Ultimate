@@ -16,7 +16,7 @@ import https from 'https';
 import { PassThrough } from 'stream';
 import type { Config } from '../types.js';
 import type { NZBDavConfig } from '../nzbdav/index.js';
-import { encodeWebdavPath, WebDav404Error } from '../nzbdav/utils.js';
+import { encodeWebdavPath, WebDav404Error, buildNzbdavConfig } from '../nzbdav/utils.js';
 import { evictReadyByVideoPath, markVideoPathBroken } from '../nzbdav/streamCache.js';
 
 interface NzbdavDeps {
@@ -220,16 +220,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       console.log(`\u{1F4CA} Tracked grab from ${indexerName}: ${title}${isAuto ? ' (auto)' : ''}`);
     }
 
-    // Build NZBDav config from global config
-    const nzbdavConfig: NZBDavConfig = {
-      url: config.nzbdavUrl || 'http://localhost:3000',
-      apiKey: config.nzbdavApiKey || '',
-      webdavUrl: config.nzbdavWebdavUrl || config.nzbdavUrl || 'http://localhost:3000',
-      webdavUser: config.nzbdavWebdavUser || '',
-      webdavPassword: config.nzbdavWebdavPassword || '',
-      moviesCategory: config.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies',
-      tvCategory: config.nzbdavTvCategory || 'Usenet-Ultimate-TV',
-    };
+    const nzbdavConfig = buildNzbdavConfig();
 
     // Wrap trackGrab with the same dedup set so fallback grabs after
     // self-redirects don't double-count candidates already tracked.

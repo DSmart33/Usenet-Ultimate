@@ -708,6 +708,8 @@ function App() {
           setNzbdavMaxFallbacks={ac.setNzbdavMaxFallbacks}
           nzbdavProxyEnabled={ac.nzbdavProxyEnabled}
           setNzbdavProxyEnabled={ac.setNzbdavProxyEnabled}
+          autoResolveOnSearch={ac.autoResolveOnSearch}
+          setAutoResolveOnSearch={ac.setAutoResolveOnSearch}
         />
       )}
 
