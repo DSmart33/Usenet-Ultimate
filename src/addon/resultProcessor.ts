@@ -379,19 +379,14 @@ export function applyStreamLimits(allResults: any[], filterConfig?: FilterConfig
 }
 
 /**
- * Full processing pipeline: dedup → remake filter → quality filter → sort → limit.
- * Yearless season packs for remake shows are appended after the sorted results.
+ * Content-dependent pre-processing: dedup, remake filter, multi-episode filter.
+ * These steps depend on the content, not user preferences — safe to cache.
  */
-export function processResults(allResults: any[], type: string, now?: number, runtime?: number, hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string): any[] {
-  // Step 1: Cross-indexer dedup by priority
+export function deduplicateAndPreFilter(allResults: any[], type: string, hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string): { results: any[]; deprioritizedPacks: any[] } {
   let results = deduplicateByPriority(allResults);
-
-  // Step 2: Remake filter — applies globally regardless of search method.
-  // Yearless season packs for remake shows are separated and appended after sorting.
   const { results: remakeFiltered, deprioritizedPacks } = applyRemakeFilter(results, hasRemake, episodeName, year, titleYear);
   results = remakeFiltered;
 
-  // Step 2.5: Filter multi-episode results if setting is disabled
   if (type !== 'movie' && config.searchConfig?.allowMultiEpisodeFiles === false) {
     const multiEpRegex = /S\d+[. _-]?E\d+(?:[. _-]?E\d+|-\d{1,2}(?!\d))/i;
     const filtered: string[] = [];
@@ -408,22 +403,22 @@ export function processResults(allResults: any[], type: string, now?: number, ru
     }
   }
 
-  // Step 3: Select per-type filter config, falling back to global filters
+  return { results, deprioritizedPacks };
+}
+
+/**
+ * User-preference-dependent processing: quality filter, sort, stream limits.
+ * Runs on every request (including cache hits) to reflect current settings.
+ * Deprioritized packs (yearless remake season packs) are filtered separately
+ * and appended after sorting but before stream limits.
+ */
+export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[]): any[] {
   const filterConfig = (type === 'movie' ? config.movieFilters : config.tvFilters) || config.filters;
-
-  // Step 4: Quality filters
   results = applyQualityFilters(results, filterConfig);
-  const filteredDeprioritized = applyQualityFilters(deprioritizedPacks, filterConfig);
-
-  // Step 5: Sort
+  const filteredDeprioritized = deprioritizedPacks?.length ? applyQualityFilters(deprioritizedPacks, filterConfig) : [];
   results = sortResults(results, filterConfig, now, runtime);
-
-  // Yearless remake season packs appear after all sorted results, in post-dedup order
   results = [...results, ...filteredDeprioritized];
-
-  // Step 6: Stream limits
   results = applyStreamLimits(results, filterConfig);
-
   console.log(`📊 Returning ${results.length} streams after filtering`);
   return results;
 }

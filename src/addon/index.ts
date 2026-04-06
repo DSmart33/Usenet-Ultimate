@@ -24,11 +24,10 @@ const _require = createRequire(import.meta.url);
 const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config } from '../config/index.js';
-import type { Stream } from '../types.js';
-import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, type FallbackCandidate } from '../nzbdav/index.js';
+import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries } from '../nzbdav/index.js';
 import { resolveTitle } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
-import { processResults } from './resultProcessor.js';
+import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
 import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav } from './healthCheckCoordinator.js';
 import { buildStreams } from './streamBuilder.js';
 import { isDeadNzbByUrl } from '../nzbdav/streamCache.js';
@@ -120,45 +119,94 @@ builder.defineStreamHandler(async ({ type, id }) => {
       cacheKey = `stream:${type}:${id}:${methodsFingerprint}${config.searchConfig?.includeSeasonPacks ? ':packs' : ''}${easynewsSuffix}`;
     }
 
+    // === SHARED: Filter dead NZBs from raw results ===
+    const filterDeadFromRaw = (results: any[]) => {
+      if (!config.filterDeadNzbs) return results;
+      const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
+      const manifestKey = requestContext.getStore()?.manifestKey || '';
+      const before = results.length;
+      const filtered = results.filter(r => {
+        if (r.easynewsMeta) {
+          const meta = r.easynewsMeta;
+          const nzbParams = new URLSearchParams({ hash: meta.hash, filename: meta.filename, ext: meta.ext });
+          if (meta.sig) nzbParams.set('sig', meta.sig);
+          return !isDeadNzbByUrl(`${SELF_URL}/${manifestKey}/easynews/nzb?${nzbParams.toString()}`);
+        }
+        return !isDeadNzbByUrl(r.link);
+      });
+      if (filtered.length < before) {
+        console.log(`🚫 Filtered ${before - filtered.length} dead NZB(s) from results (${filtered.length} remaining)`);
+      }
+      return filtered;
+    };
+
+    // === SHARED: Process from raw results → streams (filter, sort, health check, build) ===
+    const processFromRaw = async (rawResults: any[], deprioritizedPacks: any[], healthMap: Map<string, any>, titleMeta: { type: string; season?: number; episode?: number; episodesInSeason?: number; now: number; runtime?: number }) => {
+      // Filter dead NZBs
+      let allResults = filterDeadFromRaw(rawResults);
+
+      // Apply current user filter/sort preferences (deprioritized packs appended after sort)
+      allResults = applyUserFilters(allResults, titleMeta.type, titleMeta.now, titleMeta.runtime, deprioritizedPacks);
+
+      // Health checks — pass pre-existing health data so the coordinator skips
+      // already-checked results and smart mode counts them toward its threshold
+      const { healthResults: newHealth, filteredResults } = await coordinateHealthChecks({
+        allResults,
+        type: titleMeta.type,
+        season: titleMeta.season,
+        episode: titleMeta.episode,
+        episodesInSeason: titleMeta.episodesInSeason,
+        preExistingHealth: healthMap.size > 0 ? healthMap : undefined,
+      });
+      for (const [key, val] of newHealth) healthMap.set(key, val);
+      allResults = filteredResults;
+
+      // Auto-mark EasyNews and Zyclops results as verified
+      autoMarkRemainingResults(allResults, healthMap);
+
+      // Auto-queue to NZBDav if enabled
+      autoQueueToNzbdav(allResults, healthMap, titleMeta.type, titleMeta.season, titleMeta.episode, titleMeta.episodesInSeason);
+
+      // Build streams
+      const { streams, fallbackGroupId, fallbackCandidates } = buildStreams({
+        allResults,
+        healthResults: healthMap,
+        type: titleMeta.type,
+        season: titleMeta.season,
+        episode: titleMeta.episode,
+        episodesInSeason: titleMeta.episodesInSeason,
+        now: titleMeta.now,
+        runtime: titleMeta.runtime,
+      });
+
+      return { streams, fallbackGroupId, fallbackCandidates, allResults };
+    };
+
     // Check cache first (cacheTTL of 0 means disabled)
     if (config.cacheEnabled && config.cacheTTL > 0) {
-      const cached = cache.get<{ streams: Stream[]; _fallback?: { id: string; candidates: FallbackCandidate[]; type: string; season?: string; episode?: string } }>(cacheKey);
+      const cached = cache.get<{ rawResults: any[]; deprioritizedPacks: any[]; healthMap: Record<string, any>; _meta: { type: string; season?: number; episode?: number; episodesInSeason?: number; runtime?: number } }>(cacheKey);
       if (cached) {
         console.log(`💾 Cache hit for ${type} ${imdbId}`);
+        const now = Date.now();
 
-        // Filter dead NZBs from cached results (NZBs may have died since the cache was populated)
-        let streams = cached.streams;
-        if (config.filterDeadNzbs) {
-          const before = streams.length;
-          streams = streams.filter(s => {
-            // NZBDav/EasyNews NZB proxy streams: extract NZB URL from query param
-            if (s.url) {
-              try {
-                const nzb = new URL(s.url).searchParams.get('nzb');
-                if (nzb && isDeadNzbByUrl(decodeURIComponent(nzb))) return false;
-              } catch {}
-            }
-            // Native mode: check externalUrl directly
-            if (s.externalUrl && isDeadNzbByUrl(s.externalUrl)) return false;
-            return true;
-          });
-          if (streams.length < before) {
-            console.log(`🚫 Filtered ${before - streams.length} dead NZB(s) from cached results (${streams.length} remaining)`);
-          }
+        // Re-apply filters, sort, health checks, and build streams with current settings
+        const healthMap = new Map<string, any>(Object.entries(cached.healthMap || {}));
+        const { streams, fallbackGroupId, fallbackCandidates } = await processFromRaw(
+          cached.rawResults, cached.deprioritizedPacks || [], healthMap,
+          { type, season, episode, episodesInSeason: cached._meta.episodesInSeason, now, runtime: cached._meta.runtime }
+        );
+
+        // Update cache with new health results
+        cache.set(cacheKey, {
+          ...cached,
+          healthMap: Object.fromEntries(healthMap),
+        }, config.cacheTTL);
+
+        // Create fallback group from current filtered results
+        if (fallbackGroupId && fallbackCandidates) {
+          createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString());
         }
 
-        // Re-create the fallback group so cached stream URLs have a live fallback target
-        // (fallback groups expire after 30 min but search cache can last hours)
-        if (cached._fallback) {
-          const fb = cached._fallback;
-          // Also filter dead NZBs from fallback candidates
-          const candidates = config.filterDeadNzbs
-            ? fb.candidates.filter(c => !isDeadNzbByUrl(c.nzbUrl))
-            : fb.candidates;
-          if (candidates.length > 0) {
-            createFallbackGroup(fb.id, candidates, fb.type, fb.season, fb.episode);
-          }
-        }
         return { streams };
       }
     }
@@ -168,7 +216,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
     // === STEP 1: TITLE RESOLUTION ===
     let titleInfo;
     if (animeResolved && !animeResolved.imdbId && animeResolved.title) {
-      // Anime ID with no IMDB mapping — use anime DB title directly, skip Cinemeta
       titleInfo = {
         title: animeResolved.title,
         cinemetaTitle: animeResolved.title,
@@ -185,7 +232,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
       };
     } else {
       titleInfo = await resolveTitle(type, imdbId, season, episode);
-      // If we came from an anime ID, force anime detection
       if (animeId) {
         titleInfo.isAnime = true;
       }
@@ -212,70 +258,33 @@ builder.defineStreamHandler(async ({ type, id }) => {
     const allRawResults = [...indexManagerResults, ...easynewsResults];
     console.log(`📊 Found ${allRawResults.length} total results (indexer: ${indexManagerResults.length}, easynews: ${easynewsResults.length})`);
 
-    // === STEP 3: DEDUP, FILTER, SORT ===
+    // === STEP 3: DEDUP + CONTENT-DEPENDENT PRE-FILTERING (cacheable) ===
+    const { results: rawResults, deprioritizedPacks } = deduplicateAndPreFilter(allRawResults, type, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear);
+
+    // === STEP 4: FILTER, SORT, HEALTH CHECK, BUILD (user-preference-dependent) ===
     const now = Date.now();
-    let allResults = processResults(allRawResults, type, now, titleInfo.runtime, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear);
+    const healthMap = new Map<string, any>();
+    const { streams, fallbackGroupId, fallbackCandidates } = await processFromRaw(
+      rawResults, deprioritizedPacks, healthMap,
+      { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, now, runtime: titleInfo.runtime }
+    );
 
-    // === STEP 3.5: FILTER DEAD NZBs ===
-    if (config.filterDeadNzbs) {
-      const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
-      const manifestKey = requestContext.getStore()?.manifestKey || '';
-      const beforeDead = allResults.length;
-      allResults = allResults.filter(r => {
-        // For EasyNews results, construct the proxy URL used as the dead cache key
-        if (r.easynewsMeta) {
-          const meta = r.easynewsMeta;
-          const nzbParams = new URLSearchParams({ hash: meta.hash, filename: meta.filename, ext: meta.ext });
-          if (meta.sig) nzbParams.set('sig', meta.sig);
-          return !isDeadNzbByUrl(`${SELF_URL}/${manifestKey}/easynews/nzb?${nzbParams.toString()}`);
-        }
-        return !isDeadNzbByUrl(r.link);
-      });
-      if (allResults.length < beforeDead) {
-        console.log(`🚫 Filtered ${beforeDead - allResults.length} dead NZB(s) from results (${allResults.length} remaining)`);
-      }
-    }
-
-    // === STEP 4: HEALTH CHECKS ===
-    const { healthResults, filteredResults } = await coordinateHealthChecks({
-      allResults,
-      type,
-      season,
-      episode,
-      episodesInSeason: titleInfo.episodesInSeason,
-    });
-    allResults = filteredResults;
-
-    // Always auto-mark EasyNews and Zyclops results as verified (even without NNTP health checks)
-    autoMarkRemainingResults(allResults, healthResults);
-
-    // Auto-queue to NZBDav if enabled
-    autoQueueToNzbdav(allResults, healthResults, type, season, episode, titleInfo.episodesInSeason);
-
-    // === STEP 5: BUILD STREMIO STREAMS ===
-    const { streams, fallbackGroupId, fallbackCandidates } = buildStreams({
-      allResults,
-      healthResults,
-      type,
-      season,
-      episode,
-      episodesInSeason: titleInfo.episodesInSeason,
-      now,
-      runtime: titleInfo.runtime,
-    });
-
-    const response = { streams };
-
-    // Cache the results (cacheTTL of 0 means disabled, otherwise use live TTL value)
-    // Also cache fallback metadata so we can re-create the fallback group on cache hits
+    // Cache raw results + deprioritized packs + health map (filters/sorts reapply on cache hits)
     if (config.cacheEnabled && config.cacheTTL > 0) {
       cache.set(cacheKey, {
-        ...response,
-        _fallback: fallbackGroupId ? { id: fallbackGroupId, candidates: fallbackCandidates!, type, season: season?.toString(), episode: episode?.toString() } : undefined,
+        rawResults,
+        deprioritizedPacks,
+        healthMap: Object.fromEntries(healthMap),
+        _meta: { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, runtime: titleInfo.runtime },
       }, config.cacheTTL);
     }
 
-    return response;
+    // Create fallback group
+    if (fallbackGroupId && fallbackCandidates) {
+      createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString());
+    }
+
+    return { streams };
   } catch (error) {
     console.error('❌ Stream handler error:', error);
     return { streams: [] };
