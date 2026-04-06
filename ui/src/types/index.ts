@@ -219,9 +219,11 @@ export interface FiltersState {
   sortDirections?: Record<string, 'asc' | 'desc'>;
   enabledPriorities: Record<string, Record<string, boolean>>;
   minFileSize: number | undefined;
-  minFileSizeMode?: 'episode' | 'pack';
   maxFileSize: number | undefined;
-  maxFileSizeMode?: 'episode' | 'pack';
+  minSeasonPackSize: number | undefined;
+  maxSeasonPackSize: number | undefined;
+  minSeasonPackEpisodeSize: number | undefined;
+  maxSeasonPackEpisodeSize: number | undefined;
   maxStreams: number | undefined;
   maxStreamsPerResolution: number | undefined;
   maxStreamsPerQuality: number | undefined;

@@ -16,15 +16,13 @@ interface StreamFilterFieldConfig {
   step: number;
   min: number;
   isFloat?: boolean;
-  modeKey?: keyof FiltersState;
+  subFields?: { key: keyof FiltersState; config: StreamFilterFieldConfig }[];
 }
 
-function StreamFilterField({ config: field, value: rawValue, onChange, modeValue, onModeChange }: {
+function StreamFilterField({ config: field, value: rawValue, onChange }: {
   config: StreamFilterFieldConfig;
   value: number | undefined;
   onChange: (v: number | undefined) => void;
-  modeValue?: 'episode' | 'pack';
-  onModeChange?: (v: 'episode' | 'pack' | undefined) => void;
 }) {
   const isLimited = rawValue != null;
   const GB = 1024 * 1024 * 1024;
@@ -116,33 +114,19 @@ function StreamFilterField({ config: field, value: rawValue, onChange, modeValue
         <div className="text-xs text-slate-500">Unlimited</div>
       )}
       <p className="text-xs text-slate-500 mt-1">{field.description}</p>
-      {isLimited && onModeChange && (
-        <div className="mt-2 pl-3 border-l border-slate-700/50">
-          <label className="block text-xs font-medium text-slate-400 mb-1">Season Pack Filtering</label>
-          <p className="text-xs text-slate-500 mb-2">For season packs, choose whether to compare the per-episode or full pack size against the limit above</p>
-          <div className="flex rounded-lg overflow-hidden border border-slate-700/40 w-fit">
-            {([['episode', 'Per-Episode Size'], ['pack', 'Full Pack Size']] as const).map(([mode, label]) => (
-              <button
-                key={mode}
-                onClick={() => onModeChange(mode === 'episode' ? undefined : mode)}
-                className={clsx(
-                  "px-3 py-1 text-xs font-medium transition-colors",
-                  (modeValue ?? 'episode') === mode
-                    ? "bg-purple-500/20 text-purple-300"
-                    : "bg-slate-800/40 text-slate-400 hover:text-slate-300"
-                )}
-              >{label}</button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 const STREAM_FILTER_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
-  { key: 'minFileSize', config: { label: 'Minimum File Size', description: 'Filters out files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true, modeKey: 'minFileSizeMode' } },
-  { key: 'maxFileSize', config: { label: 'Maximum File Size', description: 'Filters out files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true, modeKey: 'maxFileSizeMode' } },
+  { key: 'minFileSize', config: { label: 'Minimum File Size', description: 'Filters out individual episode files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true, subFields: [
+    { key: 'minSeasonPackEpisodeSize', config: { label: 'Minimum Season Pack Per-Episode Size', description: 'Minimum estimated per-episode size within season packs', unit: 'GB', defaultValue: 0.1, step: 0.1, min: 0.01, isFloat: true } },
+    { key: 'minSeasonPackSize', config: { label: 'Minimum Season Pack Size', description: 'Minimum total size for full season packs', unit: 'GB', defaultValue: 1, step: 1, min: 0.1, isFloat: true } },
+  ] } },
+  { key: 'maxFileSize', config: { label: 'Maximum File Size', description: 'Filters out individual episode files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true, subFields: [
+    { key: 'maxSeasonPackEpisodeSize', config: { label: 'Maximum Season Pack Per-Episode Size', description: 'Maximum estimated per-episode size within season packs', unit: 'GB', defaultValue: 50, step: 1, min: 0.1, isFloat: true } },
+    { key: 'maxSeasonPackSize', config: { label: 'Maximum Season Pack Size', description: 'Maximum total size for full season packs', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
+  ] } },
   { key: 'maxStreams', config: { label: 'Max Total Streams', description: 'Maximum total streams to display overall', defaultValue: 25, step: 1, min: 1 } },
   { key: 'maxStreamsPerResolution', config: { label: 'Max Streams Per Resolution', description: 'Limit streams per resolution level (4K, 1080p, etc.)', defaultValue: 10, step: 1, min: 1 } },
   { key: 'maxStreamsPerQuality', config: { label: 'Max Streams Per Quality', description: 'Limit streams per source quality (BluRay, WEB-DL, etc.)', defaultValue: 10, step: 1, min: 1 } },
@@ -315,14 +299,25 @@ export default function FiltersOverlay({
           <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
             <div className="text-sm font-medium text-slate-300">Stream Filters</div>
             {STREAM_FILTER_FIELDS.map(({ key, config }) => (
-              <StreamFilterField
-                key={key}
-                config={config}
-                value={activeFilters[key] as number | undefined}
-                onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
-                modeValue={config.modeKey && filterTab !== 'movie' ? activeFilters[config.modeKey] as 'episode' | 'pack' | undefined : undefined}
-                onModeChange={config.modeKey && filterTab !== 'movie' ? (v) => updateActiveFilters({ ...activeFilters, [config.modeKey!]: v }) : undefined}
-              />
+              <div key={key}>
+                <StreamFilterField
+                  config={config}
+                  value={activeFilters[key] as number | undefined}
+                  onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
+                />
+                {filterTab !== 'movie' && config.subFields && (
+                  <div className="ml-4 mt-2 pl-3 border-l border-slate-700/50 space-y-3">
+                    {config.subFields.map(sub => (
+                      <StreamFilterField
+                        key={sub.key}
+                        config={sub.config}
+                        value={activeFilters[sub.key] as number | undefined}
+                        onChange={(v) => updateActiveFilters({ ...activeFilters, [sub.key]: v })}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
 
@@ -659,9 +654,11 @@ export default function FiltersOverlay({
                     edition: {}
                   },
                   minFileSize: undefined,
-                  minFileSizeMode: undefined,
                   maxFileSize: undefined,
-                  maxFileSizeMode: undefined,
+                  minSeasonPackSize: undefined,
+                  maxSeasonPackSize: undefined,
+                  minSeasonPackEpisodeSize: undefined,
+                  maxSeasonPackEpisodeSize: undefined,
                   maxStreams: undefined,
                   maxStreamsPerResolution: undefined,
                   maxStreamsPerQuality: undefined,

@@ -219,9 +219,11 @@ export const config: Config = {
         edition: {}
       },
       minFileSize: undefined,
-      minFileSizeMode: undefined,
       maxFileSize: undefined,
-      maxFileSizeMode: undefined,
+      minSeasonPackSize: undefined,
+      maxSeasonPackSize: undefined,
+      minSeasonPackEpisodeSize: undefined,
+      maxSeasonPackEpisodeSize: undefined,
       maxStreams: undefined,
       maxStreamsPerResolution: undefined,
       maxStreamsPerQuality: undefined,

@@ -159,19 +159,38 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
 
   let results = allResults;
 
-  // Apply file size filters if configured
-  // For season packs, each filter independently compares against per-episode or full pack size
-  const getSizeForMode = (r: any, mode: 'episode' | 'pack' | undefined) =>
-    (mode ?? 'episode') === 'episode' ? (r.estimatedEpisodeSize ?? r.size) : r.size;
+  // File size filters — individual episodes only (season packs have separate filters)
   if (filterConfig.minFileSize != null) {
     const before = results.length;
-    results = results.filter(r => getSizeForMode(r, filterConfig.minFileSizeMode) >= (filterConfig.minFileSize ?? 0));
+    results = results.filter(r => r.isSeasonPack || r.size >= (filterConfig.minFileSize ?? 0));
     if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by min file size (${results.length} remaining)`);
   }
   if (filterConfig.maxFileSize != null) {
     const before = results.length;
-    results = results.filter(r => getSizeForMode(r, filterConfig.maxFileSizeMode) <= (filterConfig.maxFileSize ?? Infinity));
+    results = results.filter(r => r.isSeasonPack || r.size <= (filterConfig.maxFileSize ?? Infinity));
     if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by max file size (${results.length} remaining)`);
+  }
+  // Season pack size filters — total pack size
+  if (filterConfig.minSeasonPackSize != null) {
+    const before = results.length;
+    results = results.filter(r => !r.isSeasonPack || r.size >= (filterConfig.minSeasonPackSize ?? 0));
+    if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by min season pack size (${results.length} remaining)`);
+  }
+  if (filterConfig.maxSeasonPackSize != null) {
+    const before = results.length;
+    results = results.filter(r => !r.isSeasonPack || r.size <= (filterConfig.maxSeasonPackSize ?? Infinity));
+    if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by max season pack size (${results.length} remaining)`);
+  }
+  // Season pack per-episode size filters — estimated per-episode size
+  if (filterConfig.minSeasonPackEpisodeSize != null) {
+    const before = results.length;
+    results = results.filter(r => !r.isSeasonPack || (r.estimatedEpisodeSize ?? r.size) >= (filterConfig.minSeasonPackEpisodeSize ?? 0));
+    if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by min season pack per-episode size (${results.length} remaining)`);
+  }
+  if (filterConfig.maxSeasonPackEpisodeSize != null) {
+    const before = results.length;
+    results = results.filter(r => !r.isSeasonPack || (r.estimatedEpisodeSize ?? r.size) <= (filterConfig.maxSeasonPackEpisodeSize ?? Infinity));
+    if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by max season pack per-episode size (${results.length} remaining)`);
   }
 
   // Filter out results with disabled priorities

@@ -219,10 +219,15 @@ export interface FilterConfig {
     language?: Record<string, boolean>;      // Which languages are enabled
     edition?: Record<string, boolean>;       // Which editions are enabled
   };
-  minFileSize?: number;                      // Min file size in bytes (undefined = no minimum)
-  minFileSizeMode?: 'episode' | 'pack';      // Season pack comparison for min filter (default: episode)
-  maxFileSize?: number;                      // Max file size in bytes (undefined = unlimited)
-  maxFileSizeMode?: 'episode' | 'pack';      // Season pack comparison for max filter (default: episode)
+  minFileSize?: number;                      // Min file size in bytes — individual episodes only (undefined = no minimum)
+  maxFileSize?: number;                      // Max file size in bytes — individual episodes only (undefined = unlimited)
+  minSeasonPackSize?: number;                // Min season pack total size in bytes (undefined = no minimum)
+  maxSeasonPackSize?: number;                // Max season pack total size in bytes (undefined = unlimited)
+  minSeasonPackEpisodeSize?: number;         // Min per-episode size for season packs in bytes (undefined = no minimum)
+  maxSeasonPackEpisodeSize?: number;         // Max per-episode size for season packs in bytes (undefined = unlimited)
+  // Legacy fields kept for migration — no longer used
+  minFileSizeMode?: 'episode' | 'pack';
+  maxFileSizeMode?: 'episode' | 'pack';
   maxStreams?: number;                       // Max total streams to return (default unlimited)
   maxStreamsPerResolution?: number;           // Max streams per resolution level (undefined = unlimited)
   maxStreamsPerQuality?: number;             // Max streams per video source quality level (undefined = unlimited)
