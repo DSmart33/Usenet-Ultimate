@@ -16,7 +16,6 @@ interface StreamFilterFieldConfig {
   step: number;
   min: number;
   isFloat?: boolean;
-  subFields?: { key: keyof FiltersState; config: StreamFilterFieldConfig }[];
 }
 
 function StreamFilterField({ config: field, value: rawValue, onChange }: {
@@ -118,15 +117,19 @@ function StreamFilterField({ config: field, value: rawValue, onChange }: {
   );
 }
 
-const STREAM_FILTER_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
-  { key: 'minFileSize', config: { label: 'Minimum File Size', description: 'Filters out individual episode files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true, subFields: [
-    { key: 'minSeasonPackEpisodeSize', config: { label: 'Minimum Season Pack Per-Episode Size', description: 'Minimum estimated per-episode size within season packs', unit: 'GB', defaultValue: 0.1, step: 0.1, min: 0.01, isFloat: true } },
-    { key: 'minSeasonPackSize', config: { label: 'Minimum Season Pack Size', description: 'Minimum total size for full season packs', unit: 'GB', defaultValue: 1, step: 1, min: 0.1, isFloat: true } },
-  ] } },
-  { key: 'maxFileSize', config: { label: 'Maximum File Size', description: 'Filters out individual episode files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true, subFields: [
-    { key: 'maxSeasonPackEpisodeSize', config: { label: 'Maximum Season Pack Per-Episode Size', description: 'Maximum estimated per-episode size within season packs', unit: 'GB', defaultValue: 50, step: 1, min: 0.1, isFloat: true } },
-    { key: 'maxSeasonPackSize', config: { label: 'Maximum Season Pack Size', description: 'Maximum total size for full season packs', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
-  ] } },
+const MIN_SIZE_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
+  { key: 'minFileSize', config: { label: 'Episode File Size', description: 'Filters out individual episode files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true } },
+  { key: 'minSeasonPackEpisodeSize', config: { label: 'Season Pack Per-Episode Size', description: 'Minimum estimated per-episode size within season packs', unit: 'GB', defaultValue: 0.1, step: 0.1, min: 0.01, isFloat: true } },
+  { key: 'minSeasonPackSize', config: { label: 'Season Pack Total Size', description: 'Minimum total size for full season packs', unit: 'GB', defaultValue: 1, step: 1, min: 0.1, isFloat: true } },
+];
+
+const MAX_SIZE_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
+  { key: 'maxFileSize', config: { label: 'Episode File Size', description: 'Filters out individual episode files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
+  { key: 'maxSeasonPackEpisodeSize', config: { label: 'Season Pack Per-Episode Size', description: 'Maximum estimated per-episode size within season packs', unit: 'GB', defaultValue: 50, step: 1, min: 0.1, isFloat: true } },
+  { key: 'maxSeasonPackSize', config: { label: 'Season Pack Total Size', description: 'Maximum total size for full season packs', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
+];
+
+const STREAM_LIMIT_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
   { key: 'maxStreams', config: { label: 'Max Total Streams', description: 'Maximum total streams to display overall', defaultValue: 25, step: 1, min: 1 } },
   { key: 'maxStreamsPerResolution', config: { label: 'Max Streams Per Resolution', description: 'Limit streams per resolution level (4K, 1080p, etc.)', defaultValue: 10, step: 1, min: 1 } },
   { key: 'maxStreamsPerQuality', config: { label: 'Max Streams Per Quality', description: 'Limit streams per source quality (BluRay, WEB-DL, etc.)', defaultValue: 10, step: 1, min: 1 } },
@@ -298,26 +301,44 @@ export default function FiltersOverlay({
           {/* Stream Filters */}
           <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
             <div className="text-sm font-medium text-slate-300">Stream Filters</div>
-            {STREAM_FILTER_FIELDS.map(({ key, config }) => (
-              <div key={key}>
-                <StreamFilterField
-                  config={config}
-                  value={activeFilters[key] as number | undefined}
-                  onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
-                />
-                {filterTab !== 'movie' && config.subFields && (
-                  <div className="ml-4 mt-2 pl-3 border-l border-slate-700/50 space-y-3">
-                    {config.subFields.map(sub => (
-                      <StreamFilterField
-                        key={sub.key}
-                        config={sub.config}
-                        value={activeFilters[sub.key] as number | undefined}
-                        onChange={(v) => updateActiveFilters({ ...activeFilters, [sub.key]: v })}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
+            {/* Minimum File Sizes */}
+            <div className="bg-slate-800/30 rounded-lg border border-slate-700/20 p-3 space-y-4">
+              <div className="text-xs font-medium text-slate-400">Minimum File Sizes</div>
+              {MIN_SIZE_FIELDS
+                .filter(({ key }) => filterTab !== 'movie' || key === 'minFileSize')
+                .map(({ key, config }) => (
+                  <StreamFilterField
+                    key={key}
+                    config={config}
+                    value={activeFilters[key] as number | undefined}
+                    onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
+                  />
+                ))}
+            </div>
+
+            {/* Maximum File Sizes */}
+            <div className="bg-slate-800/30 rounded-lg border border-slate-700/20 p-3 space-y-4">
+              <div className="text-xs font-medium text-slate-400">Maximum File Sizes</div>
+              {MAX_SIZE_FIELDS
+                .filter(({ key }) => filterTab !== 'movie' || key === 'maxFileSize')
+                .map(({ key, config }) => (
+                  <StreamFilterField
+                    key={key}
+                    config={config}
+                    value={activeFilters[key] as number | undefined}
+                    onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
+                  />
+                ))}
+            </div>
+
+            {/* Stream Limits */}
+            {STREAM_LIMIT_FIELDS.map(({ key, config }) => (
+              <StreamFilterField
+                key={key}
+                config={config}
+                value={activeFilters[key] as number | undefined}
+                onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
+              />
             ))}
           </div>
 
