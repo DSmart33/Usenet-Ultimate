@@ -203,7 +203,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
 
   // NZBDav stream endpoint (key-protected)
   // Uses history API polling to detect job completion/failure
-  router.get('/stream', async (req, res) => {
+  router.get('/stream/:filename?', async (req, res) => {
     const nzbUrl = req.query.nzb as string;
     const title = req.query.title as string || 'Unknown';
     const indexerName = req.query.indexer as string;

@@ -104,6 +104,9 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     const parsedCleanTitle = parseCleanTitle(result.title);
     const year = type === 'movie' ? parseYear(result.title) : undefined;
     const cleanTitle = year ? `${parsedCleanTitle} (${year})` : parsedCleanTitle;
+    const streamFilename = type === 'series' && season != null && episode != null
+      ? `${parsedCleanTitle.replace(/\s*S\d+$/i, '')} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`
+      : cleanTitle;
     const encode = parseCodec(result.title);
     const visualTag = parseVisualTag(result.title);
     const audioTag = parseAudioTag(result.title);
@@ -210,7 +213,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           ? `&season=${season}&episode=${episode}&sp=1${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
           : '';
         const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-        const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
+        const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
         streams.push({
           name: streamName,
           title: streamTitle,
@@ -218,8 +221,6 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           behaviorHints: {
             notWebReady: false,
             bingeGroup,
-            filename: result.title,
-            videoSize: result.size,
           },
         });
       } else {
@@ -230,8 +231,6 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           behaviorHints: {
             notWebReady: true,
             bingeGroup,
-            filename: result.title,
-            videoSize: result.size,
           },
         });
       }
@@ -256,8 +255,6 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         behaviorHints: {
           notWebReady: false,  // CDN URL is directly streamable
           bingeGroup,
-          filename: result.title,
-          videoSize: result.size,
         },
       });
     } else if (config.streamingMode === 'nzbdav') {
@@ -268,7 +265,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         : '';
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
       const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-      const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
+      const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
 
       streams.push({
         name: streamName,
@@ -277,8 +274,6 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         behaviorHints: {
           notWebReady: false,  // NZBDav can stream in player
           bingeGroup,
-          filename: result.title,
-          videoSize: result.size,
         },
       });
     } else {
@@ -289,8 +284,6 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         behaviorHints: {
           notWebReady: true,  // Native mode requires external NZB client
           bingeGroup,
-          filename: result.title,
-          videoSize: result.size,
         },
       });
     }

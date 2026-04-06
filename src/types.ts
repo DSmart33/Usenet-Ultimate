@@ -30,8 +30,6 @@ export interface Stream {
   behaviorHints?: {
     notWebReady?: boolean; // True = can't play in browser
     bingeGroup?: string;   // Groups streams for Stremio auto-play/binge watching
-    filename?: string;     // Filename passed to external players and subtitle addons
-    videoSize?: number;    // File size in bytes for subtitle matching
   };
 }
 

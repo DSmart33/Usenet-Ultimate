@@ -13,6 +13,7 @@ import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { performBatchHealthChecks, type HealthCheckResult, type HealthCheckOptions } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
+import { parseCleanTitle, parseYear } from '../parsers/metadataParsers.js';
 import { checkNzbLibrary } from '../nzbdav/videoDiscovery.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import type { NZBDavConfig } from '../nzbdav/types.js';
@@ -471,7 +472,13 @@ export function autoQueueToNzbdav(
         nzbUrl = `${SELF_URL}/${autoManifestKey}/easynews/nzb?${nzbParams.toString()}`;
       }
 
-      const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}&auto=true${autoEpParams}`;
+      const parsedTitle = parseCleanTitle(result.title);
+      const year = type === 'movie' ? parseYear(result.title) : undefined;
+      const cleanTitle = year ? `${parsedTitle} (${year})` : parsedTitle;
+      const streamFilename = type === 'series' && season != null && episode != null
+        ? `${parsedTitle.replace(/\s*S\d+$/i, '')} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`
+        : cleanTitle;
+      const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(nzbUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}&auto=true${autoEpParams}`;
       fetch(proxyUrl).catch(err => console.error('❌ Auto-queue failed:', err));
     } catch (error) {
       console.error('❌ Auto-queue to NZBDav failed:', error);
