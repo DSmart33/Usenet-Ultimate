@@ -47,6 +47,8 @@ export interface DashboardTabProps {
   syncedIndexers: SyncedIndexer[];
   nzbdavConnectionStatus: 'connected' | 'disconnected' | 'unconfigured' | 'checking' | null;
   nzbdavFallbackEnabled: boolean;
+  nzbdavFallbackOrder: 'selected' | 'top';
+  autoResolveOnSearch: boolean;
   nzbdavMaxFallbacks: number;
   streamingMode: 'nzbdav' | 'stremio';
   proxyMode: 'disabled' | 'http';
@@ -87,6 +89,8 @@ export function DashboardTab({
   syncedIndexers,
   nzbdavConnectionStatus,
   nzbdavFallbackEnabled,
+  nzbdavFallbackOrder,
+  autoResolveOnSearch,
   nzbdavMaxFallbacks,
   streamingMode,
   proxyMode,
@@ -194,7 +198,7 @@ export function DashboardTab({
                       {indexManager === 'newznab' && 'Newznab'}
                       {indexManager === 'prowlarr' && 'Prowlarr'}
                       {indexManager === 'nzbhydra' && 'NZBHydra2'}
-                      {easynewsEnabled && <span className="text-lg font-normal text-emerald-400 ml-2">+ EasyNews</span>}
+                      {easynewsEnabled && <span className="text-lg font-normal text-blue-400 ml-2">+ EasyNews</span>}
                     </div>
                     <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
                       {indexManager === 'newznab' && (() => {
@@ -297,6 +301,9 @@ export function DashboardTab({
                     </div>
                     <div className="text-3xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
                       {nzbdavFallbackEnabled ? 'Enabled' : 'Disabled'}
+                      {autoResolveOnSearch && nzbdavFallbackEnabled && nzbdavFallbackOrder === 'top' && (
+                        <span className="text-lg font-normal text-amber-400 ml-2">+ Auto-Resolve</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs text-slate-500 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
@@ -335,12 +342,12 @@ export function DashboardTab({
                       <Database className="w-5 h-5 text-amber-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">NZB Database</span>
                     </div>
-                    <div className="text-2xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
+                    <div className="text-3xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
                       <span className="text-emerald-400">{nzbDbReady}</span>
-                      <span className="text-slate-500 text-lg mx-1">healthy</span>
-                      <span className="text-slate-600 text-lg">·</span>
+                      <span className="text-slate-300 text-2xl mx-1">Healthy</span>
+                      <span className="text-slate-600 text-2xl">·</span>
                       <span className="text-red-400 ml-1">{nzbDbFailed}</span>
-                      <span className="text-slate-500 text-lg ml-1">dead</span>
+                      <span className="text-slate-300 text-2xl ml-1">Dead</span>
                     </div>
                     {streamingMode !== 'nzbdav' && (
                       <span className="text-xs text-slate-600 mt-1">NZB Database is only available in NZBDav streaming mode</span>
@@ -463,8 +470,8 @@ export function DashboardTab({
                       <Globe className="w-5 h-5 text-indigo-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">User-Agent</span>
                     </div>
-                    <div className="text-xs font-mono text-indigo-300 truncate group-hover:text-indigo-400 group-active:text-indigo-400 transition-colors">
-                      {userAgents.indexerSearch}
+                    <div className="text-3xl font-bold group-hover:text-indigo-400 group-active:text-indigo-400 transition-colors">
+                      {userAgents.indexerSearch?.split('/')[0] || 'Default'}
                     </div>
                     <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to configure &rarr;</div>
                   </div>
@@ -491,7 +498,7 @@ export function DashboardTab({
                       <Filter className="w-5 h-5 text-purple-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Filters & Sorting</span>
                     </div>
-                    <div className="text-xs text-purple-300 group-hover:text-purple-400 group-active:text-purple-400 transition-colors">
+                    <div className="text-3xl font-bold group-hover:text-purple-400 group-active:text-purple-400 transition-colors">
                       {filters.sortOrder?.[0] === 'quality' ? 'Resolution First' : filters.sortOrder?.[0] === 'size' ? 'Size First' : filters.sortOrder?.[0] === 'videoTag' ? 'Quality First' : 'Resolution First'}
                     </div>
                     <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to configure &rarr;</div>
@@ -596,7 +603,7 @@ export function DashboardTab({
                       <ScrollText className="w-5 h-5 text-emerald-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Logs</span>
                     </div>
-                    <div className="text-lg font-bold text-emerald-400 group-hover:text-emerald-300 group-active:text-emerald-300 transition-colors">Live View</div>
+                    <div className="text-3xl font-bold group-hover:text-emerald-400 group-active:text-emerald-400 transition-colors">Live View</div>
                     <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to view logs &rarr;</div>
                   </div>
                 ),
@@ -675,7 +682,7 @@ export function DashboardTab({
                       <span className="text-slate-400 text-sm">Indexer Performance Metrics</span>
                     </div>
                     <div className="text-3xl font-bold group-hover:text-amber-400 group-active:text-amber-400 transition-colors">
-                      {statsData ? Object.keys(statsData.indexers || {}).length : '-'}
+                      {statsData ? `${Object.keys(statsData.indexers || {}).length} Indexers` : '-'}
                     </div>
                     <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to view analytics &rarr;</div>
                   </div>
@@ -704,6 +711,11 @@ export function DashboardTab({
                     </div>
                     <div className="text-3xl font-bold group-hover:text-pink-400 group-active:text-pink-400 transition-colors">
                       {healthChecks.enabled ? 'Enabled' : 'Disabled'}
+                      {healthChecks.enabled && healthChecks.autoQueueMode !== 'off' && (
+                        <span className="text-lg font-normal text-pink-400 ml-2">
+                          + {healthChecks.autoQueueMode === 'top' ? 'Top Result' : 'All Healthy'}
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
                       {healthChecks.enabled

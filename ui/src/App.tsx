@@ -995,6 +995,8 @@ function App() {
             syncedIndexers={ac.syncedIndexers}
             nzbdavConnectionStatus={ac.nzbdavConnectionStatus}
             nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
+            nzbdavFallbackOrder={ac.nzbdavFallbackOrder}
+            autoResolveOnSearch={ac.autoResolveOnSearch}
             nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
             streamingMode={ac.streamingMode}
             proxyMode={ac.proxyMode}
