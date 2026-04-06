@@ -477,6 +477,21 @@ These are migrated into `config/config.json` on first startup. After that, manag
 | `NZBDAV_STREAM_BUFFER_MB` | `128` | Internal proxy buffer size in MB. Larger buffers absorb network jitter but use more memory (min: 8) |
 | `NZBDAV_STREAM_MAX_RECONNECTS` | `30` | Max upstream reconnect attempts before giving up on a proxied stream |
 
+#### NZB Database
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FILTER_DEAD_NZBS` | `true` | Filter dead (previously failed) NZBs from search results |
+| `INCLUDE_TIMEOUTS_AS_DEAD_NZBS` | `true` | Store timed-out NZBs in the dead cache. When `false`, only permanently failed NZBs are cached |
+
+#### Search Behavior
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENABLE_REMAKE_DETECTION` | `true` | Filter out results from the wrong version of remade/rebooted shows |
+| `ALLOW_MULTI_EPISODE_FILES` | `true` | Allow streaming from combined multi-episode files (e.g. S01E01E02) |
+| `URL_DEDUP` | `true` | Remove duplicate results with identical download URLs |
+
 #### HTTP Proxy
 
 | Variable | Default | Description |

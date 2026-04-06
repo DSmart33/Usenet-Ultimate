@@ -115,6 +115,8 @@ export const config: Config = {
     return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'selected';
   },
   get nzbdavCacheTimeouts() {
+    const env = envBool('INCLUDE_TIMEOUTS_AS_DEAD_NZBS');
+    if (env !== undefined) return env;
     return configData.nzbdavCacheTimeouts !== false;
   },
   get nzbdavStreamBufferMB() {
@@ -137,6 +139,8 @@ export const config: Config = {
     return Math.min(50, Math.max(1, configData.healthyNzbDbMaxSizeMB ?? 50));
   },
   get filterDeadNzbs() {
+    const env = envBool('FILTER_DEAD_NZBS');
+    if (env !== undefined) return env;
     return configData.filterDeadNzbs !== false;
   },
   get deadNzbDbMode(): 'time' | 'storage' {
@@ -158,8 +162,15 @@ export const config: Config = {
     return configData.proxyIndexers;
   },
   get searchConfig(): SearchConfig {
-    return configData.searchConfig || {
-      includeSeasonPacks: true,
+    const sc = configData.searchConfig || { includeSeasonPacks: true };
+    const remakeEnv = envBool('ENABLE_REMAKE_DETECTION');
+    const multiEpEnv = envBool('ALLOW_MULTI_EPISODE_FILES');
+    const urlDedupEnv = envBool('URL_DEDUP');
+    return {
+      ...sc,
+      ...(remakeEnv !== undefined && { enableRemakeFiltering: remakeEnv }),
+      ...(multiEpEnv !== undefined && { allowMultiEpisodeFiles: multiEpEnv }),
+      ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
     };
   },
   get useTextSearch() {
