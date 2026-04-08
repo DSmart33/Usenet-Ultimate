@@ -326,8 +326,8 @@ export function FallbackOverlay({
                   className="mt-1 w-3 h-3 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800 cursor-pointer"
                 />
                 <label htmlFor="auto-resolve-search" className="flex-1 cursor-pointer">
-                  <div className="text-sm font-medium text-slate-300">Auto Resolve on Search</div>
-                  <div className="text-xs text-slate-500 mt-0.5">Pre-resolve NZBs in the background when search results are fetched, including for auto play.</div>
+                  <div className="text-sm font-medium text-slate-300">Auto-Resolve on Search</div>
+                  <div className="text-xs text-slate-500 mt-0.5">Auto-resolve NZBs in the background when search results are fetched, including for auto play.</div>
                 </label>
               </div>
             </div>
