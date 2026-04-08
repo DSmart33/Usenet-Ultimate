@@ -303,13 +303,15 @@ export default function FiltersOverlay({
             <div className="text-sm font-medium text-slate-300">Stream Filters</div>
             {/* Minimum File Sizes */}
             <div className="bg-slate-800/30 rounded-lg border border-slate-700/20 p-3 space-y-4">
-              <div className="text-xs font-medium text-slate-400">Minimum File Sizes</div>
+              <div className="text-xs font-medium text-slate-400">{filterTab === 'movie' ? 'Minimum File Size' : 'Minimum File Sizes'}</div>
               {MIN_SIZE_FIELDS
                 .filter(({ key }) => filterTab !== 'movie' || key === 'minFileSize')
                 .map(({ key, config }) => (
                   <StreamFilterField
                     key={key}
-                    config={config}
+                    config={filterTab === 'movie'
+                      ? { ...config, label: 'Minimum Movie File Size', description: config.description.replace('individual episode files', 'movie files') }
+                      : config}
                     value={activeFilters[key] as number | undefined}
                     onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
                   />
@@ -318,13 +320,15 @@ export default function FiltersOverlay({
 
             {/* Maximum File Sizes */}
             <div className="bg-slate-800/30 rounded-lg border border-slate-700/20 p-3 space-y-4">
-              <div className="text-xs font-medium text-slate-400">Maximum File Sizes</div>
+              <div className="text-xs font-medium text-slate-400">{filterTab === 'movie' ? 'Maximum File Size' : 'Maximum File Sizes'}</div>
               {MAX_SIZE_FIELDS
                 .filter(({ key }) => filterTab !== 'movie' || key === 'maxFileSize')
                 .map(({ key, config }) => (
                   <StreamFilterField
                     key={key}
-                    config={config}
+                    config={filterTab === 'movie'
+                      ? { ...config, label: 'Maximum Movie File Size', description: config.description.replace('individual episode files', 'movie files') }
+                      : config}
                     value={activeFilters[key] as number | undefined}
                     onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
                   />
