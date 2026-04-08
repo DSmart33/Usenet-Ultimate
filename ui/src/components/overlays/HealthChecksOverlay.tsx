@@ -327,7 +327,7 @@ export default function HealthChecksOverlay({
                       Disabled: EasyNews results auto-marked as healthy.
                     </p>
                     <p className="text-xs text-amber-400 mt-1 ml-7">
-                      ⚠️ With EasyNews bypassing health checks and auto-queue set to "All Results", this will queue all EasyNews results to NZBDav. In this case, consider "Top Result" to avoid flooding your download client.
+                      ⚠️ With EasyNews bypassing health checks and auto-queue set to "All Healthy", this will queue all EasyNews results to NZBDav. In this case, consider "Top Result" to avoid flooding your download client.
                     </p>
                   </div>
                 )}
