@@ -1,8 +1,8 @@
 /**
  * Metadata parsing utilities for release titles.
  *
- * Extracts quality, source, codec, visual tags, audio tags, language,
- * edition, release group, clean title, and provides byte formatting.
+ * Uses @viren070/parse-torrent-title as the primary parser, with normalization
+ * and custom fallbacks where the library has gaps.
  */
 
 import { parseTorrentTitle } from '@viren070/parse-torrent-title';
@@ -24,129 +24,232 @@ const LANG_CODE_TO_DISPLAY: Record<string, string> = {
   'multi audio': 'Multi', 'dual audio': 'Dual Audio', 'multi subs': 'Multi',
 };
 
+// ── Parsed metadata type ─────────────────────────────────────────────
+
+export interface ParsedMetadata {
+  resolution: string;
+  codec: string;
+  source: string;
+  visualTag: string;
+  audioTag: string;
+  language: string;
+  edition: string;
+  releaseGroup: string;
+  cleanTitle: string;
+}
+
+// ── Core parser — calls library once, normalizes all fields ──────────
+
+export function parseMetadata(title: string): ParsedMetadata {
+  const parsed = parseTorrentTitle(title);
+
+  return {
+    resolution: parseResolution(parsed, title),
+    codec: normalizeCodec(parsed.codec),
+    source: parseSourceFromLib(parsed),
+    visualTag: parseVisualFromLib(parsed, title),
+    audioTag: parseAudioFromLib(parsed),
+    language: parseLanguageFromLib(parsed),
+    edition: parseEditionFromLib(parsed, title),
+    releaseGroup: parsed.group ?? 'Unknown',
+    cleanTitle: buildCleanTitle(parsed),
+  };
+}
+
+// ── Resolution ───────────────────────────────────────────────────────
+
+function parseResolution(parsed: any, title: string): string {
+  if (!parsed.resolution) {
+    if (/\bUHD\b|UHDRip/i.test(title)) return '4k';
+    return 'Unknown';
+  }
+  const res = parsed.resolution.toLowerCase();
+  if (res === '4k' || res === '2160p') return '4k';
+  return res;
+}
+
 export function parseQuality(title: string): string {
-  const titleLower = title.toLowerCase();
-
-  if (titleLower.includes('2160p') || titleLower.includes('4k')) return '2160p';
-  if (titleLower.includes('1440p')) return '1440p';
-  if (titleLower.includes('1080p')) return '1080p';
-  if (titleLower.includes('720p')) return '720p';
-  if (titleLower.includes('576p')) return '576p';
-  if (titleLower.includes('480p')) return '480p';
-  if (titleLower.includes('360p')) return '360p';
-  if (titleLower.includes('240p')) return '240p';
-  if (titleLower.includes('144p')) return '144p';
-
-  return 'Unknown';
+  return parseMetadata(title).resolution;
 }
 
 export function resolutionToDisplay(resolution: string): string {
-  const resMap: Record<string, string> = {
-    '2160p': '4K',
-    '1440p': '2K',
-    '1080p': 'FHD',
-    '720p': 'HD',
-    '576p': 'SD',
-    '480p': 'SD',
-    '360p': 'SD',
-    '240p': 'SD',
-    '144p': 'SD',
-    'Unknown': 'Unknown'
-  };
-  return resMap[resolution] || resolution;
+  if (resolution === '4k') return '4K';
+  return resolution;
+}
+
+// ── Codec ────────────────────────────────────────────────────────────
+
+function normalizeCodec(codec: string | undefined): string {
+  if (!codec) return 'Unknown';
+  const c = codec.toLowerCase();
+  if (c === 'h265' || c === 'x265') return 'hevc';
+  if (c === 'h264' || c === 'x264') return 'avc';
+  if (c === 'divx' || c === 'dvix') return 'xvid';
+  return c;
 }
 
 export function parseCodec(title: string): string {
-  const titleLower = title.toLowerCase();
+  return parseMetadata(title).codec;
+}
 
-  if (titleLower.includes('av1')) return 'AV1';
-  if (titleLower.includes('hevc') || titleLower.includes('h265') || titleLower.includes('x265')) return 'HEVC';
-  if (titleLower.includes('h264') || titleLower.includes('x264') || titleLower.includes('avc')) return 'AVC';
-  if (titleLower.includes('xvid')) return 'Unknown';
+// ── Source ────────────────────────────────────────────────────────────
 
-  return 'Unknown';
+function parseSourceFromLib(parsed: any): string {
+  return parsed.quality ?? 'Unknown';
 }
 
 export function parseSource(title: string): string {
-  const titleLower = title.toLowerCase();
+  return parseMetadata(title).source;
+}
 
-  // Check for BluRay REMUX first (most specific)
-  if ((titleLower.includes('bluray') || titleLower.includes('blu-ray')) && titleLower.includes('remux')) return 'BluRay REMUX';
-  if (titleLower.includes('remux')) return 'BluRay REMUX';
-  if (titleLower.includes('bluray') || titleLower.includes('blu-ray')) return 'BluRay';
-  if (titleLower.includes('web-dl') || titleLower.includes('webdl')) return 'WEB-DL';
-  if (titleLower.includes('webrip')) return 'WEBRip';
-  if (titleLower.includes('hdrip')) return 'HDRip';
-  if (titleLower.includes('hc') && (titleLower.includes('hdrip') || titleLower.includes('hd-rip'))) return 'HC HD-Rip';
-  if (titleLower.includes('dvdrip')) return 'DVDRip';
-  if (titleLower.includes('hdtv')) return 'HDTV';
+// ── Visual/HDR — normalized to current canonical format ──────────────
+
+function parseVisualFromLib(parsed: any, title: string): string {
+  if (parsed.threeD) return '3D';
+  // Custom fallback for 3D tag in title when library misses it
+  if (/S\d{1,2}(?:E\d{1,2})+[._\s-].*\b(?:BD)?3D\b/i.test(title)) return '3D';
+
+  const hdr = parsed.hdr as string[] | undefined;
+
+  if (hdr && hdr.length > 0) {
+    const hasDV = hdr.some((h: string) => h === 'DV');
+    const hasOtherHDR = hdr.some((h: string) => h !== 'DV' && h !== 'SDR');
+
+    if (hasDV && hasOtherHDR) return 'HDR+DV';
+    if (hasDV) return 'DV';
+    return hdr[0];
+  }
+
+  // Library fields for non-HDR visual tags
+  if (parsed.bitDepth === '10bit') return '10bit';
+  if (parsed.upscaled) return 'AI';
 
   return 'Unknown';
 }
 
 export function parseVisualTag(title: string): string {
-  const titleLower = title.toLowerCase();
+  return parseMetadata(title).visualTag;
+}
 
-  // Check for DV variants (most specific first)
-  if ((titleLower.includes('dv') || titleLower.includes('dolby') && titleLower.includes('vision')) &&
-      (titleLower.includes('hdr10+') || titleLower.includes('hdr10plus'))) return 'HDR+DV';
-  if (titleLower.includes('dv') || (titleLower.includes('dolby') && titleLower.includes('vision'))) return 'DV';
+// ── Audio — library direct ───────────────────────────────────────────
 
-  // Check for HDR variants
-  if (titleLower.includes('hdr10+') || titleLower.includes('hdr10plus')) return 'HDR10+';
-  if (titleLower.includes('hdr10')) return 'HDR10';
-  if (titleLower.includes('hdr')) return 'HDR';
+function parseAudioFromLib(parsed: any): string {
+  const audio = parsed.audio as string[] | undefined;
+  if (!audio || audio.length === 0) return 'Unknown';
 
-  // Check for other visual tags
-  if (titleLower.includes('imax')) return 'IMAX';
-  if (titleLower.includes('10bit') || titleLower.includes('10-bit')) return '10bit';
-  if (titleLower.includes(' ai ') || titleLower.includes('.ai.')) return 'AI';
-  if (titleLower.includes('sdr')) return 'SDR';
+  const hasAtmos = audio.includes('Atmos');
+  if (hasAtmos) {
+    if (audio.includes('TrueHD')) return 'Atmos (TrueHD)';
+    if (audio.includes('DDP') || audio.includes('EAC3')) return 'Atmos (DDP)';
+    // Standalone Atmos — infer base layer from source
+    const quality = (parsed.quality || '').toLowerCase();
+    if (quality.includes('bluray') || quality.includes('remux') || quality.includes('bdrip') || quality.includes('brrip') || quality.includes('uhdrip') || quality.includes('bdmux') || quality.includes('brmux')) {
+      return 'Atmos (TrueHD)';
+    }
+    return 'Atmos (DDP)';
+  }
 
-  return 'Unknown';
+  const primary = audio[0];
+  if (primary === 'EAC3') return 'DDP';
+  if (primary === 'AC3') return 'DD';
+  return primary;
 }
 
 export function parseAudioTag(title: string): string {
-  const titleLower = title.toLowerCase();
-
-  // Check for advanced audio formats
-  if (titleLower.includes('atmos')) return 'Atmos';
-  if (titleLower.includes('dts:x') || titleLower.includes('dtsx')) return 'DTS:X';
-  if (titleLower.includes('dts-hd ma') || titleLower.includes('dts-hd.ma')) return 'DTS-HD MA';
-  if (titleLower.includes('truehd')) return 'TrueHD';
-  if (titleLower.includes('dts-hd') || titleLower.includes('dtshd')) return 'DTS-HD';
-  if (titleLower.includes('dd+') || titleLower.includes('ddp') || titleLower.includes('eac3')) return 'DD+';
-  if (titleLower.includes('dd5') || titleLower.includes('dd2') || titleLower.includes('ac3')) return 'DD';
-
-  return 'Unknown';
+  return parseMetadata(title).audioTag;
 }
 
-export function parseLanguage(title: string): string {
+
+
+// ── Language — already using library ─────────────────────────────────
+
+function parseLanguageFromLib(parsed: any): string {
   try {
-    const parsed = parseTorrentTitle(title);
-    const langs = parsed.languages;
+    const langs = parsed.languages as string[] | undefined;
 
     if (!langs || langs.length === 0) {
-      // No language tag found — assume English unless dubbed
       return parsed.dubbed ? 'Dubbed' : 'English';
     } else if (langs.includes('multi audio') || langs.includes('multi subs')) {
-      // multi-audio or multi-subtitle
       return 'Multi';
     } else if (langs.includes('dual audio')) {
-      // dual audio
       return 'Dual Audio';
     } else if (langs.length > 1) {
-      // Multiple languages detected
       return 'Multi';
     } else {
-      // Single language — look up display name, unknown if no mapping exists
       return LANG_CODE_TO_DISPLAY[langs[0]] ?? 'Unknown';
     }
   } catch {
-    // Library threw — can't determine language
     return 'Unknown';
   }
 }
+
+export function parseLanguage(title: string): string {
+  return parseMetadata(title).language;
+}
+
+// ── Edition — normalized to current canonical format ─────────────────
+
+function parseEditionFromLib(parsed: any, title: string): string {
+  // Library detects most editions directly
+  if (parsed.edition) return parsed.edition;
+
+  // Library boolean flags
+  if (parsed.unrated) return 'Unrated';
+  if (parsed.uncensored) return 'Uncensored';
+
+  // Custom fallbacks for editions the library misses
+  const s = '[\\s._-]*';
+  if (new RegExp(`super${s}fan`, 'i').test(title)) return 'Superfan';
+  if (/[.\s_-]dc[.\s_-]/i.test(title) || /[.\s_-]dc$/i.test(title)) return "Director's Cut";
+  if (new RegExp(`special${s}edition`, 'i').test(title)) return 'Special Edition';
+
+  return 'Standard';
+}
+
+export function parseEdition(title: string): string {
+  return parseMetadata(title).edition;
+}
+
+// ── Release Group ────────────────────────────────────────────────────
+
+export function parseReleaseGroup(title: string): string {
+  return parseMetadata(title).releaseGroup;
+}
+
+// ── Clean Title ──────────────────────────────────────────────────────
+
+function buildCleanTitle(parsed: any): string {
+  let title = parsed.title ?? 'Unknown';
+  if (parsed.seasons?.length > 0) {
+    const s = String(parsed.seasons[0]).padStart(2, '0');
+    if (parsed.episodes?.length > 0) {
+      const eps = parsed.episodes.map((e: number) => 'E' + String(e).padStart(2, '0')).join('');
+      title += ` S${s}${eps}`;
+    } else {
+      title += ` S${s}`;
+    }
+  }
+  return title;
+}
+
+export function parseCleanTitle(title: string): string {
+  return parseMetadata(title).cleanTitle;
+}
+
+export function parseYear(title: string): string | undefined {
+  return parseTorrentTitle(title).year;
+}
+
+export function buildStreamFilename(title: string, type: string, season?: number, episode?: number): string {
+  const parsed = parseCleanTitle(title);
+  const year = type === 'movie' ? parseYear(title) : undefined;
+  const clean = year ? `${parsed} (${year})` : parsed;
+  return type === 'series' && season != null && episode != null
+    ? `${parsed.replace(/\s*S\d+$/i, '')} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`
+    : clean;
+}
+
+// ── Utilities ────────────────────────────────────────────────────────
 
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -158,104 +261,58 @@ export function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
-export function parseEdition(title: string): string {
-  const titleLower = title.toLowerCase();
-  // Release titles use dots/underscores/dashes as word separators (e.g., "Directors.Cut")
-  // so all multi-word patterns must allow [\s._-]* between words, not just \s*
-  const s = '[\\s._-]*'; // separator pattern
-
-  // Check for superfan variants (most specific first)
-  if (new RegExp(`super${s}fan`, 'i').test(title)) return 'Superfan';
-
-  // Director's cut variants
-  if (new RegExp(`director'?s?${s}cut`, 'i').test(title)) return "Director's Cut";
-  // DC as edition (only when surrounded by separators to avoid false positives)
-  if (/[.\s_-]dc[.\s_-]/i.test(title) || /[.\s_-]dc$/i.test(title)) return "Director's Cut";
-
-  // Extended variants
-  if (new RegExp(`extended${s}(edition|cut)`, 'i').test(title)) return 'Extended';
-  if (/[.\s_-]extended[.\s_-]/i.test(title) || /[.\s_-]extended$/i.test(title)) return 'Extended';
-
-  // Unrated / Uncut
-  if (titleLower.includes('unrated')) return 'Unrated';
-  if (titleLower.includes('uncut')) return 'Uncut';
-
-  // Special Edition
-  if (new RegExp(`special${s}edition`, 'i').test(title)) return 'Special Edition';
-
-  // Theatrical
-  if (titleLower.includes('theatrical')) return 'Theatrical';
-
-  // Remastered
-  if (titleLower.includes('remastered')) return 'Remastered';
-
-  // IMAX Edition (distinct from visual IMAX tag - only when explicitly "imax edition")
-  if (new RegExp(`imax${s}edition`, 'i').test(title)) return 'IMAX Edition';
-
-  // Collector's Edition
-  if (new RegExp(`collector'?s?${s}(edition|cut)?`, 'i').test(title)) return "Collector's Edition";
-
-  return 'Standard';
+export function formatAge(pubDate: string, now: number): string {
+  if (!pubDate) return '';
+  const date = new Date(pubDate);
+  if (isNaN(date.getTime())) return '';
+  const diffMs = now - date.getTime();
+  if (diffMs < 0) return '';
+  const hours = diffMs / (1000 * 60 * 60);
+  if (hours < 1) return '<1h';
+  if (hours < 24) return `${Math.floor(hours)}h`;
+  const days = hours / 24;
+  if (days < 365) return `${Math.floor(days)}d`;
+  return `${(days / 365).toFixed(1)}y`;
 }
 
-export function parseReleaseGroup(title: string): string {
-  // Release group is typically at the end after a dash, e.g., "-GROUPE" or "[GROUPE]"
-  const dashMatch = title.match(/-([A-Za-z0-9]+)$/);
-  if (dashMatch) return dashMatch[1];
-
-  const bracketMatch = title.match(/\[([A-Za-z0-9]+)\]$/);
-  if (bracketMatch) return bracketMatch[1];
-
-  return 'Unknown';
+export function getAgeHours(pubDate: string, now: number): number {
+  if (!pubDate) return Infinity;
+  const date = new Date(pubDate);
+  if (isNaN(date.getTime())) return Infinity;
+  const diffMs = now - date.getTime();
+  if (diffMs < 0) return Infinity;
+  return diffMs / (1000 * 60 * 60);
 }
 
-export function parseCleanTitle(title: string): string {
-  // Remove common release tags, resolution, quality markers, etc.
-  // Goal: extract just the content name (+ season/episode markers) since all metadata is shown in dedicated elements
-  let clean = title;
+export function formatBitrate(sizeBytes: number, durationSeconds: number): string {
+  if (!sizeBytes || !durationSeconds || durationSeconds < 1) return '';
+  const bps = (sizeBytes * 8) / durationSeconds;
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`;
+  if (bps >= 1_000) return `${Math.round(bps / 1_000)} Kbps`;
+  return `${Math.round(bps)} bps`;
+}
 
-  // Remove year in parentheses or brackets
-  clean = clean.replace(/[\(\[]\d{4}[\)\]]/g, '');
+export function getBitrateValue(sizeBytes: number, durationSeconds: number | undefined): number {
+  if (!sizeBytes || !durationSeconds || durationSeconds < 1) return 0;
+  return (sizeBytes * 8) / durationSeconds;
+}
 
-  // Remove bare year (standalone 19xx/20xx not in brackets)
-  clean = clean.replace(/[\.\s](19|20)\d{2}[\.\s]/g, '.');
-
-  // Remove resolution tags
-  clean = clean.replace(/\b(2160p|1440p|1080p|720p|576p|480p|360p|240p|144p|4K|UHD)\b/gi, '');
-
-  // Remove source tags
-  clean = clean.replace(/\b(BluRay|Blu-ray|WEB-DL|WEBDL|WEBRip|HDRip|HC[\.\s]?HD-?Rip|DVDRip|HDTV|REMUX)\b/gi, '');
-
-  // Remove codec tags
-  clean = clean.replace(/\b(AV1|HEVC|H\.?265|x265|H\.?264|x264|AVC|XviD)\b/gi, '');
-
-  // Remove HDR/visual tags
-  clean = clean.replace(/\b(DV|Dolby[\s\.]?Vision|HDR10\+?|HDR|IMAX|10bit|10-bit|AI|SDR)\b/gi, '');
-
-  // Remove audio tags
-  clean = clean.replace(/\b(Atmos|DTS:?X|DTS-HD\.?MA|TrueHD|DTS-HD|DD\+?|EAC3|AC3|AAC)\b/gi, '');
-
-  // Remove audio channel info (5.1, 7.1, 2.0, etc.)
-  clean = clean.replace(/\b\d\.\d\b/g, '');
-
-  // Remove edition tags (already shown in dedicated Edition element)
-  clean = clean.replace(/\b(Remastered|Director'?s[\.\s]?Cut|Extended|Unrated|Uncut|Special[\.\s]?Edition|Theatrical|Collector'?s[\.\s]?Edition|Superfan|IMAX[\.\s]?Edition)\b/gi, '');
-
-  // Remove series noise
-  clean = clean.replace(/\b(Complete[\.\s]?Series|Complete)\b/gi, '');
-
-  // Remove HC (hardcoded subs marker)
-  clean = clean.replace(/\bHC\b/g, '');
-
-  // Remove release group at end
-  clean = clean.replace(/-[A-Za-z0-9]+$/, '');
-  clean = clean.replace(/\[[A-Za-z0-9]+\]$/, '');
-
-  // Remove extra dots, dashes, underscores and clean up
-  clean = clean.replace(/\./g, ' ');
-  clean = clean.replace(/[_\-]+/g, ' ');
-  clean = clean.replace(/\s+/g, ' ');
-  clean = clean.trim();
-
-  return clean || 'Unknown';
+export function parseDurationAttr(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  // HH:MM:SS or MM:SS
+  const parts = trimmed.split(':').map(Number);
+  if (parts.length >= 2 && parts.every(p => !isNaN(p))) {
+    let seconds: number;
+    if (parts.length === 3) seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    else seconds = parts[0] * 60 + parts[1];
+    return seconds >= 60 ? seconds : undefined;
+  }
+  // Plain number (assume minutes)
+  const num = parseFloat(trimmed);
+  if (!isNaN(num) && num > 0) {
+    const seconds = Math.round(num * 60);
+    return seconds >= 60 ? seconds : undefined;
+  }
+  return undefined;
 }

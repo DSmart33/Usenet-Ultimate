@@ -406,7 +406,7 @@ See [`.env.example`](.env.example) for a fully commented template. All runtime o
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BASE_URL` | `http://localhost:1337` | Public URL used in Stremio manifests and stream URLs. Must be publicly accessible (HTTPS) for remote use |
+| `BASE_URL` | Auto-detected | Override for stream URLs. Auto-detected from the incoming request when not set. Set this if you need a fixed URL (custom domain, Docker networking, etc.) |
 | `PORT` | `1337` | HTTP server port |
 
 #### Indexer Configuration (one-time migration)
@@ -460,13 +460,15 @@ These are migrated into `config/config.json` on first startup. After that, manag
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NZBDAV_FALLBACK_ENABLED` | `false` | Enable automatic fallback to alternative NZBs on failure |
-| `NZBDAV_FALLBACK_ORDER` | `selected` | Candidate ordering: `selected` (start from clicked NZB) or `top` (start from highest-ranked) |
+| `NZBDAV_FALLBACK_ORDER` | `top` | Candidate ordering: `top` (start from highest-ranked) or `selected` (start from clicked NZB) |
 | `NZBDAV_MAX_FALLBACKS` | `0` | Max fallback attempts. `0` = unlimited (try all search results), `1-20` = limit |
 | `NZBDAV_LIBRARY_CHECK` | `true` | Check WebDAV library for existing files before grabbing a new NZB |
-| `NZBDAV_MOVIES_TIMEOUT` | `30` | Seconds to wait for a movie stream before trying the next fallback (1-180) |
-| `NZBDAV_TV_TIMEOUT` | `15` | Seconds to wait for a TV episode stream before trying the next fallback (1-180) |
-| `NZBDAV_JOB_TIMEOUT` | `120` | Legacy: sets both movie and TV timeouts if the specific ones aren't configured (clamped to 1-180) |
-| `NZBDAV_MAX_SELF_REDIRECTS` | `100` | Max Stremio self-redirects during fallback chains before giving up |
+| `NZBDAV_MOVIES_TIMEOUT` | `30` | Seconds to wait for a movie stream before trying the next fallback (1-90) |
+| `NZBDAV_TV_TIMEOUT` | `15` | Seconds to wait for a TV episode stream before trying the next fallback (1-90) |
+| `NZBDAV_SEASON_PACK_TIMEOUT` | `30` | Seconds to wait for a season pack stream before trying the next fallback (1-90) |
+| `NZBDAV_JOB_TIMEOUT` | `120` | Legacy: sets both movie and TV timeouts if the specific ones aren't configured (clamped to 1-90) |
+| `NZBDAV_MAX_SELF_REDIRECTS` | `500` | Max Stremio self-redirects during fallback chains before giving up |
+| `AUTO_RESOLVE_ON_SEARCH` | `true` | Pre-resolve NZBs when search results appear (requires "from top" fallback order) |
 
 #### Stream Proxy
 
@@ -475,6 +477,21 @@ These are migrated into `config/config.json` on first startup. After that, manag
 | `NZBDAV_PROXY_ENABLED` | `true` | Stream through a local proxy with buffering and reconnection. When disabled, players are redirected directly to the WebDAV URL |
 | `NZBDAV_STREAM_BUFFER_MB` | `128` | Internal proxy buffer size in MB. Larger buffers absorb network jitter but use more memory (min: 8) |
 | `NZBDAV_STREAM_MAX_RECONNECTS` | `30` | Max upstream reconnect attempts before giving up on a proxied stream |
+
+#### NZB Database
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FILTER_DEAD_NZBS` | `true` | Filter dead (previously failed) NZBs from search results |
+| `INCLUDE_TIMEOUTS_AS_DEAD_NZBS` | `true` | Store timed-out NZBs in the dead cache. When `false`, only permanently failed NZBs are cached |
+
+#### Search Behavior
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENABLE_REMAKE_DETECTION` | `true` | Filter out results from the wrong version of remade/rebooted shows |
+| `ALLOW_MULTI_EPISODE_FILES` | `true` | Allow streaming from combined multi-episode files (e.g. S01E01E02) |
+| `URL_DEDUP` | `true` | Remove duplicate results with identical download URLs |
 
 #### HTTP Proxy
 

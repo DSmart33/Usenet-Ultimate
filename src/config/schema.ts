@@ -41,12 +41,16 @@ export interface ConfigData {
   nzbdavJobTimeoutSeconds?: number;
   nzbdavMoviesTimeoutSeconds?: number;
   nzbdavTvTimeoutSeconds?: number;
+  nzbdavSeasonPackTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
+  autoResolveOnSearch?: boolean;
+  nzbdavCacheTimeouts?: boolean;
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
   healthyNzbDbMode?: 'time' | 'storage';
   healthyNzbDbTTL?: number;
   healthyNzbDbMaxSizeMB?: number;
+  filterDeadNzbs?: boolean;
   deadNzbDbMode?: 'time' | 'storage';
   deadNzbDbTTL?: number;
   deadNzbDbMaxSizeMB?: number;
@@ -78,7 +82,9 @@ export interface ConfigData {
   streamDisplayConfig?: StreamDisplayConfig;
   filters?: {
     sortOrder: string[];
+    minFileSize?: number;
     maxFileSize?: number;
+    maxStreamsPerResolution?: number;
     maxStreamsPerQuality?: number;
     videoPriority?: string[];
     encodePriority?: string[];
@@ -124,7 +130,7 @@ function loadConfigFile(): ConfigData {
   return {
     indexers: [],
     cacheEnabled: true,
-    cacheTTL: 0,
+    cacheTTL: 9000,
     streamingMode: 'nzbdav',
     indexManager: 'newznab',
   };
@@ -167,11 +173,14 @@ const ENV_OVERRIDES: readonly string[] = [
   'NZBDAV_FALLBACK_ENABLED', 'NZBDAV_MAX_FALLBACKS', 'NZBDAV_FALLBACK_ORDER',
   'NZBDAV_LIBRARY_CHECK', 'NZBDAV_PROXY_ENABLED',
   'NZBDAV_STREAM_BUFFER_MB', 'STREAM_BUFFER_MB', 'NZBDAV_STREAM_MAX_RECONNECTS', 'STREAM_MAX_RECONNECTS', 'NZBDAV_MAX_SELF_REDIRECTS',
-  'NZBDAV_JOB_TIMEOUT', 'NZBDAV_MOVIES_TIMEOUT', 'NZBDAV_TV_TIMEOUT',
+  'NZBDAV_JOB_TIMEOUT', 'NZBDAV_MOVIES_TIMEOUT', 'NZBDAV_TV_TIMEOUT', 'NZBDAV_SEASON_PACK_TIMEOUT',
   'PROWLARR_URL', 'PROWLARR_API_KEY',
   'NZBHYDRA_URL', 'NZBHYDRA_API_KEY', 'NZBHYDRA_USERNAME', 'NZBHYDRA_PASSWORD',
   'EASYNEWS_ENABLED', 'EASYNEWS_USERNAME', 'EASYNEWS_PASSWORD',
   'PROXY_MODE', 'PROXY_URL',
+  'AUTO_RESOLVE_ON_SEARCH',
+  'INCLUDE_TIMEOUTS_AS_DEAD_NZBS', 'FILTER_DEAD_NZBS',
+  'ENABLE_REMAKE_DETECTION', 'ALLOW_MULTI_EPISODE_FILES', 'URL_DEDUP',
   'HEALTH_CHECK_ENABLED', 'HEALTH_CHECK_NNTP_HOST', 'HEALTH_CHECK_NNTP_PORT',
   'HEALTH_CHECK_NNTP_TLS', 'HEALTH_CHECK_NNTP_USER', 'HEALTH_CHECK_NNTP_PASS',
   'ZYCLOPS_ENDPOINT',

@@ -105,6 +105,8 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
           enabledForHealthCheck: prev?.enabledForHealthCheck ?? true,
           movieSearchMethod,
           tvSearchMethod,
+          animeMovieSearchMethod: prev?.animeMovieSearchMethod ?? ['text'],
+          animeTvSearchMethod: prev?.animeTvSearchMethod ?? ['text'],
           capabilities,
           logo,
         };
@@ -266,6 +268,8 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
             enabledForHealthCheck: prev?.enabledForHealthCheck ?? true,
             movieSearchMethod,
             tvSearchMethod,
+            animeMovieSearchMethod: prev?.animeMovieSearchMethod ?? ['text'],
+            animeTvSearchMethod: prev?.animeTvSearchMethod ?? ['text'],
             capabilities,
             logo: matchIndexerLogo(i.name),
           };

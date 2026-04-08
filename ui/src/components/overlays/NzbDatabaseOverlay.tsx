@@ -44,6 +44,10 @@ interface NzbDatabaseOverlayProps {
   setDeadNzbDbTTL: React.Dispatch<React.SetStateAction<number>>;
   deadNzbDbMaxSizeMB: number;
   setDeadNzbDbMaxSizeMB: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavCacheTimeouts: boolean;
+  setNzbdavCacheTimeouts: React.Dispatch<React.SetStateAction<boolean>>;
+  filterDeadNzbs: boolean;
+  setFilterDeadNzbs: React.Dispatch<React.SetStateAction<boolean>>;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
@@ -129,6 +133,8 @@ export function NzbDatabaseOverlay({
   deadNzbDbMode, setDeadNzbDbMode,
   deadNzbDbTTL, setDeadNzbDbTTL,
   deadNzbDbMaxSizeMB, setDeadNzbDbMaxSizeMB,
+  nzbdavCacheTimeouts, setNzbdavCacheTimeouts,
+  filterDeadNzbs, setFilterDeadNzbs,
   apiFetch,
 }: NzbDatabaseOverlayProps) {
   const [readyEntries, setReadyEntries] = useState<CacheEntryReady[]>([]);
@@ -167,7 +173,7 @@ export function NzbDatabaseOverlay({
     if (!mountedRef.current) { mountedRef.current = true; return; }
     const timer = setTimeout(() => fetchEntries(), 600);
     return () => clearTimeout(timer);
-  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, fetchEntries]);
+  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, nzbdavCacheTimeouts, fetchEntries]);
 
   const deleteEntry = async (key: string) => {
     try {
@@ -329,7 +335,7 @@ export function NzbDatabaseOverlay({
                         <button
                           onClick={() => deleteEntry(entry.key)}
                           aria-label="Remove entry"
-                          className="flex-shrink-0 p-1.5 rounded-md text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          className="flex-shrink-0 p-1.5 rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -370,6 +376,36 @@ export function NzbDatabaseOverlay({
             <p className="text-xs text-slate-500">
               Known-bad NZBs that are skipped instantly on retry to avoid wasted time.
             </p>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={filterDeadNzbs}
+                onChange={(e) => setFilterDeadNzbs(e.target.checked)}
+                className="w-4 h-4 flex-shrink-0 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800"
+              />
+              <div>
+                <span className="text-sm font-medium text-slate-300">Filter Dead NZBs from Results</span>
+                <p className="text-xs text-slate-500 mt-1">
+                  Automatically removes known-dead NZBs from search results before they appear in Stremio.
+                </p>
+              </div>
+            </label>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={nzbdavCacheTimeouts}
+                onChange={(e) => setNzbdavCacheTimeouts(e.target.checked)}
+                className="w-4 h-4 flex-shrink-0 rounded border-slate-600 bg-slate-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-800"
+              />
+              <div>
+                <span className="text-sm font-medium text-slate-300">Include Timed-Out NZBs</span>
+                <p className="text-xs text-slate-500 mt-1">
+                  Adds timed-out NZBs to the Dead Database to skip them in future searches. Disabling also removes any existing timed-out entries from the database.
+                </p>
+              </div>
+            </label>
 
             {/* Mode Toggle */}
             <div className="flex gap-2">
@@ -461,7 +497,7 @@ export function NzbDatabaseOverlay({
                         <button
                           onClick={() => deleteEntry(entry.key)}
                           aria-label="Remove entry"
-                          className="flex-shrink-0 p-1.5 rounded-md text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          className="flex-shrink-0 p-1.5 rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>

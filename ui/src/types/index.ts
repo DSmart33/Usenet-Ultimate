@@ -1,6 +1,13 @@
 // What this does:
 //   Shared TypeScript interfaces and types for the Usenet Ultimate UI
 
+export interface Manifest {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
 export interface IndexerCaps {
   movieSearchParams: string[];
   tvSearchParams: string[];
@@ -28,6 +35,8 @@ export interface Indexer {
   logo?: string;
   movieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
   tvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
+  animeMovieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
+  animeTvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
   caps?: IndexerCaps;
   pagination?: boolean;
   maxPages?: number;
@@ -41,6 +50,8 @@ export interface SyncedIndexer {
   enabledForHealthCheck: boolean;
   movieSearchMethod: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
   tvSearchMethod: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
+  animeMovieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
+  animeTvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
   capabilities?: IndexerCaps;
   logo?: string;
   pagination?: boolean;
@@ -68,6 +79,9 @@ export interface SearchConfig {
   useTextSearchForAnime?: boolean;
   skipAnimeTitleResolve?: boolean;
   indexerPriorityDedup?: boolean;
+  enableRemakeFiltering?: boolean;
+  allowMultiEpisodeFiles?: boolean;
+  urlDedup?: boolean;
   movieSearchMethod?: string;
   tvSearchMethod?: string;
 }
@@ -145,6 +159,7 @@ export interface Config {
   nzbdavMoviesTimeoutSeconds?: number;
   nzbdavTvTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
+  autoResolveOnSearch?: boolean;
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
   easynewsEnabled?: boolean;
@@ -202,9 +217,16 @@ export interface AutoPlayState {
 export interface FiltersState {
   sortOrder: string[];
   enabledSorts: Record<string, boolean>;
+  sortDirections?: Record<string, 'asc' | 'desc'>;
   enabledPriorities: Record<string, Record<string, boolean>>;
+  minFileSize: number | undefined;
   maxFileSize: number | undefined;
+  minSeasonPackSize: number | undefined;
+  maxSeasonPackSize: number | undefined;
+  minSeasonPackEpisodeSize: number | undefined;
+  maxSeasonPackEpisodeSize: number | undefined;
   maxStreams: number | undefined;
+  maxStreamsPerResolution: number | undefined;
   maxStreamsPerQuality: number | undefined;
   resolutionPriority: string[];
   videoPriority: string[];
@@ -224,6 +246,8 @@ export interface NewIndexerForm {
   logo: string;
   movieSearchMethod: string[];
   tvSearchMethod: string[];
+  animeMovieSearchMethod: string[];
+  animeTvSearchMethod: string[];
   caps: IndexerCaps | null;
   pagination: boolean;
   maxPages: number;
@@ -238,6 +262,8 @@ export interface EditIndexerForm {
   logo: string;
   movieSearchMethod: string[];
   tvSearchMethod: string[];
+  animeMovieSearchMethod: string[];
+  animeTvSearchMethod: string[];
   caps: IndexerCaps | null;
   pagination: boolean;
   maxPages: number;
@@ -282,5 +308,7 @@ export interface MockStreamData {
   healthProviders: string;
   edition: string;
   language: string;
+  age?: string;
+  bitrate?: string;
   isSeasonPack: boolean;
 }

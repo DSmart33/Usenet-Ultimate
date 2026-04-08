@@ -179,6 +179,10 @@ function App() {
     return methods;
   };
 
+  // Anime methods use the same indexer capabilities as movie/TV
+  const getAvailableAnimeMovieMethods = getAvailableMovieMethods;
+  const getAvailableAnimeTvMethods = getAvailableTvMethods;
+
   // ── Inline handler: discoverCaps ──────────────────────────────────────
   const discoverCaps = async (url: string, apiKey: string, target: 'new' | 'edit') => {
     if (!url || !apiKey) return;
@@ -199,13 +203,17 @@ function App() {
           ac.setNewIndexer(prev => {
             const movieFiltered = prev.movieSearchMethod.filter(m => availableMovieValues.includes(m));
             const tvFiltered = prev.tvSearchMethod.filter(m => availableTvValues.includes(m));
-            return { ...prev, caps, movieSearchMethod: movieFiltered.length > 0 ? movieFiltered : [bestMovie], tvSearchMethod: tvFiltered.length > 0 ? tvFiltered : [bestTv] };
+            const animeMovieFiltered = prev.animeMovieSearchMethod.filter(m => availableMovieValues.includes(m));
+            const animeTvFiltered = prev.animeTvSearchMethod.filter(m => availableTvValues.includes(m));
+            return { ...prev, caps, movieSearchMethod: movieFiltered.length > 0 ? movieFiltered : [bestMovie], tvSearchMethod: tvFiltered.length > 0 ? tvFiltered : [bestTv], animeMovieSearchMethod: animeMovieFiltered.length > 0 ? animeMovieFiltered : ['text'], animeTvSearchMethod: animeTvFiltered.length > 0 ? animeTvFiltered : ['text'] };
           });
         } else {
           ac.setEditForm(prev => {
             const movieFiltered = prev.movieSearchMethod.filter(m => availableMovieValues.includes(m));
             const tvFiltered = prev.tvSearchMethod.filter(m => availableTvValues.includes(m));
-            return { ...prev, caps, movieSearchMethod: movieFiltered.length > 0 ? movieFiltered : [bestMovie], tvSearchMethod: tvFiltered.length > 0 ? tvFiltered : [bestTv] };
+            const animeMovieFiltered = prev.animeMovieSearchMethod.filter(m => availableMovieValues.includes(m));
+            const animeTvFiltered = prev.animeTvSearchMethod.filter(m => availableTvValues.includes(m));
+            return { ...prev, caps, movieSearchMethod: movieFiltered.length > 0 ? movieFiltered : [bestMovie], tvSearchMethod: tvFiltered.length > 0 ? tvFiltered : [bestTv], animeMovieSearchMethod: animeMovieFiltered.length > 0 ? animeMovieFiltered : ['text'], animeTvSearchMethod: animeTvFiltered.length > 0 ? animeTvFiltered : ['text'] };
           });
         }
       }
@@ -228,6 +236,8 @@ function App() {
         logo: preset.logo,
         movieSearchMethod: ['text'],
         tvSearchMethod: ['text'],
+        animeMovieSearchMethod: ['text'],
+        animeTvSearchMethod: ['text'],
         caps: null,
         pagination: false,
         maxPages: 3,
@@ -261,7 +271,9 @@ function App() {
         body: JSON.stringify(ac.newIndexer),
       });
       if (response.ok) {
-        ac.setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+        ac.setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+        ac.setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
+        ac.setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
         ac.setShowAddIndexer(false);
         await ac.fetchIndexers();
       } else {
@@ -285,6 +297,8 @@ function App() {
       logo: indexer.logo || '',
       movieSearchMethod: Array.isArray(indexer.movieSearchMethod) ? indexer.movieSearchMethod : [indexer.movieSearchMethod || 'text'],
       tvSearchMethod: Array.isArray(indexer.tvSearchMethod) ? indexer.tvSearchMethod : [indexer.tvSearchMethod || 'text'],
+      animeMovieSearchMethod: Array.isArray(indexer.animeMovieSearchMethod) ? indexer.animeMovieSearchMethod : [indexer.animeMovieSearchMethod || 'text'],
+      animeTvSearchMethod: Array.isArray(indexer.animeTvSearchMethod) ? indexer.animeTvSearchMethod : [indexer.animeTvSearchMethod || 'text'],
       caps: indexer.caps || null,
       pagination: indexer.pagination === true,
       maxPages: indexer.maxPages ?? 3,
@@ -488,12 +502,15 @@ function App() {
           setShowApiKey={ac.setShowApiKey}
           capsLoading={ac.capsLoading}
           testResults={ac.testResults}
+          setTestResults={ac.setTestResults}
           testQuery={ac.testQuery}
           setTestQuery={ac.setTestQuery}
           handlePresetChange={handlePresetChange}
           discoverCaps={discoverCaps}
           getAvailableMovieMethods={getAvailableMovieMethods}
           getAvailableTvMethods={getAvailableTvMethods}
+          getAvailableAnimeMovieMethods={getAvailableAnimeMovieMethods}
+          getAvailableAnimeTvMethods={getAvailableAnimeTvMethods}
           renderMethodLabel={renderMethodLabel}
           handleTestIndexer={handleTestIndexer}
           handleAddIndexer={handleAddIndexer}
@@ -512,11 +529,14 @@ function App() {
           capsLoading={ac.capsLoading}
           config={ac.config}
           testResults={ac.testResults}
+          setTestResults={ac.setTestResults}
           testQuery={ac.testQuery}
           setTestQuery={ac.setTestQuery}
           discoverCaps={discoverCaps}
           getAvailableMovieMethods={getAvailableMovieMethods}
           getAvailableTvMethods={getAvailableTvMethods}
+          getAvailableAnimeMovieMethods={getAvailableAnimeMovieMethods}
+          getAvailableAnimeTvMethods={getAvailableAnimeTvMethods}
           renderMethodLabel={renderMethodLabel}
           handleTestIndexer={handleTestIndexer}
           setDeleteConfirmation={ac.setDeleteConfirmation}
@@ -553,10 +573,12 @@ function App() {
           setSeasonPackPagination={ac.setSeasonPackPagination}
           seasonPackAdditionalPages={ac.seasonPackAdditionalPages}
           setSeasonPackAdditionalPages={ac.setSeasonPackAdditionalPages}
-          useTextSearchForAnime={ac.useTextSearchForAnime}
-          setUseTextSearchForAnime={ac.setUseTextSearchForAnime}
-          skipAnimeTitleResolve={ac.skipAnimeTitleResolve}
-          setSkipAnimeTitleResolve={ac.setSkipAnimeTitleResolve}
+          enableRemakeFiltering={ac.enableRemakeFiltering}
+          setEnableRemakeFiltering={ac.setEnableRemakeFiltering}
+          allowMultiEpisodeFiles={ac.allowMultiEpisodeFiles}
+          setAllowMultiEpisodeFiles={ac.setAllowMultiEpisodeFiles}
+          urlDedup={ac.urlDedup}
+          setUrlDedup={ac.setUrlDedup}
           indexerPriorityDedup={ac.indexerPriorityDedup}
           setIndexerPriorityDedup={ac.setIndexerPriorityDedup}
           indexerPriority={ac.indexerPriority}
@@ -577,8 +599,6 @@ function App() {
           setEasynewsMaxPages={ac.setEasynewsMaxPages}
           easynewsMode={ac.easynewsMode}
           setEasynewsMode={ac.setEasynewsMode}
-          easynewsHealthCheck={ac.easynewsHealthCheck}
-          setEasynewsHealthCheck={ac.setEasynewsHealthCheck}
           showEasynewsPassword={ac.showEasynewsPassword}
           setShowEasynewsPassword={ac.setShowEasynewsPassword}
           easynewsTestStatus={ac.easynewsTestStatus}
@@ -616,6 +636,8 @@ function App() {
           setFailedLogos={ac.setFailedLogos}
           getAvailableMovieMethods={getAvailableMovieMethods}
           getAvailableTvMethods={getAvailableTvMethods}
+          getAvailableAnimeMovieMethods={getAvailableAnimeMovieMethods}
+          getAvailableAnimeTvMethods={getAvailableAnimeTvMethods}
           renderMethodLabel={renderMethodLabel}
           setShowAddIndexer={ac.setShowAddIndexer}
           expandedIndexer={ac.expandedIndexer}
@@ -678,12 +700,16 @@ function App() {
           setNzbdavMoviesTimeoutSeconds={ac.setNzbdavMoviesTimeoutSeconds}
           nzbdavTvTimeoutSeconds={ac.nzbdavTvTimeoutSeconds}
           setNzbdavTvTimeoutSeconds={ac.setNzbdavTvTimeoutSeconds}
+          nzbdavSeasonPackTimeoutSeconds={ac.nzbdavSeasonPackTimeoutSeconds}
+          setNzbdavSeasonPackTimeoutSeconds={ac.setNzbdavSeasonPackTimeoutSeconds}
           nzbdavFallbackOrder={ac.nzbdavFallbackOrder}
           setNzbdavFallbackOrder={ac.setNzbdavFallbackOrder}
           nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
           setNzbdavMaxFallbacks={ac.setNzbdavMaxFallbacks}
           nzbdavProxyEnabled={ac.nzbdavProxyEnabled}
           setNzbdavProxyEnabled={ac.setNzbdavProxyEnabled}
+          autoResolveOnSearch={ac.autoResolveOnSearch}
+          setAutoResolveOnSearch={ac.setAutoResolveOnSearch}
         />
       )}
 
@@ -703,6 +729,10 @@ function App() {
           setDeadNzbDbTTL={ac.setDeadNzbDbTTL}
           deadNzbDbMaxSizeMB={ac.deadNzbDbMaxSizeMB}
           setDeadNzbDbMaxSizeMB={ac.setDeadNzbDbMaxSizeMB}
+          nzbdavCacheTimeouts={ac.nzbdavCacheTimeouts}
+          setNzbdavCacheTimeouts={ac.setNzbdavCacheTimeouts}
+          filterDeadNzbs={ac.filterDeadNzbs}
+          setFilterDeadNzbs={ac.setFilterDeadNzbs}
           apiFetch={apiFetch}
         />
       )}
@@ -714,6 +744,7 @@ function App() {
           cacheTTL={ac.cacheTTL}
           setCacheTTL={ac.setCacheTTL}
           apiFetch={apiFetch}
+          autoPlayEnabled={ac.autoPlay.enabled}
         />
       )}
 
@@ -772,6 +803,8 @@ function App() {
           failedLogos={ac.failedLogos}
           setFailedLogos={ac.setFailedLogos}
           apiFetch={apiFetch}
+          easynewsHealthCheck={ac.easynewsHealthCheck}
+          setEasynewsHealthCheck={ac.setEasynewsHealthCheck}
         />
       )}
 
@@ -894,7 +927,17 @@ function App() {
               <div>
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-lg md:text-xl font-bold tracking-tight bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent">Usenet Ultimate</h1>
-                  <span className="text-[10px] text-amber-400 font-mono bg-slate-800/80 px-1.5 py-0.5 rounded-md border border-amber-500/30">v{__APP_VERSION__}</span>
+                  <a
+                    href="https://github.com/DSmart33/Usenet-Ultimate"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[10px] text-amber-400 font-mono bg-slate-800/80 px-1.5 py-0.5 rounded-md border border-amber-500/30 hover:bg-slate-700/80 hover:border-amber-500/50 transition-colors"
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+                    </svg>
+                    v{__APP_VERSION__}
+                  </a>
                 </div>
                 <p className="text-[11px] text-white mt-0.5 hidden sm:block tracking-wide">The Ultimate Usenet Streaming Experience</p>
               </div>
@@ -912,14 +955,14 @@ function App() {
                   key={tab.id}
                   onClick={() => ac.setActiveTab(tab.id)}
                   className={clsx(
-                    'flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+                    'flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg text-sm font-medium',
                     ac.activeTab === tab.id
-                      ? 'bg-gradient-to-r from-amber-500/15 to-yellow-500/15 text-white border border-amber-500/25 shadow-sm shadow-amber-500/10'
+                      ? 'bg-amber-500/15 text-white border border-amber-500/25 shadow-sm shadow-amber-500/10'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                   )}
                 >
                   <tab.icon className={clsx(
-                    'w-4 h-4 transition-all',
+                    'w-4 h-4',
                     ac.activeTab === tab.id && 'text-amber-400 drop-shadow-[0_0_6px_rgba(245,158,11,0.6)]'
                   )} />
                   <span>{tab.label}</span>
@@ -952,6 +995,8 @@ function App() {
             syncedIndexers={ac.syncedIndexers}
             nzbdavConnectionStatus={ac.nzbdavConnectionStatus}
             nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
+            nzbdavFallbackOrder={ac.nzbdavFallbackOrder}
+            autoResolveOnSearch={ac.autoResolveOnSearch}
             nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
             streamingMode={ac.streamingMode}
             proxyMode={ac.proxyMode}
@@ -978,8 +1023,10 @@ function App() {
         {/* Tab Content - Install */}
         {ac.activeTab === 'install' && ac.config && (
           <InstallTab
-            manifestKey={auth.manifestKey}
+            manifests={auth.manifests}
+            setManifests={auth.setManifests}
             hasIndexers={!!hasIndexers}
+            apiFetch={apiFetch}
           />
         )}
       </div>

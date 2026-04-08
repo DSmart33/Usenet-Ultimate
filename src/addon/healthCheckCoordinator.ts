@@ -13,6 +13,7 @@ import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { performBatchHealthChecks, type HealthCheckResult, type HealthCheckOptions } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
+import { buildStreamFilename } from '../parsers/metadataParsers.js';
 import { checkNzbLibrary } from '../nzbdav/videoDiscovery.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
 import type { NZBDavConfig } from '../nzbdav/types.js';
@@ -27,6 +28,7 @@ export interface HealthCheckContext {
   season?: number;
   episode?: number;
   episodesInSeason?: number;
+  preExistingHealth?: Map<string, HealthCheckResult>;
 }
 
 /**
@@ -39,6 +41,11 @@ export async function coordinateHealthChecks(
 ): Promise<{ healthResults: Map<string, HealthCheckResult>; filteredResults: any[] }> {
   let { allResults } = ctx;
   const healthResults = new Map<string, HealthCheckResult>();
+  // Pre-populate with existing health data (from cached results) so smart mode
+  // sees already-checked results and doesn't re-check them
+  if (ctx.preExistingHealth) {
+    for (const [key, val] of ctx.preExistingHealth) healthResults.set(key, val);
+  }
 
   const enabledProviders = config.healthChecks?.providers?.filter(p => p.enabled) || [];
   if (!config.healthChecks?.enabled || enabledProviders.length === 0) {
@@ -103,6 +110,8 @@ export async function coordinateHealthChecks(
       }
       return false; // Already verified by Zyclops — not eligible for NNTP check
     }
+    // Skip results that already have health data (from cached pre-existing results)
+    if (healthResults.has(candidate.link)) return false;
     if (isAggregatorMode) return healthCheckEnabledSet.has(candidate.indexerName);
     return !healthCheckIndexers || healthCheckIndexers[candidate.indexerName] !== false;
   };
@@ -463,7 +472,8 @@ export function autoQueueToNzbdav(
         nzbUrl = `${SELF_URL}/${autoManifestKey}/easynews/nzb?${nzbParams.toString()}`;
       }
 
-      const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}&auto=true${autoEpParams}`;
+      const streamFilename = buildStreamFilename(result.title, type, season, episode);
+      const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(nzbUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}&auto=true${autoEpParams}`;
       fetch(proxyUrl).catch(err => console.error('❌ Auto-queue failed:', err));
     } catch (error) {
       console.error('❌ Auto-queue to NZBDav failed:', error);

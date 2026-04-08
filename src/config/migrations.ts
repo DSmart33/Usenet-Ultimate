@@ -10,7 +10,10 @@
  *  - Global search methods → per-indexer
  *  - Single-string search methods → arrays
  *  - Single-string zyclops backbone → array
- *  - Pagination defaults migration
+ *  - One-time filter/sort reset (v1.3.0)
+ *  - Stream display age/bitrate injection
+ *  - Auto play minimum cache TTL enforcement
+ *  - Global useTextSearchForAnime → per-indexer anime search methods
  */
 
 import 'dotenv/config';
@@ -151,16 +154,65 @@ if (configData.indexers.some(i => i.zyclops?.backbone && !Array.isArray(i.zyclop
   console.log(`✅ Migrated single-string zyclops backbone to array for ${configData.indexers.length} indexer(s)`);
 }
 
-// Migrate pagination: old default was true (pagination !== false), new default is false.
-// Existing indexers with pagination undefined (old implicit true) get explicit pagination: true + maxPages: 3.
-if (configData.indexers.length > 0 && configData.indexers.some(i => i.pagination === undefined && i.maxPages === undefined)) {
-  for (const indexer of configData.indexers) {
-    if (indexer.pagination === undefined && indexer.maxPages === undefined) {
-      // Old default was enabled — preserve behavior
-      indexer.pagination = true;
-      indexer.maxPages = 3;
+// One-time filter reset: 540p was added in this release — its absence signals pre-update filters
+{
+  const needsReset = (configData.filters as any)?.resolutionPriority && !(configData.filters as any).resolutionPriority.includes('540p');
+  if (needsReset) {
+    delete (configData as any).filters;
+    delete (configData as any).movieFilters;
+    delete (configData as any).tvFilters;
+    saveConfigFile(configData);
+    console.log('✅ One-time reset: filter/sort configs reset to defaults');
+  }
+}
+
+// Migrate streamDisplayConfig: inject age/bitrate elements if missing
+if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.elements['age']) {
+  configData.streamDisplayConfig.elements['age'] = { id: 'age', label: 'Post Age', enabled: false, prefix: '📅' };
+  configData.streamDisplayConfig.elements['bitrate'] = { id: 'bitrate', label: 'Bitrate', enabled: false, prefix: '📊' };
+  // Also place them into the first empty lineGroup row so they're visible in the UI
+  if (configData.streamDisplayConfig.lineGroups) {
+    const emptyRow = configData.streamDisplayConfig.lineGroups.find((g: any) => g.elementIds?.length === 0);
+    if (emptyRow) {
+      emptyRow.elementIds = ['age', 'bitrate'];
     }
   }
   saveConfigFile(configData);
-  console.log(`✅ Migrated pagination defaults for ${configData.indexers.length} indexer(s) (old default true → explicit true + maxPages 3)`);
+  console.log('✅ Migrated streamDisplayConfig: added age/bitrate display elements');
 }
+
+// Enforce minimum cache TTL when auto play is enabled (auto play defaults to enabled)
+{
+  const autoPlayEnabled = (configData as any).autoPlay?.enabled !== false;
+  if (autoPlayEnabled && (configData.cacheTTL ?? 0) < 9000) {
+    configData.cacheTTL = 9000;
+    saveConfigFile(configData);
+    console.log('✅ Set search cache to 2.5 hours (minimum for auto play)');
+  }
+}
+
+// Ensure all indexers have anime search method defaults
+{
+  const useText = (configData as any).searchConfig?.useTextSearchForAnime;
+  let migrated = false;
+  for (const indexer of configData.indexers) {
+    if (!(indexer as any).animeMovieSearchMethod) {
+      // If global useTextSearchForAnime was explicitly false, inherit from normal methods; otherwise default to text
+      (indexer as any).animeMovieSearchMethod = (useText === false) ? ((indexer as any).movieSearchMethod || ['text']) : ['text'];
+      (indexer as any).animeTvSearchMethod = (useText === false) ? ((indexer as any).tvSearchMethod || ['text']) : ['text'];
+      migrated = true;
+    }
+  }
+  for (const indexer of (configData as any).syncedIndexers || []) {
+    if (!indexer.animeMovieSearchMethod) {
+      indexer.animeMovieSearchMethod = (useText === false) ? (indexer.movieSearchMethod || ['text']) : ['text'];
+      indexer.animeTvSearchMethod = (useText === false) ? (indexer.tvSearchMethod || ['text']) : ['text'];
+      migrated = true;
+    }
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ Set anime search method defaults for indexers');
+  }
+}
+

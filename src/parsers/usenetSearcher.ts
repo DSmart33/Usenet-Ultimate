@@ -153,7 +153,7 @@ export class UsenetSearcher {
     }
   }
 
-  async searchMovie(imdbId: string, title: string, year?: string, country?: string, externalId?: { idParam: string; idValue: string }, searchMethod?: string, additionalTitles?: string[]): Promise<NZBSearchResult[]> {
+  async searchMovie(imdbId: string, title: string, year?: string, country?: string, externalId?: { idParam: string; idValue: string }, searchMethod?: string, additionalTitles?: string[], titleYear?: string): Promise<NZBSearchResult[]> {
     try {
       const methods = this.indexer.movieSearchMethod;
       const method = searchMethod || (Array.isArray(methods) ? methods[0] : methods) || 'imdb';
@@ -164,13 +164,13 @@ export class UsenetSearcher {
         const query = stripDiacritics(year ? `${title} ${year}` : title);
         const results = await this.search(query, '2000'); // Category 2000 = Movies
         const before = results.length;
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
         if (before !== filtered.length) {
-          const removed = results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles));
+          const removed = results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
           console.log(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
           removed.forEach(r => console.log(`      ✂️  ${r.title}`));
         }
-        return this.deduplicateResults(filtered);
+        return filtered;
       }
 
       // If method requires an external ID that wasn't resolved, fall back to text search
@@ -182,13 +182,13 @@ export class UsenetSearcher {
         }
         const query = stripDiacritics(year ? `${title} ${year}` : title);
         const results = await this.search(query, '2000');
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
         console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
         if (results.length !== filtered.length) {
-          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
             .forEach(r => console.log(`      ✂️  ${r.title}`));
         }
-        return this.deduplicateResults(filtered);
+        return filtered;
       }
 
       // ID-based search (IMDB, TMDB, TVDB)
@@ -270,7 +270,7 @@ export class UsenetSearcher {
         }
       }
 
-      return this.deduplicateResults(results);
+      return results;
     } catch (error: any) {
       console.error(`❌ Movie search error for ${this.indexer.name}:`);
       if (error.response) {
@@ -292,7 +292,8 @@ export class UsenetSearcher {
     country?: string,
     externalId?: { idParam: string; idValue: string },
     searchMethod?: string,
-    additionalTitles?: string[]
+    additionalTitles?: string[],
+    titleYear?: string,
   ): Promise<NZBSearchResult[]> {
     try {
       const tvMethods = this.indexer.tvSearchMethod;
@@ -306,9 +307,9 @@ export class UsenetSearcher {
         console.log(`📺 TV text search for: ${query}`);
         const results = await this.search(query, '5000'); // Category 5000 = TV
         const before = results.length;
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
         if (before !== filtered.length) {
-          const removed = results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles));
+          const removed = results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
           console.log(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
           removed.forEach(r => console.log(`      ✂️  ${r.title}`));
         }
@@ -324,13 +325,13 @@ export class UsenetSearcher {
           const packResults = await this.search(packQuery, '5000', seasonPackPagination);
           const packBefore = packResults.length;
           // Must match title AND be a season pack (S## without E##)
-          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?!E\\d)`, 'i');
+          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
           const filteredPacks = packResults
-            .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles))
+            .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
             .filter(r => seasonPackPattern.test(r.title));
           if (packBefore !== filteredPacks.length) {
             const removedPacks = packResults.filter(r =>
-              !isTextSearchMatch(title, r.title, year, country, additionalTitles) ||
+              !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear) ||
               !seasonPackPattern.test(r.title)
             );
             console.log(`   📦 Season pack filter: ${packBefore} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
@@ -349,7 +350,7 @@ export class UsenetSearcher {
           filtered.push(...filteredPacks);
         }
 
-        return this.deduplicateResults(filtered);
+        return filtered;
       }
 
       // If method requires an external ID that wasn't resolved, fall back to text search
@@ -363,10 +364,10 @@ export class UsenetSearcher {
         const e2 = episode.toString().padStart(2, '0');
         const query = stripDiacritics(`${title} S${s2}E${e2}`);
         const results = await this.search(query, '5000');
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
         console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
         if (results.length !== filtered.length) {
-          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
             .forEach(r => console.log(`      ✂️  ${r.title}`));
         }
 
@@ -377,13 +378,13 @@ export class UsenetSearcher {
           const seasonPackPagination2 = spPaginationEnabled2 && spAdditionalPages2 ? { enabled: true, maxPages: spAdditionalPages2 } : undefined;
           const packQuery = stripDiacritics(`${title} S${s2}`);
           const packResults = await this.search(packQuery, '5000', seasonPackPagination2);
-          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?!E\\d)`, 'i');
+          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
           const filteredPacks = packResults
-            .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles))
+            .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
             .filter(r => seasonPackPattern.test(r.title));
           if (packResults.length !== filteredPacks.length) {
             const removedPacks = packResults.filter(r =>
-              !isTextSearchMatch(title, r.title, year, country, additionalTitles) ||
+              !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear) ||
               !seasonPackPattern.test(r.title)
             );
             console.log(`   📦 Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
@@ -397,7 +398,7 @@ export class UsenetSearcher {
           filtered.push(...filteredPacks);
         }
 
-        return this.deduplicateResults(filtered);
+        return filtered;
       }
 
       // ID-based search (IMDB, TVDB, TVmaze)
@@ -491,13 +492,13 @@ export class UsenetSearcher {
         const packQuery = stripDiacritics(`${title} S${sp}`);
         console.log(`📦 Season pack search for: ${packQuery}`);
         const packResults = await this.search(packQuery, '5000', seasonPackPagination3);
-        const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?!E\\d)`, 'i');
+        const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
         const filteredPacks = packResults
-          .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles))
+          .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
           .filter(r => seasonPackPattern.test(r.title));
         if (packResults.length !== filteredPacks.length) {
           const removedPacks = packResults.filter(r =>
-            !isTextSearchMatch(title, r.title, year, country, additionalTitles) ||
+            !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear) ||
             !seasonPackPattern.test(r.title)
           );
           console.log(`   📦 Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
@@ -511,7 +512,7 @@ export class UsenetSearcher {
         results.push(...filteredPacks);
       }
 
-      return this.deduplicateResults(results);
+      return results;
     } catch (error: any) {
       console.error(`❌ TV search error for ${this.indexer.name}:`);
       if (error.response) {
@@ -521,15 +522,5 @@ export class UsenetSearcher {
       }
       return [];
     }
-  }
-
-  private deduplicateResults(results: NZBSearchResult[]): NZBSearchResult[] {
-    const seen = new Set<string>();
-    return results.filter((result) => {
-      const key = `${result.title}-${result.size}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
   }
 }

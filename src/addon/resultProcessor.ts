@@ -1,13 +1,42 @@
 /**
  * Result Processor
  *
- * Handles cross-indexer deduplication (by priority and URL), quality filtering,
+ * Handles cross-indexer deduplication (by priority), quality filtering,
  * priority-based sorting, and stream count limits.
  */
 
 import { config } from '../config/index.js';
-import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition } from '../parsers/metadataParsers.js';
+import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, getAgeHours, getBitrateValue, formatBytes, parseYear } from '../parsers/metadataParsers.js';
+import { isRemakeFiltered } from '../parsers/titleMatching.js';
 import type { FilterConfig } from '../types.js';
+
+/**
+ * URL deduplication — removes results with identical download URLs.
+ * First occurrence wins; subsequent duplicates are dropped.
+ */
+function deduplicateByUrl(allResults: any[]): any[] {
+  if (config.searchConfig?.urlDedup === false || allResults.length === 0) return allResults;
+
+  const seen = new Map<string, string>(); // link → indexerName of first occurrence
+  const duplicates: { title: string; indexer: string }[] = [];
+  const deduped = allResults.filter(r => {
+    if (!r.link) return true;
+    const existing = seen.get(r.link);
+    if (existing) {
+      duplicates.push({ title: r.title, indexer: existing });
+      return false;
+    }
+    seen.set(r.link, r.indexerName || 'Unknown');
+    return true;
+  });
+
+  if (duplicates.length > 0) {
+    console.log(`🔗 URL dedup: removed ${duplicates.length} duplicate(s) (${deduped.length} remaining)`);
+    for (const d of duplicates) console.log(`   ✂️  "${d.title}" (duplicate of ${d.indexer} result)`);
+  }
+
+  return deduped;
+}
 
 /**
  * Cross-indexer deduplication by indexer priority.
@@ -40,7 +69,7 @@ export function deduplicateByPriority(allResults: any[]): any[] {
   const seen = new Map<string, { priority: number; index: number; indexerName: string }>();
   const dropped: { title: string; droppedFrom: string; keptFrom: string }[] = [];
   allResults.forEach((result, i) => {
-    const key = `${result.title}-${result.size}`;
+    const key = `${result.title}-${formatBytes(result.size)}`;
     const priority = priorityMap.get(result.indexerName) ?? 9998;
     const existing = seen.get(key);
     if (!existing) {
@@ -67,34 +96,58 @@ export function deduplicateByPriority(allResults: any[]): any[] {
 }
 
 /**
- * Deduplicate by download URL — same URL = same NZB regardless of title.
+ * Filter out results from the wrong version of a remade/rebooted show.
+ * For season packs: correct year → kept; wrong year → removed; no year → deprioritized to end.
+ * For episodes: yearless releases must contain the episode name; year-present releases must
+ * match the expected year within ±1. Episode filtering is skipped when episodeName is unavailable.
+ * Returns two arrays: results kept in their normal position, and packs deprioritized to the end.
  */
-export function deduplicateByUrl(allResults: any[]): any[] {
-  const seenUrls = new Map<string, number>(); // url → first index
-  const urlDropped: { title: string; indexerName: string; keptTitle: string; keptIndexer: string }[] = [];
-  allResults.forEach((result, i) => {
-    const existing = seenUrls.get(result.link);
-    if (existing === undefined) {
-      seenUrls.set(result.link, i);
-    } else {
-      urlDropped.push({
-        title: result.title,
-        indexerName: result.indexerName,
-        keptTitle: allResults[existing].title,
-        keptIndexer: allResults[existing].indexerName,
-      });
+export function applyRemakeFilter(allResults: any[], hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string): { results: any[]; deprioritizedPacks: any[] } {
+  if (!hasRemake || !year) return { results: allResults, deprioritizedPacks: [] };
+
+  const yearMatchesAny = (parsed: string) => {
+    const p = parseInt(parsed, 10);
+    if (Math.abs(p - parseInt(year, 10)) <= 1) return true;
+    if (titleYear && Math.abs(p - parseInt(titleYear, 10)) <= 1) return true;
+    return false;
+  };
+
+  const removed: string[] = [];
+  const deprioritizedTitles: string[] = [];
+  const deprioritizedPacks: any[] = [];
+
+  const results = allResults.filter(r => {
+    if (r.isSeasonPack) {
+      const parsedYear = parseYear(r.title);
+      if (!parsedYear) {
+        deprioritizedPacks.push(r);
+        deprioritizedTitles.push(r.title);
+        return false;
+      }
+      if (!yearMatchesAny(parsedYear)) {
+        removed.push(r.title);
+        return false;
+      }
+      return true;
     }
+    // Regular episode — skip if episodeName unavailable (e.g. TVDB lookup failed)
+    if (episodeName && isRemakeFiltered(r.title, episodeName, year, titleYear)) {
+      removed.push(r.title);
+      return false;
+    }
+    return true;
   });
-  if (urlDropped.length > 0) {
-    const keepIndices = new Set(seenUrls.values());
-    const deduped = allResults.filter((_, i) => keepIndices.has(i));
-    console.log(`🔗 URL dedup: removed ${urlDropped.length} duplicate(s) with same download URL (${deduped.length} remaining)`);
-    for (const d of urlDropped) {
-      console.log(`   ✂️  "${d.title}" (${d.indexerName}) — same URL as "${d.keptTitle}" (${d.keptIndexer})`);
-    }
-    return deduped;
+
+  if (removed.length > 0) {
+    console.log(`🎯 Remake filter: removed ${removed.length} result(s) from wrong version (${results.length} remaining)`);
+    for (const title of removed) console.log(`   ✂️  "${title}"`);
   }
-  return allResults;
+  if (deprioritizedTitles.length > 0) {
+    console.log(`🎯 Remake filter: deprioritized ${deprioritizedTitles.length} yearless season pack(s) to end of results`);
+    for (const title of deprioritizedTitles) console.log(`   ⬇️  "${title}"`);
+  }
+
+  return { results, deprioritizedPacks };
 }
 
 /**
@@ -106,11 +159,38 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
 
   let results = allResults;
 
-  // Apply max file size filter if configured
-  if (filterConfig.maxFileSize) {
+  // File size filters — individual episodes only (season packs have separate filters)
+  if (filterConfig.minFileSize != null) {
     const before = results.length;
-    results = results.filter(r => r.size <= (filterConfig.maxFileSize || Infinity));
+    results = results.filter(r => r.isSeasonPack || r.size >= (filterConfig.minFileSize ?? 0));
+    if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by min file size (${results.length} remaining)`);
+  }
+  if (filterConfig.maxFileSize != null) {
+    const before = results.length;
+    results = results.filter(r => r.isSeasonPack || r.size <= (filterConfig.maxFileSize ?? Infinity));
     if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by max file size (${results.length} remaining)`);
+  }
+  // Season pack size filters — total pack size
+  if (filterConfig.minSeasonPackSize != null) {
+    const before = results.length;
+    results = results.filter(r => !r.isSeasonPack || r.size >= (filterConfig.minSeasonPackSize ?? 0));
+    if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by min season pack size (${results.length} remaining)`);
+  }
+  if (filterConfig.maxSeasonPackSize != null) {
+    const before = results.length;
+    results = results.filter(r => !r.isSeasonPack || r.size <= (filterConfig.maxSeasonPackSize ?? Infinity));
+    if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by max season pack size (${results.length} remaining)`);
+  }
+  // Season pack per-episode size filters — estimated per-episode size
+  if (filterConfig.minSeasonPackEpisodeSize != null) {
+    const before = results.length;
+    results = results.filter(r => !r.isSeasonPack || (r.estimatedEpisodeSize ?? r.size) >= (filterConfig.minSeasonPackEpisodeSize ?? 0));
+    if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by min season pack per-episode size (${results.length} remaining)`);
+  }
+  if (filterConfig.maxSeasonPackEpisodeSize != null) {
+    const before = results.length;
+    results = results.filter(r => !r.isSeasonPack || (r.estimatedEpisodeSize ?? r.size) <= (filterConfig.maxSeasonPackEpisodeSize ?? Infinity));
+    if (before - results.length > 0) console.log(`🎯 Filtered ${before - results.length} by max season pack per-episode size (${results.length} remaining)`);
   }
 
   // Filter out results with disabled priorities
@@ -159,18 +239,24 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
 /**
  * Sort results by configured preference using the sortOrder array.
  */
-export function sortResults(allResults: any[], filterConfig?: FilterConfig): any[] {
+export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?: number, runtime?: number): any[] {
   const sortOrder = filterConfig?.sortOrder || ['quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition'];
   const enabledSorts = filterConfig?.enabledSorts || {};
+  const sortDirections = filterConfig?.sortDirections || {};
   const enabledPriorities = filterConfig?.enabledPriorities || {};
-  const resolutionPriority = filterConfig?.resolutionPriority || ['2160p', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'];
-  const videoPriority = filterConfig?.videoPriority || ['BluRay REMUX', 'BluRay', 'WEB-DL', 'WEBRip', 'HDRip', 'HC HD-Rip', 'DVDRip', 'HDTV', 'Unknown'];
-  const encodePriority = filterConfig?.encodePriority || ['AV1', 'HEVC', 'AVC', 'Unknown'];
-  const visualTagPriority = filterConfig?.visualTagPriority || ['DV', 'HDR+DV', 'HDR10+', 'IMAX', 'HDR10', 'HDR', '10bit', 'AI', 'SDR', 'Unknown'];
-  const audioTagPriority = filterConfig?.audioTagPriority || ['Atmos', 'DTS:X', 'DTS-HD MA', 'TrueHD', 'DTS-HD', 'DD+', 'DD'];
+  const resolutionPriority = filterConfig?.resolutionPriority || ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'];
+  const videoPriority = filterConfig?.videoPriority || ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'];
+  const encodePriority = filterConfig?.encodePriority || ['av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'];
+  const visualTagPriority = filterConfig?.visualTagPriority || ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'];
+  const audioTagPriority = filterConfig?.audioTagPriority || ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'];
   const languagePriority = filterConfig?.languagePriority || ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'];
-  const editionPriority = filterConfig?.editionPriority || ['Extended', 'Superfan', "Director's Cut", 'Unrated', 'Uncut', 'Theatrical', 'Special Edition', "Collector's Edition", 'Remastered', 'IMAX Edition', 'Standard'];
+  const editionPriority = filterConfig?.editionPriority || ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'];
   const preferNonStandardEdition = filterConfig?.preferNonStandardEdition || false;
+
+  // Pre-compute age/bitrate values for efficient sorting (avoids Date.parse per comparison)
+  const sortNow = now ?? Date.now();
+  const ageMap = new Map(allResults.map(r => [r, getAgeHours(r.pubDate, sortNow)]));
+  const bitrateMap = new Map(allResults.map(r => [r, getBitrateValue(r.estimatedEpisodeSize ?? r.size, r.duration ?? runtime)]));
 
   const sorted = [...allResults];
   sorted.sort((a, b) => {
@@ -193,9 +279,10 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig): any
 
         if (indexA !== indexB) return indexA - indexB;
       } else if (method === 'size') {
-        const aSize = a.estimatedEpisodeSize || a.size;
-        const bSize = b.estimatedEpisodeSize || b.size;
-        if (aSize !== bSize) return bSize - aSize;
+        const aSize = a.estimatedEpisodeSize ?? a.size;
+        const bSize = b.estimatedEpisodeSize ?? b.size;
+        const sizeDir = sortDirections.size === 'asc' ? 1 : -1;
+        if (aSize !== bSize) return (aSize - bSize) * sizeDir;
       } else if (method === 'videoTag') {
         const sourceA = parseSource(a.title);
         const sourceB = parseSource(b.title);
@@ -281,6 +368,18 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig): any
         }
 
         if (indexA !== indexB) return indexA - indexB;
+      } else if (method === 'age') {
+        const ageA = ageMap.get(a) ?? Infinity;
+        const ageB = ageMap.get(b) ?? Infinity;
+        // Default asc = newest first (smallest age hours first)
+        const dir = sortDirections.age === 'desc' ? -1 : 1;
+        if (ageA !== ageB) return (ageA - ageB) * dir;
+      } else if (method === 'bitrate') {
+        const brA = bitrateMap.get(a) ?? 0;
+        const brB = bitrateMap.get(b) ?? 0;
+        // Default desc = highest bitrate first
+        const dir = sortDirections.bitrate === 'asc' ? 1 : -1;
+        if (brA !== brB) return (brA - brB) * dir;
       }
     }
     return 0;
@@ -290,24 +389,35 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig): any
 }
 
 /**
- * Apply max-streams-per-quality and max-total-streams limits.
+ * Apply per-resolution, per-quality, and max-total-streams limits.
  */
 export function applyStreamLimits(allResults: any[], filterConfig?: FilterConfig): any[] {
   let results = allResults;
 
-  // Apply max streams per quality limit if configured
-  if (filterConfig?.maxStreamsPerQuality) {
+  // Apply max streams per resolution limit if configured
+  if (filterConfig?.maxStreamsPerResolution != null) {
+    const resolutionCounts: Record<string, number> = {};
+    results = results.filter(r => {
+      const resolution = parseQuality(r.title);
+      resolutionCounts[resolution] = (resolutionCounts[resolution] || 0) + 1;
+      return resolutionCounts[resolution] <= (filterConfig?.maxStreamsPerResolution ?? Infinity);
+    });
+    console.log(`🎯 Limited to ${filterConfig.maxStreamsPerResolution} per resolution (${results.length} remaining)`);
+  }
+
+  // Apply max streams per video source quality limit if configured
+  if (filterConfig?.maxStreamsPerQuality != null) {
     const qualityCounts: Record<string, number> = {};
     results = results.filter(r => {
-      const quality = parseQuality(r.title);
-      qualityCounts[quality] = (qualityCounts[quality] || 0) + 1;
-      return qualityCounts[quality] <= (filterConfig?.maxStreamsPerQuality || Infinity);
+      const source = parseSource(r.title);
+      qualityCounts[source] = (qualityCounts[source] || 0) + 1;
+      return qualityCounts[source] <= (filterConfig?.maxStreamsPerQuality ?? Infinity);
     });
     console.log(`🎯 Limited to ${filterConfig.maxStreamsPerQuality} per quality (${results.length} remaining)`);
   }
 
   // Apply max total streams limit if configured
-  if (filterConfig?.maxStreams) {
+  if (filterConfig?.maxStreams != null) {
     results = results.slice(0, filterConfig.maxStreams);
     console.log(`🎯 Limited to ${filterConfig.maxStreams} total streams`);
   }
@@ -316,27 +426,45 @@ export function applyStreamLimits(allResults: any[], filterConfig?: FilterConfig
 }
 
 /**
- * Full processing pipeline: dedup → filter → sort → limit.
+ * Content-dependent pre-processing: dedup, remake filter.
+ * These steps depend on the content, not user preferences — safe to cache.
  */
-export function processResults(allResults: any[], type: string): any[] {
-  // Step 1: Cross-indexer dedup by priority
+export function deduplicateAndPreFilter(allResults: any[], hasRemake?: boolean, episodeName?: string, year?: string, titleYear?: string): { results: any[]; deprioritizedPacks: any[] } {
   let results = deduplicateByPriority(allResults);
+  const { results: remakeFiltered, deprioritizedPacks } = applyRemakeFilter(results, hasRemake, episodeName, year, titleYear);
+  results = remakeFiltered;
 
-  // Step 2: URL dedup
+  return { results, deprioritizedPacks };
+}
+
+/**
+ * User-preference-dependent processing: multi-episode filter, quality filter, sort, stream limits.
+ * Runs on every request (including cache hits) to reflect current settings.
+ * Deprioritized packs (yearless remake season packs) are filtered separately
+ * and appended after sorting but before stream limits.
+ */
+export function applyUserFilters(results: any[], type: string, now?: number, runtime?: number, deprioritizedPacks?: any[]): any[] {
   results = deduplicateByUrl(results);
 
-  // Step 3: Select per-type filter config, falling back to global filters
+  if (type !== 'movie' && config.searchConfig?.allowMultiEpisodeFiles === false) {
+    const multiEpRegex = /S\d+[. _-]?E\d+(?:[. _-]?E\d+|-\d{1,2}(?!\d))/i;
+    const filtered: string[] = [];
+    results = results.filter(r => {
+      if (multiEpRegex.test(r.title)) { filtered.push(r.title); return false; }
+      return true;
+    });
+    if (filtered.length > 0) {
+      console.log(`🎯 Filtered ${filtered.length} multi-episode result(s) (${results.length} remaining)`);
+      for (const title of filtered) console.log(`   ✂️  "${title}"`);
+    }
+  }
+
   const filterConfig = (type === 'movie' ? config.movieFilters : config.tvFilters) || config.filters;
-
-  // Step 4: Quality filters
   results = applyQualityFilters(results, filterConfig);
-
-  // Step 5: Sort
-  results = sortResults(results, filterConfig);
-
-  // Step 6: Stream limits
+  const filteredDeprioritized = deprioritizedPacks?.length ? applyQualityFilters(deprioritizedPacks, filterConfig) : [];
+  results = sortResults(results, filterConfig, now, runtime);
+  results = [...results, ...filteredDeprioritized];
   results = applyStreamLimits(results, filterConfig);
-
   console.log(`📊 Returning ${results.length} streams after filtering`);
   return results;
 }

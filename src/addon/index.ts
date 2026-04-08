@@ -24,13 +24,16 @@ const _require = createRequire(import.meta.url);
 const { version: APP_VERSION } = _require('../../package.json');
 import NodeCache from 'node-cache';
 import { config } from '../config/index.js';
-import type { Stream } from '../types.js';
-import { createFallbackGroup, clearFallbackGroups, type FallbackCandidate } from '../nzbdav/index.js';
+import { createFallbackGroup, clearFallbackGroups, clearTimeoutEntries, autoResolveFromCandidates, buildNzbdavConfig, buildEpisodePattern } from '../nzbdav/index.js';
 import { resolveTitle } from './titleResolver.js';
 import { indexManagerSearch, easynewsSearch } from './searchOrchestrator.js';
-import { processResults } from './resultProcessor.js';
+import { deduplicateAndPreFilter, applyUserFilters } from './resultProcessor.js';
 import { coordinateHealthChecks, autoMarkRemainingResults, autoQueueToNzbdav } from './healthCheckCoordinator.js';
 import { buildStreams } from './streamBuilder.js';
+import { isDeadNzbByUrl } from '../nzbdav/streamCache.js';
+import { requestContext } from '../requestContext.js';
+import { parseAnimeId, resolveAnimeId } from '../anime/animeIdResolver.js';
+import { isDatabaseLoaded } from '../anime/animeDatabase.js';
 
 // Create cache for search results
 // Use stdTTL: 0 (no expiry) and manage TTL per-entry via cache.set() so runtime changes take effect
@@ -39,20 +42,20 @@ const cache = new NodeCache({ stdTTL: 0 });
 export function clearSearchCache(): void {
   cache.flushAll();
   clearFallbackGroups();
+  clearTimeoutEntries();
 }
 
 // Define addon manifest - tells Stremio what we support
-const BASE_URL = process.env.BASE_URL || 'http://localhost:1337';
 const manifest = {
   id: 'com.usenetultimate.addon',
   version: APP_VERSION,
   name: 'Usenet Ultimate',
   description: 'Search Usenet indexers and EasyNews for media content. Supports Newznab, Prowlarr, and NZBHydra with NZB health checking, quality-based sorting, and direct streaming via NZBDav or EasyNews.',
-  logo: `${BASE_URL}/pwa-512x512.png`,
+  logo: '/pwa-512x512.png',
   resources: ['stream'],           // We only provide streams
   types: ['movie', 'series'],      // Support movies and TV shows
   catalogs: [],                    // No catalogs (don't show in discover)
-  idPrefixes: ['tt'],              // Only handle IMDB IDs (tt1234567)
+  idPrefixes: ['tt', 'kitsu:', 'mal:', 'anilist:', 'anidb:'],
   behaviorHints: {
     configurable: true,            // We have a config UI
     configurationRequired: false,  // But it's optional
@@ -70,13 +73,34 @@ builder.defineStreamHandler(async ({ type, id }) => {
       return { streams: [] };
     }
 
-    // Parse the ID
-    // Movies: tt1234567
-    // Series: tt1234567:1:1 (imdbId:season:episode)
-    const parts = id.split(':');
-    const imdbId = parts[0];
-    const season = parts[1] ? parseInt(parts[1], 10) : undefined;
-    const episode = parts[2] ? parseInt(parts[2], 10) : undefined;
+    // Parse the ID — check for anime ID prefixes first, then IMDB
+    const animeId = parseAnimeId(id);
+    let imdbId: string;
+    let season: number | undefined;
+    let episode: number | undefined;
+    let animeResolved: ReturnType<typeof resolveAnimeId> = null;
+
+    if (animeId) {
+      // Anime ID (kitsu:, mal:, anilist:, anidb:)
+      if (!isDatabaseLoaded()) {
+        console.warn(`⚠️  Anime ID ${id} received but anime databases not loaded — returning empty`);
+        return { streams: [] };
+      }
+      animeResolved = resolveAnimeId(animeId);
+      if (!animeResolved || (!animeResolved.imdbId && !animeResolved.title)) {
+        console.warn(`⚠️  Could not resolve anime ID ${id} — no mapping found`);
+        return { streams: [] };
+      }
+      imdbId = animeResolved.imdbId || `${animeId.prefix}:${animeId.id}`;
+      season = animeResolved.season;
+      episode = animeResolved.episode;
+    } else {
+      // Standard IMDB ID: tt1234567 or tt1234567:1:1
+      const parts = id.split(':');
+      imdbId = parts[0];
+      season = parts[1] ? parseInt(parts[1], 10) : undefined;
+      episode = parts[2] ? parseInt(parts[2], 10) : undefined;
+    }
 
     // Build cache key based on index manager mode
     const easynewsSuffix = config.easynewsEnabled ? ':en' : '';
@@ -95,26 +119,141 @@ builder.defineStreamHandler(async ({ type, id }) => {
       cacheKey = `stream:${type}:${id}:${methodsFingerprint}${config.searchConfig?.includeSeasonPacks ? ':packs' : ''}${easynewsSuffix}`;
     }
 
+    // === SHARED: Filter dead NZBs from raw results ===
+    const filterDeadFromRaw = (results: any[]) => {
+      if (!config.filterDeadNzbs) return results;
+      const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
+      const manifestKey = requestContext.getStore()?.manifestKey || '';
+      const before = results.length;
+      const filtered = results.filter(r => {
+        if (r.easynewsMeta) {
+          const meta = r.easynewsMeta;
+          const nzbParams = new URLSearchParams({ hash: meta.hash, filename: meta.filename, ext: meta.ext });
+          if (meta.sig) nzbParams.set('sig', meta.sig);
+          return !isDeadNzbByUrl(`${SELF_URL}/${manifestKey}/easynews/nzb?${nzbParams.toString()}`);
+        }
+        return !isDeadNzbByUrl(r.link);
+      });
+      if (filtered.length < before) {
+        console.log(`🚫 Filtered ${before - filtered.length} dead NZB(s) from results (${filtered.length} remaining)`);
+      }
+      return filtered;
+    };
+
+    // === SHARED: Trigger auto-resolve if enabled ===
+    const triggerAutoResolve = (fallbackCandidates: any[] | undefined, episodesInSeason?: number) => {
+      if (!fallbackCandidates?.length
+          || !config.autoResolveOnSearch
+          || config.nzbdavFallbackOrder !== 'top'
+          || !config.nzbdavFallbackEnabled) return;
+
+      const contentKey = `${type}:${imdbId}:${season ?? ''}:${episode ?? ''}`;
+      const nzbdavConfig = buildNzbdavConfig();
+      const epPattern = (type === 'series' && season !== undefined && episode !== undefined)
+        ? buildEpisodePattern(season, episode, config.searchConfig?.allowMultiEpisodeFiles !== false)
+        : undefined;
+      autoResolveFromCandidates(
+        contentKey, fallbackCandidates, nzbdavConfig, epPattern, type, episodesInSeason,
+      ).catch(err => console.error('❌ Auto-resolve error:', err));
+    };
+
+    // === SHARED: Process from raw results → streams (filter, sort, health check, build) ===
+    const processFromRaw = async (rawResults: any[], deprioritizedPacks: any[], healthMap: Map<string, any>, titleMeta: { type: string; season?: number; episode?: number; episodesInSeason?: number; now: number; runtime?: number }) => {
+      // Filter dead NZBs
+      let allResults = filterDeadFromRaw(rawResults);
+
+      // Apply current user filter/sort preferences (deprioritized packs appended after sort)
+      allResults = applyUserFilters(allResults, titleMeta.type, titleMeta.now, titleMeta.runtime, deprioritizedPacks);
+
+      // Health checks — pass pre-existing health data so the coordinator skips
+      // already-checked results and smart mode counts them toward its threshold
+      const { healthResults: newHealth, filteredResults } = await coordinateHealthChecks({
+        allResults,
+        type: titleMeta.type,
+        season: titleMeta.season,
+        episode: titleMeta.episode,
+        episodesInSeason: titleMeta.episodesInSeason,
+        preExistingHealth: healthMap.size > 0 ? healthMap : undefined,
+      });
+      for (const [key, val] of newHealth) healthMap.set(key, val);
+      allResults = filteredResults;
+
+      // Auto-mark EasyNews and Zyclops results as verified
+      autoMarkRemainingResults(allResults, healthMap);
+
+      // Auto-queue to NZBDav if enabled
+      autoQueueToNzbdav(allResults, healthMap, titleMeta.type, titleMeta.season, titleMeta.episode, titleMeta.episodesInSeason);
+
+      // Build streams
+      const { streams, fallbackGroupId, fallbackCandidates } = buildStreams({
+        allResults,
+        healthResults: healthMap,
+        type: titleMeta.type,
+        season: titleMeta.season,
+        episode: titleMeta.episode,
+        episodesInSeason: titleMeta.episodesInSeason,
+        now: titleMeta.now,
+        runtime: titleMeta.runtime,
+      });
+
+      return { streams, fallbackGroupId, fallbackCandidates, allResults };
+    };
+
     // Check cache first (cacheTTL of 0 means disabled)
     if (config.cacheEnabled && config.cacheTTL > 0) {
-      const cached = cache.get<{ streams: Stream[]; _fallback?: { id: string; candidates: FallbackCandidate[]; type: string; season?: string; episode?: string } }>(cacheKey);
+      const cached = cache.get<{ rawResults: any[]; deprioritizedPacks: any[]; healthMap: Record<string, any>; _meta: { type: string; season?: number; episode?: number; episodesInSeason?: number; runtime?: number } }>(cacheKey);
       if (cached) {
         console.log(`💾 Cache hit for ${type} ${imdbId}`);
-        // Re-create the fallback group so cached stream URLs have a live fallback target
-        // (fallback groups expire after 30 min but search cache can last hours)
-        if (cached._fallback) {
-          const fb = cached._fallback;
-          createFallbackGroup(fb.id, fb.candidates, fb.type, fb.season, fb.episode);
+        const now = Date.now();
+
+        // Re-apply filters, sort, health checks, and build streams with current settings
+        const healthMap = new Map<string, any>(Object.entries(cached.healthMap || {}));
+        const { streams, fallbackGroupId, fallbackCandidates } = await processFromRaw(
+          cached.rawResults, cached.deprioritizedPacks || [], healthMap,
+          { type, season, episode, episodesInSeason: cached._meta.episodesInSeason, now, runtime: cached._meta.runtime }
+        );
+
+        // Update cache with new health results
+        cache.set(cacheKey, {
+          ...cached,
+          healthMap: Object.fromEntries(healthMap),
+        }, config.cacheTTL);
+
+        // Create fallback group from current filtered results
+        if (fallbackGroupId && fallbackCandidates) {
+          createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString());
         }
-        const { _fallback, ...response } = cached;
-        return response;
+
+        triggerAutoResolve(fallbackCandidates, cached._meta.episodesInSeason);
+        return { streams };
       }
     }
 
     console.log(`\n🔍 Searching for ${type} ${imdbId}${season !== undefined ? ` S${season}E${episode}` : ''} [${config.indexManager}]`);
 
     // === STEP 1: TITLE RESOLUTION ===
-    const titleInfo = await resolveTitle(type, imdbId, season, episode);
+    let titleInfo;
+    if (animeResolved && !animeResolved.imdbId && animeResolved.title) {
+      titleInfo = {
+        title: animeResolved.title,
+        cinemetaTitle: animeResolved.title,
+        year: animeResolved.year,
+        country: 'Japan',
+        genres: ['Animation'],
+        isAnime: true,
+        episodesInSeason: undefined,
+        additionalTitles: undefined,
+        runtime: undefined,
+        episodeName: undefined,
+        hasRemake: undefined,
+        titleYear: undefined,
+      };
+    } else {
+      titleInfo = await resolveTitle(type, imdbId, season, episode);
+      if (animeId) {
+        titleInfo.isAnime = true;
+      }
+    }
 
     // === STEP 2: PARALLEL SEARCH ===
     const searchCtx = {
@@ -126,7 +265,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
       episodesInSeason: titleInfo.episodesInSeason,
       additionalTitles: titleInfo.additionalTitles,
       isAnime: titleInfo.isAnime,
-      useTextForAnime: titleInfo.useTextForAnime,
+      titleYear: titleInfo.titleYear,
+      animeResolvedIds: animeResolved ? { tmdbId: animeResolved.tmdbId, tvdbId: animeResolved.tvdbId } : undefined,
     };
 
     const [indexManagerResults, easynewsResults] = await Promise.all([
@@ -136,51 +276,40 @@ builder.defineStreamHandler(async ({ type, id }) => {
     const allRawResults = [...indexManagerResults, ...easynewsResults];
     console.log(`📊 Found ${allRawResults.length} total results (indexer: ${indexManagerResults.length}, easynews: ${easynewsResults.length})`);
 
-    // === STEP 3: DEDUP, FILTER, SORT ===
-    let allResults = processResults(allRawResults, type);
+    // === STEP 3: DEDUP + CONTENT-DEPENDENT PRE-FILTERING (cacheable) ===
+    const { results: rawResults, deprioritizedPacks } = deduplicateAndPreFilter(allRawResults, titleInfo.hasRemake, titleInfo.episodeName, titleInfo.year, titleInfo.titleYear);
 
-    // === STEP 4: HEALTH CHECKS ===
-    const { healthResults, filteredResults } = await coordinateHealthChecks({
-      allResults,
-      type,
-      season,
-      episode,
-      episodesInSeason: titleInfo.episodesInSeason,
-    });
-    allResults = filteredResults;
+    // === STEP 4: FILTER, SORT, HEALTH CHECK, BUILD (user-preference-dependent) ===
+    const now = Date.now();
+    const healthMap = new Map<string, any>();
+    const { streams, fallbackGroupId, fallbackCandidates } = await processFromRaw(
+      rawResults, deprioritizedPacks, healthMap,
+      { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, now, runtime: titleInfo.runtime }
+    );
 
-    // Always auto-mark EasyNews and Zyclops results as verified (even without NNTP health checks)
-    autoMarkRemainingResults(allResults, healthResults);
-
-    // Auto-queue to NZBDav if enabled
-    autoQueueToNzbdav(allResults, healthResults, type, season, episode, titleInfo.episodesInSeason);
-
-    // === STEP 5: BUILD STREMIO STREAMS ===
-    const { streams, fallbackGroupId, fallbackCandidates } = buildStreams({
-      allResults,
-      healthResults,
-      type,
-      season,
-      episode,
-      episodesInSeason: titleInfo.episodesInSeason,
-    });
-
-    const response = { streams };
-
-    // Cache the results (cacheTTL of 0 means disabled, otherwise use live TTL value)
-    // Also cache fallback metadata so we can re-create the fallback group on cache hits
+    // Cache raw results + deprioritized packs + health map (filters/sorts reapply on cache hits)
     if (config.cacheEnabled && config.cacheTTL > 0) {
       cache.set(cacheKey, {
-        ...response,
-        _fallback: fallbackGroupId ? { id: fallbackGroupId, candidates: fallbackCandidates!, type, season: season?.toString(), episode: episode?.toString() } : undefined,
+        rawResults,
+        deprioritizedPacks,
+        healthMap: Object.fromEntries(healthMap),
+        _meta: { type, season, episode, episodesInSeason: titleInfo.episodesInSeason, runtime: titleInfo.runtime },
       }, config.cacheTTL);
     }
 
-    return response;
+    // Create fallback group
+    if (fallbackGroupId && fallbackCandidates) {
+      createFallbackGroup(fallbackGroupId, fallbackCandidates, type, season?.toString(), episode?.toString());
+    }
+
+    triggerAutoResolve(fallbackCandidates, titleInfo.episodesInSeason);
+
+    return { streams };
   } catch (error) {
     console.error('❌ Stream handler error:', error);
     return { streams: [] };
   }
 });
 
+export { manifest as addonManifest };
 export default builder.getInterface();

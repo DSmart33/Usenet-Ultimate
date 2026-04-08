@@ -91,6 +91,12 @@ export const config: Config = {
   get nzbdavLibraryCheckEnabled() {
     const env = envBool('NZBDAV_LIBRARY_CHECK');
     if (env !== undefined) return env;
+    // Force on when auto-resolve is active (relies on library checks)
+    if (configData.autoResolveOnSearch !== false
+        && configData.nzbdavFallbackEnabled
+        && configData.nzbdavFallbackOrder === 'top') {
+      return true;
+    }
     return configData.nzbdavLibraryCheckEnabled !== false;
   },
   get nzbdavMaxFallbacks() {
@@ -101,14 +107,28 @@ export const config: Config = {
   },
   get nzbdavMoviesTimeoutSeconds() {
     const raw = envInt('NZBDAV_MOVIES_TIMEOUT') ?? configData.nzbdavMoviesTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 30;
-    return Math.max(1, Math.min(180, raw));
+    return Math.max(1, Math.min(90, raw));
   },
   get nzbdavTvTimeoutSeconds() {
     const raw = envInt('NZBDAV_TV_TIMEOUT') ?? configData.nzbdavTvTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 15;
-    return Math.max(1, Math.min(180, raw));
+    return Math.max(1, Math.min(90, raw));
+  },
+  get nzbdavSeasonPackTimeoutSeconds() {
+    const raw = envInt('NZBDAV_SEASON_PACK_TIMEOUT') ?? configData.nzbdavSeasonPackTimeoutSeconds ?? 30;
+    return Math.max(1, Math.min(90, raw));
   },
   get nzbdavFallbackOrder() {
-    return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'selected';
+    return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'top';
+  },
+  get autoResolveOnSearch() {
+    const env = envBool('AUTO_RESOLVE_ON_SEARCH');
+    if (env !== undefined) return env;
+    return configData.autoResolveOnSearch !== false;
+  },
+  get nzbdavCacheTimeouts() {
+    const env = envBool('INCLUDE_TIMEOUTS_AS_DEAD_NZBS');
+    if (env !== undefined) return env;
+    return configData.nzbdavCacheTimeouts !== false;
   },
   get nzbdavStreamBufferMB() {
     const envMB = envInt('NZBDAV_STREAM_BUFFER_MB') ?? envInt('STREAM_BUFFER_MB');
@@ -129,6 +149,11 @@ export const config: Config = {
   get healthyNzbDbMaxSizeMB() {
     return Math.min(50, Math.max(1, configData.healthyNzbDbMaxSizeMB ?? 50));
   },
+  get filterDeadNzbs() {
+    const env = envBool('FILTER_DEAD_NZBS');
+    if (env !== undefined) return env;
+    return configData.filterDeadNzbs !== false;
+  },
   get deadNzbDbMode(): 'time' | 'storage' {
     return configData.deadNzbDbMode || 'storage';
   },
@@ -148,8 +173,15 @@ export const config: Config = {
     return configData.proxyIndexers;
   },
   get searchConfig(): SearchConfig {
-    return configData.searchConfig || {
-      includeSeasonPacks: true,
+    const sc = configData.searchConfig || { includeSeasonPacks: true };
+    const remakeEnv = envBool('ENABLE_REMAKE_DETECTION');
+    const multiEpEnv = envBool('ALLOW_MULTI_EPISODE_FILES');
+    const urlDedupEnv = envBool('URL_DEDUP');
+    return {
+      ...sc,
+      ...(remakeEnv !== undefined && { enableRemakeFiltering: remakeEnv }),
+      ...(multiEpEnv !== undefined && { allowMultiEpisodeFiles: multiEpEnv }),
+      ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
     };
   },
   get useTextSearch() {
@@ -203,21 +235,27 @@ export const config: Config = {
         resolution: {},
         video: {},
         encode: {},
-        visualTag: {},
+        visualTag: { '3D': false },
         audioTag: {},
         language: {},
         edition: {}
       },
+      minFileSize: undefined,
       maxFileSize: undefined,
+      minSeasonPackSize: undefined,
+      maxSeasonPackSize: undefined,
+      minSeasonPackEpisodeSize: undefined,
+      maxSeasonPackEpisodeSize: undefined,
       maxStreams: undefined,
+      maxStreamsPerResolution: undefined,
       maxStreamsPerQuality: undefined,
-      resolutionPriority: ['2160p', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'],
-      videoPriority: ['BluRay REMUX', 'BluRay', 'WEB-DL', 'WEBRip', 'HDRip', 'HC HD-Rip', 'DVDRip', 'HDTV', 'Unknown'],
-      encodePriority: ['AV1', 'HEVC', 'AVC', 'Unknown'],
-      visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'IMAX', 'HDR10', 'HDR', '10bit', 'AI', 'SDR', 'Unknown'],
-      audioTagPriority: ['Atmos', 'DTS:X', 'DTS-HD MA', 'TrueHD', 'DTS-HD', 'DD+', 'DD'],
+      resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'],
+      videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'],
+      encodePriority: ['av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'],
+      visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'],
+      audioTagPriority: ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'],
       languagePriority: ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'],
-      editionPriority: ['Extended', 'Superfan', "Director's Cut", 'Unrated', 'Uncut', 'Theatrical', 'Special Edition', "Collector's Edition", 'Remastered', 'IMAX Edition', 'Standard']
+      editionPriority: ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard']
     };
   },
   get movieFilters() {
@@ -364,7 +402,7 @@ export const config: Config = {
     return configData.easynewsMode || 'nzb';
   },
   get easynewsHealthCheck() {
-    return configData.easynewsHealthCheck || false;
+    return configData.easynewsHealthCheck ?? true;
   },
   get indexerPriority() {
     return configData.indexerPriority;

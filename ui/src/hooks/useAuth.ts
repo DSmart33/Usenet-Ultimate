@@ -1,19 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
 
-import type { ApiFetch } from '../types';
+import type { ApiFetch, Manifest } from '../types';
 
 export type AuthStatus = 'loading' | 'setup_required' | 'login_required' | 'authenticated';
 
 interface UseAuthOptions {
   apiFetch: ApiFetch;
-  onAuthenticated: (username: string, manifestKey: string) => void;
+  onAuthenticated: (username: string, manifests: Manifest[]) => void;
   onUnauthenticated: () => void;
   onLogout: () => void;
 }
 
 export interface UseAuthReturn {
   authStatus: AuthStatus;
-  manifestKey: string;
+  manifests: Manifest[];
+  setManifests: React.Dispatch<React.SetStateAction<Manifest[]>>;
   authUsername: string;
   loginUsername: string;
   loginPassword: string;
@@ -27,7 +28,6 @@ export interface UseAuthReturn {
   handleSetup: (e: React.FormEvent) => Promise<void>;
   handleLogin: (e: React.FormEvent) => Promise<void>;
   handleLogout: () => void;
-  handleAuthComplete: (token: string, username: string, key: string) => void;
   checkAuth: () => Promise<void>;
 }
 
@@ -38,7 +38,7 @@ export function useAuth({
   onLogout,
 }: UseAuthOptions): UseAuthReturn {
   const [authStatus, setAuthStatus] = useState<AuthStatus>('loading');
-  const [manifestKey, setManifestKey] = useState('');
+  const [manifests, setManifests] = useState<Manifest[]>([]);
   const [authUsername, setAuthUsername] = useState('');
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -46,16 +46,16 @@ export function useAuth({
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
-  const handleAuthComplete = useCallback((token: string, username: string, key: string) => {
+  const handleAuthComplete = useCallback((token: string, username: string, deviceManifests: Manifest[]) => {
     localStorage.setItem('auth_token', token);
     setAuthUsername(username);
-    setManifestKey(key);
+    setManifests(deviceManifests);
     setAuthStatus('authenticated');
     setLoginError('');
     setLoginUsername('');
     setLoginPassword('');
     setLoginConfirmPassword('');
-    onAuthenticated(username, key);
+    onAuthenticated(username, deviceManifests);
   }, [onAuthenticated]);
 
   const handleSetup = useCallback(async (e: React.FormEvent) => {
@@ -85,7 +85,7 @@ export function useAuth({
         setLoginError(data.error || 'Setup failed');
         return;
       }
-      handleAuthComplete(data.token, data.username, data.manifestKey);
+      handleAuthComplete(data.token, data.username, data.manifests || []);
     } catch {
       setLoginError('Connection failed');
     } finally {
@@ -112,7 +112,7 @@ export function useAuth({
         setLoginError(data.error || 'Login failed');
         return;
       }
-      handleAuthComplete(data.token, data.username, data.manifestKey);
+      handleAuthComplete(data.token, data.username, data.manifests || []);
     } catch {
       setLoginError('Connection failed');
     } finally {
@@ -123,7 +123,7 @@ export function useAuth({
   const handleLogout = useCallback(() => {
     localStorage.removeItem('auth_token');
     setAuthStatus('login_required');
-    setManifestKey('');
+    setManifests([]);
     setAuthUsername('');
     onLogout();
   }, [onLogout]);
@@ -136,8 +136,8 @@ export function useAuth({
       if (data.status === 'authenticated') {
         setAuthStatus('authenticated');
         setAuthUsername(data.username);
-        setManifestKey(data.manifestKey);
-        onAuthenticated(data.username, data.manifestKey);
+        setManifests(data.manifests || []);
+        onAuthenticated(data.username, data.manifests || []);
       } else if (data.status === 'setup_required') {
         setAuthStatus('setup_required');
         onUnauthenticated();
@@ -159,7 +159,8 @@ export function useAuth({
 
   return {
     authStatus,
-    manifestKey,
+    manifests,
+    setManifests,
     authUsername,
     loginUsername,
     loginPassword,
@@ -173,7 +174,6 @@ export function useAuth({
     handleSetup,
     handleLogin,
     handleLogout,
-    handleAuthComplete,
     checkAuth,
   };
 }

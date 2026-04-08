@@ -30,6 +30,8 @@ export function renderStreamPreview(mockData: MockStreamData, cfg: StreamDisplay
     healthProviders: mockData.healthProviders,
     edition: mockData.edition,
     language: mockData.language,
+    age: mockData.age || '',
+    bitrate: mockData.bitrate || '',
   };
 
   const nameLines = cfg.nameElements

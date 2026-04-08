@@ -6,7 +6,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken, getUserByManifestKey, getUserById } from './auth.js';
+import { verifyToken, getUserByManifestKey, getUserById, updateManifestLastUsed } from './auth.js';
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   // Check Authorization header first, then fall back to query param (for SSE)
@@ -43,5 +43,6 @@ export function validateManifestKey(req: Request, res: Response, next: NextFunct
     res.status(404).json({ error: 'Not found' });
     return;
   }
+  updateManifestLastUsed(manifestKey);
   next();
 }

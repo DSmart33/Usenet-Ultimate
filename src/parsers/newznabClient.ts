@@ -67,7 +67,7 @@ export async function parseNewznabXmlWithMeta(xmlData: string): Promise<NewznabP
     const size = parseInt(attrs.size || enclosureLength || '0', 10);
 
     return {
-      title: item.title?.[0] || '',
+      title: (() => { const raw = item.title?.[0] || ''; if (!raw.includes('%')) return raw; try { return decodeURIComponent(raw); } catch { return raw; } })(),
       link: item.link?.[0] || item.guid?.[0]?._ || item.guid?.[0] || '',
       size,
       pubDate: item.pubDate?.[0] || '',

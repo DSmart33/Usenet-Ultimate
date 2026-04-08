@@ -59,15 +59,34 @@ export class EasynewsSearcher {
     year?: string,
     country?: string,
     additionalTitles?: string[],
+    titleYear?: string,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const query = year ? `${title} ${year}` : title;
     console.log(`🔍 EasyNews movie search: "${query}"`);
     const results = await this.search(query);
     const before = results.length;
-    const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+    const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
     if (before !== filtered.length) {
       console.log(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
+      results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
+        .forEach(r => console.log(`      ✂️  ${r.title}`));
     }
+
+    // Alternative-title retry: if 0 results and alternative titles exist, retry with each
+    if (filtered.length === 0 && additionalTitles?.length) {
+      for (const altTitle of additionalTitles) {
+        const altQuery = year ? `${altTitle} ${year}` : altTitle;
+        console.log(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
+        const altResults = await this.search(altQuery);
+        const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
+        console.log(`   🎯 EasyNews alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+        if (altFiltered.length > 0) {
+          filtered.push(...altFiltered);
+          break;
+        }
+      }
+    }
+
     return filtered;
   }
 
@@ -79,6 +98,7 @@ export class EasynewsSearcher {
     year?: string,
     country?: string,
     additionalTitles?: string[],
+    titleYear?: string,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
@@ -86,9 +106,11 @@ export class EasynewsSearcher {
     console.log(`🔍 EasyNews TV search: "${query}"`);
     const results = await this.search(query);
     const before = results.length;
-    const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+    const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
     if (before !== filtered.length) {
       console.log(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
+      results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
+        .forEach(r => console.log(`      ✂️  ${r.title}`));
     }
 
     // Season pack search if enabled
@@ -99,19 +121,74 @@ export class EasynewsSearcher {
       const packQuery = `${title} S${s}`;
       console.log(`🔍 EasyNews season pack search: "${packQuery}"`);
       const packResults = await this.search(packQuery, spAdditionalPages);
-      const seasonPackPattern = new RegExp(`S0?${season}(?!E\\d)`, 'i');
+      const seasonPackPattern = new RegExp(`S0?${season}(?![._\\s-]?E\\d)`, 'i');
       const existingHashes = new Set(filtered.map(r => r.easynewsMeta!.hash));
       const packs = packResults
-        .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
+        .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
         .filter(r => !existingHashes.has(r.easynewsMeta!.hash))
         .map(r => ({
           ...r,
           isSeasonPack: true,
           estimatedEpisodeSize: episodesInSeason > 0 ? Math.round(r.size / episodesInSeason) : undefined,
         }));
+      if (packResults.length !== packs.length) {
+        const removed = packResults.filter(r =>
+          !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear)
+        );
+        if (removed.length > 0) {
+          console.log(`   📦 EasyNews season pack filter: ${packResults.length} → ${packs.length}`);
+          removed.forEach(r => console.log(`      ✂️  ${r.title}${!seasonPackPattern.test(r.title) ? ' (no season match)' : ' (title mismatch)'}`));
+        }
+      }
       if (packs.length > 0) {
         console.log(`   📦 EasyNews: ${packs.length} season packs`);
         filtered.push(...packs);
+      }
+    }
+
+    // Alternative-title retry: if 0 results and alternative titles exist, retry with each
+    if (filtered.length === 0 && additionalTitles?.length) {
+      for (const altTitle of additionalTitles) {
+        const altQuery = `${altTitle} S${s}E${e}`;
+        console.log(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
+        const altResults = await this.search(altQuery);
+        const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
+        console.log(`   🎯 EasyNews alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+        if (altFiltered.length > 0) {
+          // Also check for season packs with the alternative title
+          if (includeSeasonPacks && episodesInSeason) {
+            const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
+            const spAdditionalPages = spPaginationEnabled ? config.searchConfig?.seasonPackAdditionalPages : undefined;
+            const altPackQuery = `${altTitle} S${s}`;
+            console.log(`🔍 EasyNews alt-title season pack search: "${altPackQuery}"`);
+            const altPackResults = await this.search(altPackQuery, spAdditionalPages);
+            const seasonPackPattern = new RegExp(`S0?${season}(?![._\\s-]?E\\d)`, 'i');
+            const existingHashes = new Set(altFiltered.map(r => r.easynewsMeta!.hash));
+            const altPacks = altPackResults
+              .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
+              .filter(r => !existingHashes.has(r.easynewsMeta!.hash))
+              .map(r => ({
+                ...r,
+                isSeasonPack: true,
+                estimatedEpisodeSize: episodesInSeason > 0 ? Math.round(r.size / episodesInSeason) : undefined,
+              }));
+            if (altPackResults.length !== altPacks.length) {
+              const removed = altPackResults.filter(r =>
+                !seasonPackPattern.test(r.title) || !isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear)
+              );
+              if (removed.length > 0) {
+                console.log(`   📦 EasyNews alt-title season pack filter: ${altPackResults.length} → ${altPacks.length}`);
+                removed.forEach(r => console.log(`      ✂️  ${r.title}${!seasonPackPattern.test(r.title) ? ' (no season match)' : ' (title mismatch)'}`));
+              }
+            }
+            if (altPacks.length > 0) {
+              console.log(`   📦 EasyNews: ${altPacks.length} season packs (alt-title)`);
+              altFiltered.push(...altPacks);
+            }
+          }
+          filtered.push(...altFiltered);
+          break;
+        }
       }
     }
 
@@ -211,12 +288,14 @@ export class EasynewsSearcher {
 
     let hash: string, subject: string, filename: string, ext: string;
     let size: number | string, duration: string | number | null;
+    let posted: string | number | null = null;
     let sig: string | null = null;
 
     if (Array.isArray(item)) {
       hash = item[0] || '';
       size = item[4] || 0;
       subject = item[6] || '';
+      posted = item[8] ?? null;
       filename = item[10] || '';
       ext = item[11] || '';
       duration = item[14] || null;
@@ -228,6 +307,7 @@ export class EasynewsSearcher {
       ext = String(item.extension || item.ext || item['11'] || '');
       size = item.size || item.rawSize || item.Length || item['4'] || 0;
       duration = item.runtime || item.duration || item['14'] || null;
+      posted = (item.ts ?? item.timestamp ?? item['5'] ?? item['8'] ?? null) as string | number | null;
       sig = item.sig ? String(item.sig) : null;
     } else {
       return reject('bad-format');
@@ -262,11 +342,21 @@ export class EasynewsSearcher {
     // break both title matching and quality parsing
     const title = filename ? `${filename}.${ext}` : subject;
 
+    // Parse posted date for age display
+    let pubDate = '';
+    if (posted != null) {
+      const date = typeof posted === 'number' ? new Date(posted * 1000) : new Date(String(posted));
+      if (!isNaN(date.getTime()) && date.getTime() <= Date.now()) {
+        pubDate = date.toISOString();
+      }
+    }
+
     return {
       title,
       link: `easynews://${hash}`,
       size: sizeBytes,
-      pubDate: '',
+      pubDate,
+      duration: durationSec > 0 ? durationSec : undefined,
       category: 'EasyNews',
       attributes: {},
       easynewsMeta: { hash, filename, ext, dlFarm, dlPort, downURL, sig: sig || undefined },

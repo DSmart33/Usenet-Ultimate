@@ -6,15 +6,16 @@
 export {
   parseQuality, resolutionToDisplay, parseCodec, parseSource,
   parseVisualTag, parseAudioTag, parseLanguage, formatBytes,
-  parseEdition, parseReleaseGroup, parseCleanTitle,
+  parseEdition, parseReleaseGroup, parseCleanTitle, parseYear, parseMetadata,
 } from './metadataParsers.js';
+export type { ParsedMetadata } from './metadataParsers.js';
 
 // Re-export newznab client
 export { parseNewznabXmlWithMeta, parseNewznabXml, fetchIndexerCaps } from './newznabClient.js';
 export type { NewznabParsedResponse } from './newznabClient.js';
 
 // Re-export title matching
-export { stripDiacritics, normalizeTitle, extractTitleFromRelease, isTextSearchMatch } from './titleMatching.js';
+export { stripDiacritics, normalizeTitle, extractTitleFromRelease, isTextSearchMatch, isStylizedTitle } from './titleMatching.js';
 
 // Re-export Usenet searcher
 export { UsenetSearcher } from './usenetSearcher.js';

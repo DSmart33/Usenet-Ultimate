@@ -44,6 +44,8 @@ export interface UsenetIndexer {
   logo?: string;     // Logo/favicon URL
   movieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];   // Per-indexer movie search methods
   tvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];    // Per-indexer TV search methods
+  animeMovieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];   // Per-indexer anime movie search methods
+  animeTvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];    // Per-indexer anime TV search methods
   caps?: IndexerCaps;  // Discovered capabilities from ?t=caps
   pagination?: boolean; // Enable paginated search (default false)
   maxPages?: number;    // Max extra pages to fetch when pagination enabled (1-10, default 3)
@@ -87,6 +89,9 @@ export interface SearchConfig {
   useTextSearchForAnime?: boolean; // Override per-indexer search method to use text search for anime (Animation+Japan)
   skipAnimeTitleResolve?: boolean; // Skip TVDB/TMDB title resolution for anime (Animation+Japan) to avoid Japanese titles
   indexerPriorityDedup?: boolean;  // Deduplicate results across indexers, keeping only the copy from the highest-priority indexer (default false)
+  enableRemakeFiltering?: boolean;  // For shows with remakes, filter yearless results that don't contain the correct episode name (default true)
+  allowMultiEpisodeFiles?: boolean;  // Allow streaming from combined multi-episode files (e.g. S01E01E02) — default true
+  urlDedup?: boolean;  // Remove duplicate results with identical download URLs (default true)
   // Legacy fields - migrated to per-indexer settings, kept for migration
   movieSearchMethod?: 'imdb' | 'tmdb' | 'tvdb' | 'text';
   tvSearchMethod?: 'imdb' | 'tvdb' | 'tvmaze' | 'text';
@@ -132,14 +137,18 @@ export interface Config {
   nzbdavLibraryCheckEnabled?: boolean; // Check WebDAV library before grabbing NZB (default true)
   nzbdavMaxFallbacks?: number;  // 0 = try all results (default), 1-20 = limit
   nzbdavJobTimeoutSeconds?: number;            // Legacy — use nzbdavMoviesTimeoutSeconds / nzbdavTvTimeoutSeconds
-  nzbdavMoviesTimeoutSeconds?: number;         // Max seconds to wait for movie streams (default 30)
-  nzbdavTvTimeoutSeconds?: number;             // Max seconds to wait for TV streams (default 15)
+  nzbdavMoviesTimeoutSeconds?: number;         // Max seconds to wait for movie streams (1-90, default 30)
+  nzbdavTvTimeoutSeconds?: number;             // Max seconds to wait for TV streams (1-90, default 15)
+  nzbdavSeasonPackTimeoutSeconds?: number;     // Max seconds to wait for season pack streams (1-90, default 30)
   nzbdavFallbackOrder?: 'selected' | 'top';   // Start from clicked NZB or top of quality-sorted list
+  autoResolveOnSearch?: boolean;              // Pre-resolve NZBs when search results appear (default true, requires "from top")
+  nzbdavCacheTimeouts?: boolean;              // Store timed-out NZBs in dead cache (default true)
   nzbdavStreamBufferMB?: number;              // WebDAV proxy buffer size in MB (default 128)
   nzbdavProxyEnabled?: boolean;               // Stream through local proxy (buffer+reconnect) or direct WebDAV redirect (default true)
   healthyNzbDbMode?: 'time' | 'storage';      // Database limit mode for successful streams (default 'time')
   healthyNzbDbTTL?: number;                   // TTL in seconds for successful streams when mode is 'time' (default 259200 / 3 days)
   healthyNzbDbMaxSizeMB?: number;             // Max storage in MB for successful streams when mode is 'storage' (default 50)
+  filterDeadNzbs?: boolean;                    // Filter dead NZBs from search results (default true)
   deadNzbDbMode?: 'time' | 'storage';         // Database limit mode for dead NZBs (default 'storage')
   deadNzbDbTTL?: number;                      // TTL in seconds for dead NZBs when mode is 'time' (default 86400)
   deadNzbDbMaxSizeMB?: number;                // Max storage in MB for dead NZBs when mode is 'storage' (default 50)
@@ -149,7 +158,7 @@ export interface Config {
   easynewsPagination?: boolean;  // Enable paginated search (default false)
   easynewsMaxPages?: number;     // Additional pages when pagination enabled (1-10, default 3)
   easynewsMode?: 'ddl' | 'nzb'; // DDL = direct download/stream, NZB = send to download client
-  easynewsHealthCheck?: boolean; // Include EasyNews NZB results in health checks (default false = auto healthy)
+  easynewsHealthCheck?: boolean; // Include EasyNews NZB results in health checks (default true)
   indexerPriority?: string[];    // Ordered indexer names for dedup priority (position 0 = highest priority)
 }
 
@@ -199,6 +208,7 @@ export interface UserAgentConfig {
 export interface FilterConfig {
   sortOrder: string[];                       // Sort priority order ['quality', 'size', 'videoTag', 'encode', 'visualTag', 'audioTag']
   enabledSorts?: Record<string, boolean>;    // Which sort methods are enabled
+  sortDirections?: Record<string, 'asc' | 'desc'>; // Sort direction per method (age, bitrate)
   enabledPriorities?: {
     resolution?: Record<string, boolean>;    // Which resolutions are enabled
     video?: Record<string, boolean>;         // Which video sources are enabled
@@ -208,9 +218,15 @@ export interface FilterConfig {
     language?: Record<string, boolean>;      // Which languages are enabled
     edition?: Record<string, boolean>;       // Which editions are enabled
   };
-  maxFileSize?: number;                      // Max file size in bytes (undefined = unlimited)
+  minFileSize?: number;                      // Min file size in bytes — individual episodes only (undefined = no minimum)
+  maxFileSize?: number;                      // Max file size in bytes — individual episodes only (undefined = unlimited)
+  minSeasonPackSize?: number;                // Min season pack total size in bytes (undefined = no minimum)
+  maxSeasonPackSize?: number;                // Max season pack total size in bytes (undefined = unlimited)
+  minSeasonPackEpisodeSize?: number;         // Min per-episode size for season packs in bytes (undefined = no minimum)
+  maxSeasonPackEpisodeSize?: number;         // Max per-episode size for season packs in bytes (undefined = unlimited)
   maxStreams?: number;                       // Max total streams to return (default unlimited)
-  maxStreamsPerQuality?: number;             // Max streams per quality level (undefined = unlimited)
+  maxStreamsPerResolution?: number;           // Max streams per resolution level (undefined = unlimited)
+  maxStreamsPerQuality?: number;             // Max streams per video source quality level (undefined = unlimited)
   resolutionPriority?: string[];             // Resolution priority order for sorting
   videoPriority?: string[];                  // Video source priority order for sorting
   encodePriority?: string[];                 // Video encode priority order for sorting
@@ -252,12 +268,21 @@ export interface HealthCheckConfig {
   healthCheckIndexers?: Record<string, boolean>; // Per-indexer health check enable/disable
 }
 
+// Device manifest — each represents a Stremio installation
+export interface Manifest {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
 // User account for authentication
 export interface User {
   id: string;
   username: string;
   passwordHash: string;
-  manifestKey: string;
+  manifestKey?: string;   // Legacy — kept for rollback compatibility
+  manifests: Manifest[];
   createdAt: string;
 }
 
@@ -275,6 +300,8 @@ export interface SyncedIndexer {
   enabledForHealthCheck: boolean;   // Include in health checks
   movieSearchMethod: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
   tvSearchMethod: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
+  animeMovieSearchMethod?: ('imdb' | 'tmdb' | 'tvdb' | 'text')[];
+  animeTvSearchMethod?: ('imdb' | 'tvdb' | 'tvmaze' | 'text')[];
   capabilities?: IndexerCaps;
   logo?: string;
   pagination?: boolean;             // Enable paginated search (default false)
@@ -309,6 +336,7 @@ export interface NZBSearchResult {
     grabs?: string;     // How many times downloaded
     files?: string;     // Number of files
   };
+  duration?: number;                   // Duration in seconds (EasyNews, or from Newznab runtime attribute)
   zyclopsVerified?: boolean;           // True if result came through Zyclops (pre-verified healthy)
   easynewsMeta?: {      // EasyNews direct download metadata (only present for EasyNews results)
     hash: string;

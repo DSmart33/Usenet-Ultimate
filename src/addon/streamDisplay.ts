@@ -8,6 +8,10 @@
 
 import type { StreamDisplayConfig } from '../types.js';
 
+const EDITION_DISPLAY: Record<string, string> = {
+  'Extended Edition': 'Extended',
+};
+
 export interface StreamDisplayData {
   resolutionDisplay: string;
   quality: string;
@@ -23,6 +27,8 @@ export interface StreamDisplayData {
   providersLine: string;
   edition: string;
   language: string;
+  age: string;
+  bitrate: string;
   isSeasonPack: boolean;
 }
 
@@ -35,7 +41,7 @@ export function buildStreamDisplay(
     const streamName = `${data.statusBadge}\n${data.resolutionDisplay}\n${data.quality}`;
     const titleLine = data.isSeasonPack ? `📦 ${data.cleanTitle}` : `🎬 ${data.cleanTitle}`;
     const editionLangSpecs: string[] = [];
-    if (data.edition && data.edition !== 'Standard') editionLangSpecs.push(`🏷️ ${data.edition}`);
+    if (data.edition && data.edition !== 'Standard') editionLangSpecs.push(`🏷️ ${EDITION_DISPLAY[data.edition] || data.edition}`);
     if (data.language && data.language !== 'Unknown') editionLangSpecs.push(`🗣️ ${data.language}`);
     const editionLangLine = editionLangSpecs.length > 0 ? `  ${editionLangSpecs.join('  ')}` : null;
     const sizeCodecSpecs: string[] = [];
@@ -46,8 +52,11 @@ export function buildStreamDisplay(
     if (data.visualTag !== 'Unknown') tagSpecs.push(`🎨 ${data.visualTag}`);
     if (data.audioTag !== 'Unknown') tagSpecs.push(`🔊 ${data.audioTag}`);
     const tagLine = tagSpecs.length > 0 ? `  ${tagSpecs.join('  ')}` : null;
-    const metaLine = `  🏴‍☠️ ${data.releaseGroup}  🗂️ ${data.indexer}`;
-    const streamTitle = [titleLine, editionLangLine, sizeCodecLine, tagLine, metaLine, data.providersLine || null]
+    const metaSpecs = [`🏴‍☠️ ${data.releaseGroup}`, `🗂️ ${data.indexer}`];
+    if (data.age) metaSpecs.push(`📅 ${data.age}`);
+    const metaLine = `  ${metaSpecs.join('  ')}`;
+    const bitrateLine = data.bitrate ? `  📊 ${data.bitrate}` : null;
+    const streamTitle = [titleLine, editionLangLine, sizeCodecLine, tagLine, metaLine, data.providersLine || null, bitrateLine]
       .filter(Boolean).join('\n');
     return { name: streamName, title: streamTitle };
   }
@@ -65,8 +74,10 @@ export function buildStreamDisplay(
     releaseGroup: data.releaseGroup,
     indexer: data.indexer,
     healthProviders: data.providersLine?.replace(/^\s*📡\s*/, '') || '',
-    edition: data.edition,
+    edition: EDITION_DISPLAY[data.edition] || data.edition,
     language: data.language || '',
+    age: data.age || '',
+    bitrate: data.bitrate || '',
   };
 
   // Build name column

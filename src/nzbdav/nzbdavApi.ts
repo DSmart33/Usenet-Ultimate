@@ -59,7 +59,7 @@ export async function submitNzb(
     } catch (err) {
       clearTimeout(timeout);
       if ((err as Error).name === 'AbortError') {
-        throw nzbdavError(`NZB download timed out after ${Math.round(downloadTimeoutMs / 1000)}s`);
+        throw nzbdavError(`NZB download timed out after ${Math.round(downloadTimeoutMs / 1000)}s`, true);
       }
       throw nzbdavError(`NZB download failed: ${(err as Error).message}`);
     }
@@ -112,7 +112,7 @@ export async function submitNzb(
   } catch (err) {
     clearTimeout(submitTimeout);
     if ((err as Error).name === 'AbortError') {
-      throw nzbdavError(`NZBDav submission timed out after ${Math.round(submitTimeoutMs / 1000)}s`);
+      throw nzbdavError(`NZBDav submission timed out after ${Math.round(submitTimeoutMs / 1000)}s`, true);
     }
     throw nzbdavError(`NZBDav submission failed: ${(err as Error).message}`);
   }
@@ -245,5 +245,5 @@ export async function waitForJobCompletion(
   }
 
   cancelJob(nzoId, config, 'budget exceeded').catch(() => {});
-  throw nzbdavError(`Timeout waiting for NZBDav job after ${timeoutMs / 1000}s`);
+  throw nzbdavError(`Timeout waiting for NZBDav job after ${timeoutMs / 1000}s`, true);
 }

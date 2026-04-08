@@ -17,6 +17,8 @@ interface HealthChecksOverlayProps {
   failedLogos: Set<string>;
   setFailedLogos: React.Dispatch<React.SetStateAction<Set<string>>>;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
+  easynewsHealthCheck: boolean;
+  setEasynewsHealthCheck: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export default function HealthChecksOverlay({
@@ -30,6 +32,8 @@ export default function HealthChecksOverlay({
   failedLogos,
   setFailedLogos,
   apiFetch,
+  easynewsHealthCheck,
+  setEasynewsHealthCheck,
 }: HealthChecksOverlayProps) {
   // Local state for provider management
   const [showAddProvider, setShowAddProvider] = useState(false);
@@ -305,6 +309,28 @@ export default function HealthChecksOverlay({
                     Automatically queue verified results to NZBDav for caching. Uses cached NZB data from health checks to save indexer grabs. (NZBDav streaming mode only)
                   </p>
                 </div>
+                {config?.easynewsEnabled && config?.easynewsMode === 'nzb' && (
+                  <div>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={easynewsHealthCheck}
+                        onChange={(e) => setEasynewsHealthCheck(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-pink-500 focus:ring-pink-500 focus:ring-offset-slate-800"
+                      />
+                      <span className="text-sm font-medium text-slate-300">Include EasyNews in Health Checks</span>
+                    </label>
+                    <p className="text-xs text-slate-500 mt-1 ml-7">
+                      Enabled: EasyNews NZBs will be verified via health checks.
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5 ml-7">
+                      Disabled: EasyNews results auto-marked as healthy.
+                    </p>
+                    <p className="text-xs text-amber-400 mt-1 ml-7">
+                      ⚠️ With EasyNews bypassing health checks and auto-queue set to "All Healthy", this will queue all EasyNews results to NZBDav. In this case, consider "Top Result" to avoid flooding your download client.
+                    </p>
+                  </div>
+                )}
                 <div>
                   <label className="flex items-center gap-3 cursor-pointer">
                     <input

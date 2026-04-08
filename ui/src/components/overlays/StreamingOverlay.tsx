@@ -108,9 +108,9 @@ export function StreamingOverlay({
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">WebDAV URL</label>
-                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Proxy Streaming Method or Fallback Disabled:</span> Use the local/internal hostname for best performance (e.g. http://nzbdav:6789)</p>
-                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> Must be a publicly reachable URL (e.g. https://nzbdav.example.com)</p>
-                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> If using an auth layer (e.g. Authelia, Authentik), the NZBDav hostname must bypass auth</p>
+                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">NZB Fallback Disabled or Proxy Streaming Method:</span> Use the local/internal hostname for best performance (e.g. http://nzbdav:3000)</p>
+                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> Must be a publicly reachable URL (e.g. https://nzbdav.example.com) if using a reverse proxy (Traefik, Caddy, Nginx, etc.)</p>
+                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> If using an auth layer (Authelia, Authentik, etc.), the NZBDav hostname must bypass auth so Stremio can reach it directly</p>
                 <input type="text" value={nzbdavWebdavUrl} onChange={(e) => setNzbdavWebdavUrl(e.target.value)} placeholder="http://localhost:3000" className="input" />
               </div>
               <div className="grid grid-cols-2 gap-4">

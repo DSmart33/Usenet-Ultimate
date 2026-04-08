@@ -38,6 +38,7 @@ export class NzbhydraSearcher {
     country?: string,
     resolvedIds?: Map<string, { idParam: string; idValue: string } | null>,
     additionalTitles?: string[],
+    titleYear?: string,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const groups = this.groupByMethod('movie');
     const allResults: (NZBSearchResult & { indexerName: string })[] = [];
@@ -81,10 +82,10 @@ export class NzbhydraSearcher {
       const results = await this.doSearch(params);
 
       if (method === 'text') {
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
         console.log(`   🎯 Title filter: ${results.length} → ${filtered.length}`);
         if (results.length !== filtered.length) {
-          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
             .forEach(r => console.log(`      ✂️  ${r.title}`));
         }
         allResults.push(...filtered);
@@ -105,10 +106,10 @@ export class NzbhydraSearcher {
       params.indexers = textFallbackNames.join(',');
       console.log(`🔄 ID resolution failed — text fallback for ${textFallbackNames.length} indexer(s)`);
       const results = await this.doSearch(params);
-      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
       console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
       if (results.length !== filtered.length) {
-        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
           .forEach(r => console.log(`      ✂️  ${r.title}`));
       }
       allResults.push(...filtered);
@@ -126,16 +127,45 @@ export class NzbhydraSearcher {
       };
       console.log(`🔄 ID search returned 0 — text fallback for ${idSearchedNames.length} indexer(s)`);
       const results = await this.doSearch(params);
-      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
       console.log(`   🎯 Zero-result text fallback filter: ${results.length} → ${filtered.length}`);
       if (results.length !== filtered.length) {
-        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
           .forEach(r => console.log(`      ✂️  ${r.title}`));
       }
       allResults.push(...filtered);
     }
 
-    return this.deduplicateResults(allResults);
+    // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
+    if (allResults.length === 0 && additionalTitles?.length) {
+      const allNames = [...new Set([...idSearchedNames, ...textFallbackNames])];
+      if (allNames.length > 0) {
+        for (const altTitle of additionalTitles) {
+          const altParams: Record<string, string> = {
+            apikey: this.apiKey,
+            extended: '1',
+            t: 'search',
+            q: stripDiacritics(year ? `${altTitle} ${year}` : altTitle),
+            cat: '2000',
+            indexers: allNames.join(','),
+          };
+          console.log(`🔄 Retrying with alternative title for ${allNames.length} indexer(s): "${altParams.q}"`);
+          const altResults = await this.doSearch(altParams);
+          const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
+          console.log(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+          if (altResults.length !== altFiltered.length) {
+            altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
+              .forEach(r => console.log(`      ✂️  ${r.title}`));
+          }
+          if (altFiltered.length > 0) {
+            allResults.push(...altFiltered);
+            break;
+          }
+        }
+      }
+    }
+
+    return allResults;
   }
 
   async searchTVShow(
@@ -148,6 +178,7 @@ export class NzbhydraSearcher {
     country?: string,
     resolvedIds?: Map<string, { idParam: string; idValue: string } | null>,
     additionalTitles?: string[],
+    titleYear?: string,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const groups = this.groupByMethod('tv');
     const allResults: (NZBSearchResult & { indexerName: string })[] = [];
@@ -197,10 +228,10 @@ export class NzbhydraSearcher {
       const results = await this.doSearch(params);
 
       if (method === 'text') {
-        const episodeFiltered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+        const episodeFiltered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
         console.log(`   🎯 Title filter: ${results.length} → ${episodeFiltered.length}`);
         if (results.length !== episodeFiltered.length) {
-          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
             .forEach(r => console.log(`      ✂️  ${r.title}`));
         }
 
@@ -212,13 +243,13 @@ export class NzbhydraSearcher {
           const packParams: Record<string, string> = { ...params, q: stripDiacritics(`${title} S${s}`) };
 
           const packResults = await this.doSearch(packParams, spOverride);
-          const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+          const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
           const packs = packResults
-            .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
+            .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
             .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
           if (packResults.length !== packs.length) {
             const removedPacks = packResults.filter(r =>
-              !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles)
+              !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear)
             );
             console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
             removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
@@ -250,13 +281,13 @@ export class NzbhydraSearcher {
       };
       console.log(`📦 NZBHydra season pack search for ${idSearchedNames.length} ID-based indexer(s)`);
       const packResults = await this.doSearch(packParams, spOverride);
-      const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+      const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
       const packs = packResults
-        .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
+        .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
         .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
       if (packResults.length !== packs.length) {
         const removedPacks = packResults.filter(r =>
-          !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles)
+          !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear)
         );
         console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
         removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
@@ -279,10 +310,10 @@ export class NzbhydraSearcher {
       params.indexers = textFallbackNames.join(',');
       console.log(`🔄 ID resolution failed — text fallback for ${textFallbackNames.length} indexer(s)`);
       const results = await this.doSearch(params);
-      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
       console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
       if (results.length !== filtered.length) {
-        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
           .forEach(r => console.log(`      ✂️  ${r.title}`));
       }
 
@@ -292,13 +323,13 @@ export class NzbhydraSearcher {
         const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
         const packParams: Record<string, string> = { ...params, q: stripDiacritics(`${title} S${s}`) };
         const packResults = await this.doSearch(packParams, spOverride);
-        const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+        const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
         const packs = packResults
-          .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
+          .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
           .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
         if (packResults.length !== packs.length) {
           const removedPacks = packResults.filter(r =>
-            !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles)
+            !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear)
           );
           console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
           removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
@@ -322,10 +353,10 @@ export class NzbhydraSearcher {
       };
       console.log(`🔄 ID search returned 0 — text fallback for ${idSearchedNames.length} indexer(s)`);
       const results = await this.doSearch(params);
-      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles));
+      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
       console.log(`   🎯 Zero-result text fallback filter: ${results.length} → ${filtered.length}`);
       if (results.length !== filtered.length) {
-        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles))
+        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
           .forEach(r => console.log(`      ✂️  ${r.title}`));
       }
 
@@ -335,13 +366,13 @@ export class NzbhydraSearcher {
         const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
         const packParams: Record<string, string> = { ...params, q: stripDiacritics(`${title} S${s}`) };
         const packResults = await this.doSearch(packParams, spOverride);
-        const seasonPackPattern = new RegExp(`S${s}(?!E\\d)`, 'i');
+        const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
         const packs = packResults
-          .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles))
+          .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
           .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
         if (packResults.length !== packs.length) {
           const removedPacks = packResults.filter(r =>
-            !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles)
+            !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear)
           );
           console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
           removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
@@ -353,7 +384,52 @@ export class NzbhydraSearcher {
       allResults.push(...filtered);
     }
 
-    return this.deduplicateResults(allResults);
+    // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
+    if (allResults.length === 0 && additionalTitles?.length) {
+      const allNames = [...new Set([...idSearchedNames, ...textFallbackNames])];
+      if (allNames.length > 0) {
+        for (const altTitle of additionalTitles) {
+          const altParams: Record<string, string> = {
+            apikey: this.apiKey,
+            extended: '1',
+            t: 'search',
+            q: stripDiacritics(`${altTitle} S${s}E${e}`),
+            cat: '5000',
+            indexers: allNames.join(','),
+          };
+          console.log(`🔄 Retrying with alternative title for ${allNames.length} indexer(s): "${altParams.q}"`);
+          const altResults = await this.doSearch(altParams);
+          const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
+          console.log(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+          if (altResults.length !== altFiltered.length) {
+            altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
+              .forEach(r => console.log(`      ✂️  ${r.title}`));
+          }
+          if (altFiltered.length > 0) {
+            // Also check for season packs with the alternative title
+            if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
+              const spPagination = config.searchConfig?.seasonPackPagination !== false;
+              const spPages = config.searchConfig?.seasonPackAdditionalPages;
+              const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
+              const packParams: Record<string, string> = { ...altParams, q: stripDiacritics(`${altTitle} S${s}`) };
+              const packResults = await this.doSearch(packParams, spOverride);
+              const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
+              const packs = packResults
+                .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
+                .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
+              if (packs.length > 0) {
+                console.log(`   📦 Found ${packs.length} season packs (alt-title)`);
+              }
+              altFiltered.push(...packs);
+            }
+            allResults.push(...altFiltered);
+            break;
+          }
+        }
+      }
+    }
+
+    return allResults;
   }
 
   private async doSearch(params: Record<string, string>, paginationOverride?: { enabled: boolean; additionalPages: number }): Promise<(NZBSearchResult & { indexerName: string })[]> {
@@ -463,15 +539,5 @@ export class NzbhydraSearcher {
       || attrs.hydraindexername
       || attrs.hydraindexer
       || undefined;
-  }
-
-  private deduplicateResults(results: (NZBSearchResult & { indexerName: string })[]): (NZBSearchResult & { indexerName: string })[] {
-    const seen = new Set<string>();
-    return results.filter((result) => {
-      const key = `${result.title}-${result.size}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
   }
 }

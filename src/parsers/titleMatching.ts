@@ -5,6 +5,8 @@
  * extraction, and fuzzy matching for text-based indexer searches.
  */
 
+import { parseYear } from './metadataParsers.js';
+
 // --- Title normalization ---
 
 /** Strip diacritics/accents, apostrophes, and punctuation that doesn't appear in release names */
@@ -33,7 +35,7 @@ export function extractTitleFromRelease(releaseTitle: string): string {
   // Find the earliest anchor and slice everything before it
   const yearPattern = /\b(19|20)\d{2}\b/;
   const anchors = [
-    /\bS\d{1,2}E\d{1,2}\b/i,           // S01E01
+    /\bS\d{1,2}(?:E\d{1,2})+/i,         // S01E01 (also S01E01E02E03)
     /\bS\d{1,2}\b(?!\w)/i,              // S01 (season pack, but not part of a word)
     yearPattern,                         // Release year 1920-2030
     /\b(2160p|1440p|1080p|720p|576p|480p|360p|240p|144p|4K|UHD)\b/i,
@@ -98,13 +100,13 @@ const ALL_COUNTRY_CODES = new Set(Object.values(COUNTRY_CODES).flat());
  *  Returns true if the normalized titles are close enough.
  *  Optionally accepts additional titles (e.g. Cinemeta title alongside TMDB title)
  *  and returns true if ANY title matches. */
-export function isTextSearchMatch(expectedTitle: string, releaseTitle: string, year?: string, country?: string, additionalTitles?: string[]): boolean {
-  if (isTextSearchMatchSingle(expectedTitle, releaseTitle, year, country)) return true;
+export function isTextSearchMatch(expectedTitle: string, releaseTitle: string, year?: string, country?: string, additionalTitles?: string[], titleYear?: string): boolean {
+  if (isTextSearchMatchSingle(expectedTitle, releaseTitle, year, country, titleYear)) return true;
 
   // Try additional titles (e.g. Cinemeta title when primary is TMDB, or vice versa)
   if (additionalTitles) {
     for (const altTitle of additionalTitles) {
-      if (altTitle && altTitle !== expectedTitle && isTextSearchMatchSingle(altTitle, releaseTitle, year, country)) {
+      if (altTitle && altTitle !== expectedTitle && isTextSearchMatchSingle(altTitle, releaseTitle, year, country, titleYear)) {
         return true;
       }
     }
@@ -113,46 +115,77 @@ export function isTextSearchMatch(expectedTitle: string, releaseTitle: string, y
   return false;
 }
 
+// --- Stylized title detection ---
+
+/** Common digit-to-letter substitutions used in stylized titles */
+const STYLIZED_DIGIT_MAP: Record<string, string> = {
+  '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't',
+};
+
+/** Detect if a title uses digit-for-letter substitutions compared to a reference title.
+ *  Returns true if mapping digits back to letters in the candidate makes it match
+ *  the reference, indicating the candidate is a stylized variant. */
+export function isStylizedTitle(candidate: string, reference: string): boolean {
+  if (!candidate || !reference) return false;
+
+  const normCandidate = normalizeTitle(candidate);
+  const normReference = normalizeTitle(reference);
+
+  // If they already match after normalization, no stylization issue
+  if (normCandidate === normReference) return false;
+
+  // Map digits back to letters in the candidate and check if it matches the reference
+  const demapped = normCandidate.replace(/[013457]/g, d => STYLIZED_DIGIT_MAP[d] || d);
+  return demapped === normReference;
+}
+
+/**
+ * Returns true if a release should be filtered out due to remake detection.
+ * Year-present releases are rejected if the year differs significantly from the expected version.
+ * Yearless releases must contain the episode name to prove they are the correct version.
+ */
+export function isRemakeFiltered(releaseTitle: string, episodeName: string, year: string, titleYear?: string): boolean {
+  const parsedYear = parseYear(releaseTitle);
+  if (!parsedYear) {
+    // Yearless release — must contain the episode name to prove it's the correct version
+    const epNameNorm = normalizeTitle(episodeName.replace(/\s*\(\d+\)\s*$/, ''));
+    if (epNameNorm && !normalizeTitle(releaseTitle).includes(epNameNorm)) {
+      return true;
+    }
+  } else {
+    // Year-present release — reject if the year differs from all accepted years
+    const p = parseInt(parsedYear, 10);
+    const yearOk = Math.abs(p - parseInt(year, 10)) <= 1;
+    const titleYearOk = titleYear ? Math.abs(p - parseInt(titleYear, 10)) <= 1 : false;
+    if (!yearOk && !titleYearOk) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Core single-title matching logic */
-function isTextSearchMatchSingle(expectedTitle: string, releaseTitle: string, year?: string, country?: string): boolean {
+function isTextSearchMatchSingle(expectedTitle: string, releaseTitle: string, year?: string, country?: string, titleYear?: string): boolean {
+  // Miniseries keyword mismatch: reject if one has "miniseries" and the other doesn't
+  const miniseriesRegex = /\bmini[.\s_-]?series\b/i;
+  if (miniseriesRegex.test(releaseTitle) !== miniseriesRegex.test(expectedTitle)) {
+    return false;
+  }
+
   const extracted = extractTitleFromRelease(releaseTitle);
   const normExpected = normalizeTitle(expectedTitle);
   const normExtracted = normalizeTitle(extracted);
 
-  // Year validation: reject releases where a year appears before the episode marker
-  // and doesn't match the expected year. Also check the year immediately after the
-  // episode marker (before quality/source tags) — this indicates the show version year,
-  // not an air date. Years that appear in the expected title itself are ignored.
-  if (year) {
-    const cleaned = releaseTitle.replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim();
-    const episodeMarker = cleaned.match(/\bS\d{1,2}(?:E\d{1,2})?\b/i);
-    const expectedYear = parseInt(year, 10);
-
-    // Check years before the episode marker
-    const beforeEpisode = cleaned.substring(0, episodeMarker?.index ?? cleaned.length);
-    const yearsBeforeEpisode = [...beforeEpisode.matchAll(/\b((?:19|20)\d{2})\b/g)];
-    if (yearsBeforeEpisode.length > 0) {
-      const releaseYears = yearsBeforeEpisode
-        .map(m => parseInt(m[1], 10))
-        .filter(y => !expectedTitle.includes(y.toString()));
-      if (releaseYears.length > 0) {
-        const releaseYear = releaseYears[releaseYears.length - 1];
-        if (Math.abs(releaseYear - expectedYear) > 1) {
-          return false;
-        }
-      }
-    }
-
-    // Check for a version year immediately after the episode marker (e.g. S01E03.2024.2160p)
-    // This distinguishes remakes/reboots from the original (e.g. Title 2005 vs 2024)
-    if (episodeMarker) {
-      const afterEpisode = cleaned.substring(episodeMarker.index! + episodeMarker[0].length);
-      const versionYear = afterEpisode.match(/^\s+((?:19|20)\d{2})\b/);
-      if (versionYear) {
-        const vy = parseInt(versionYear[1], 10);
-        if (!expectedTitle.includes(versionYear[1]) && Math.abs(vy - expectedYear) > 1) {
-          return false;
-        }
+  // Year validation: reject if the parsed year doesn't match any accepted year (±1 tolerance each).
+  // When titleYear is available (extracted from TVDB title suffix), accept releases matching either year.
+  if (year || titleYear) {
+    const parsedYear = parseYear(releaseTitle);
+    if (parsedYear && !expectedTitle.includes(parsedYear)) {
+      const p = parseInt(parsedYear, 10);
+      const yearOk = year ? Math.abs(p - parseInt(year, 10)) <= 1 : false;
+      const titleYearOk = titleYear ? Math.abs(p - parseInt(titleYear, 10)) <= 1 : false;
+      if (!yearOk && !titleYearOk) {
+        return false;
       }
     }
   }

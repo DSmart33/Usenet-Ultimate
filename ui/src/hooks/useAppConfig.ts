@@ -41,12 +41,14 @@ const DEFAULT_CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit
 const DEFAULT_NEW_INDEXER: NewIndexerForm = {
   name: '', url: '', apiKey: '', website: '', logo: '',
   movieSearchMethod: ['text'], tvSearchMethod: ['text'],
+  animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'],
   caps: null, pagination: false, maxPages: 3,
 };
 
 const DEFAULT_EDIT_FORM: EditIndexerForm = {
   name: '', url: '', apiKey: '', enabled: true, website: '', logo: '',
   movieSearchMethod: ['text'], tvSearchMethod: ['text'],
+  animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'],
   caps: null, pagination: false, maxPages: 3,
 };
 
@@ -73,7 +75,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [showApiKey, setShowApiKey] = useState<{ new: boolean; edit: boolean }>({ new: false, edit: false });
 
   // ─── Cache ──────────────────────────────────────────────────────────
-  const [cacheTTL, setCacheTTL] = useState<number>(0);
+  const [cacheTTL, setCacheTTL] = useState<number>(9000);
 
   // ─── Streaming & Index Manager ──────────────────────────────────────
   const [streamingMode, setStreamingMode] = useState<'nzbdav' | 'stremio'>('nzbdav');
@@ -93,9 +95,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [includeSeasonPacks, setIncludeSeasonPacks] = useState(true);
   const [seasonPackPagination, setSeasonPackPagination] = useState(true);
   const [seasonPackAdditionalPages, setSeasonPackAdditionalPages] = useState(1);
-  const [useTextSearchForAnime, setUseTextSearchForAnime] = useState(true);
-  const [skipAnimeTitleResolve, setSkipAnimeTitleResolve] = useState(true);
   const [indexerPriorityDedup, setIndexerPriorityDedup] = useState(false);
+  const [enableRemakeFiltering, setEnableRemakeFiltering] = useState(true);
+  const [allowMultiEpisodeFiles, setAllowMultiEpisodeFiles] = useState(true);
+  const [urlDedup, setUrlDedup] = useState(true);
   const [indexerPriority, setIndexerPriority] = useState<string[]>([]);
   const [dedupDraggedItem, setDedupDraggedItem] = useState<string | null>(null);
   const [dedupDragOverItem, setDedupDragOverItem] = useState<string | null>(null);
@@ -129,7 +132,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavMaxFallbacks, setNzbdavMaxFallbacks] = useState(0);
   const [nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds] = useState(30);
   const [nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds] = useState(15);
-  const [nzbdavFallbackOrder, setNzbdavFallbackOrder] = useState<'selected' | 'top'>('selected');
+  const [nzbdavSeasonPackTimeoutSeconds, setNzbdavSeasonPackTimeoutSeconds] = useState(30);
+  const [nzbdavFallbackOrder, setNzbdavFallbackOrder] = useState<'selected' | 'top'>('top');
+  const [autoResolveOnSearch, setAutoResolveOnSearch] = useState(true);
+  const [nzbdavCacheTimeouts, setNzbdavCacheTimeouts] = useState(true);
+  const [filterDeadNzbs, setFilterDeadNzbs] = useState(true);
   const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
   const [nzbdavProxyEnabled, setNzbdavProxyEnabled] = useState(true);
   const [healthyNzbDbMode, setHealthyNzbDbMode] = useState<'time' | 'storage'>('time');
@@ -149,7 +156,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [easynewsPagination, setEasynewsPagination] = useState(false);
   const [easynewsMaxPages, setEasynewsMaxPages] = useState(3);
   const [easynewsMode, setEasynewsMode] = useState<'ddl' | 'nzb'>('nzb');
-  const [easynewsHealthCheck, setEasynewsHealthCheck] = useState(false);
+  const [easynewsHealthCheck, setEasynewsHealthCheck] = useState(true);
   const [showEasynewsPassword, setShowEasynewsPassword] = useState(false);
   const [easynewsTestStatus, setEasynewsTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [easynewsTestMessage, setEasynewsTestMessage] = useState('');
@@ -297,21 +304,21 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
-      nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder,
-      nzbdavMaxFallbacks, nzbdavProxyEnabled,
+      nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder,
+      nzbdavMaxFallbacks, nzbdavProxyEnabled, autoResolveOnSearch,
     }), 500);
     return () => clearTimeout(timer);
-  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavProxyEnabled, saveSettings]);
+  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavProxyEnabled, autoResolveOnSearch, saveSettings]);
 
   // Auto-save: NZB database settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
       healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB,
-      deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB,
+      deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, nzbdavCacheTimeouts, filterDeadNzbs,
     }), 500);
     return () => clearTimeout(timer);
-  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, saveSettings]);
+  }, [healthyNzbDbMode, healthyNzbDbTTL, healthyNzbDbMaxSizeMB, deadNzbDbMode, deadNzbDbTTL, deadNzbDbMaxSizeMB, nzbdavCacheTimeouts, filterDeadNzbs, saveSettings]);
 
   // Auto-save: index manager type
   useEffect(() => {
@@ -344,14 +351,15 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         includeSeasonPacks,
         seasonPackPagination: includeSeasonPacks ? seasonPackPagination : undefined,
         seasonPackAdditionalPages: includeSeasonPacks && seasonPackPagination ? seasonPackAdditionalPages : undefined,
-        useTextSearchForAnime,
-        skipAnimeTitleResolve,
         indexerPriorityDedup,
+        enableRemakeFiltering,
+        allowMultiEpisodeFiles,
+        urlDedup,
       },
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, useTextSearchForAnime, skipAnimeTitleResolve, indexerPriorityDedup, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, enableRemakeFiltering, allowMultiEpisodeFiles, urlDedup, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -393,6 +401,14 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     return () => clearTimeout(timer);
   }, [autoPlay, saveSettings]);
 
+  // Enforce minimum cacheTTL when auto play is enabled
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    if (autoPlay.enabled && cacheTTL < 9000) {
+      setCacheTTL(9000);
+    }
+  }, [autoPlay.enabled]);
+
   // Auto-save: prowlarr settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
@@ -417,6 +433,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // Auto-save: indexer edit form
   useEffect(() => {
     if (!expandedIndexer || !initialLoadDone.current) return;
+    if (!editFormRef.current.name?.trim()) return;
     const savedName = expandedIndexer;
     const timer = setTimeout(async () => {
       const updates: Partial<typeof editFormRef.current> = { ...editFormRef.current };
@@ -427,14 +444,21 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(updates),
         });
-        if (response.ok) await fetchIndexers();
+        if (response.ok) {
+          const saved = await response.json();
+          // Reflect normalized URL (e.g. /api appended) back into the form
+          if (typeof saved?.url === 'string' && saved.url !== editFormRef.current.url) {
+            setEditForm(prev => ({ ...prev, url: saved.url }));
+          }
+          await fetchIndexers();
+        }
       } catch (error) {
         console.error('Failed to auto-save indexer:', error);
       }
     }, 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editForm.name, editForm.url, editForm.apiKey, editForm.enabled, JSON.stringify(editForm.movieSearchMethod), JSON.stringify(editForm.tvSearchMethod), editForm.caps, editForm.website, editForm.logo, editForm.pagination, editForm.maxPages, expandedIndexer]);
+  }, [editForm.name, editForm.url, editForm.apiKey, editForm.enabled, JSON.stringify(editForm.movieSearchMethod), JSON.stringify(editForm.tvSearchMethod), JSON.stringify(editForm.animeMovieSearchMethod), JSON.stringify(editForm.animeTvSearchMethod), editForm.caps, editForm.website, editForm.logo, editForm.pagination, editForm.maxPages, expandedIndexer]);
 
   // Reset NZBDav connection status when fields change after initial load
   useEffect(() => {
@@ -485,9 +509,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setIncludeSeasonPacks(sc?.includeSeasonPacks ?? data.includeSeasonPacks ?? true);
       setSeasonPackPagination(sc?.seasonPackPagination ?? true);
       setSeasonPackAdditionalPages(sc?.seasonPackAdditionalPages || 1);
-      setUseTextSearchForAnime(sc?.useTextSearchForAnime !== false);
-      setSkipAnimeTitleResolve(sc?.skipAnimeTitleResolve !== false);
       setIndexerPriorityDedup(sc?.indexerPriorityDedup ?? false);
+      setEnableRemakeFiltering(sc?.enableRemakeFiltering !== false);
+      setAllowMultiEpisodeFiles(sc?.allowMultiEpisodeFiles !== false);
+      setUrlDedup(sc?.urlDedup !== false);
       setIndexerPriority(data.indexerPriority || []);
       setEasynewsEnabled(data.easynewsEnabled || false);
       setEasynewsUsername(data.easynewsUsername || '');
@@ -495,7 +520,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setEasynewsPagination(data.easynewsPagination || false);
       setEasynewsMaxPages(data.easynewsMaxPages || 3);
       setEasynewsMode(data.easynewsMode || 'nzb');
-      setEasynewsHealthCheck(data.easynewsHealthCheck || false);
+      setEasynewsHealthCheck(data.easynewsHealthCheck ?? true);
       setZyclopsEndpoint(data.zyclopsEndpoint || 'https://zyclops.elfhosted.com');
 
       // Ensure all cards are in cardOrder (backward compat)
@@ -577,7 +602,28 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setAutoPlay(data.autoPlay || { enabled: true, method: 'firstFile', attributes: ['resolution', 'quality', 'edition'] });
 
       // Load stream display config (normalize to always have MAX_TITLE_ROWS)
-      setStreamDisplayConfig(normalizeLineGroups(data.streamDisplayConfig || DEFAULT_STREAM_DISPLAY));
+      {
+        const displayCfg = normalizeLineGroups(data.streamDisplayConfig || DEFAULT_STREAM_DISPLAY);
+        // Ensure all elements from defaults exist in loaded config
+        for (const [id, el] of Object.entries(DEFAULT_STREAM_DISPLAY.elements)) {
+          if (!displayCfg.elements[id]) {
+            displayCfg.elements[id] = { ...el };
+          }
+        }
+        // Place any orphaned elements (in elements dict but not in any lineGroup or nameElements) into the first empty row
+        const placedIds = new Set([
+          ...displayCfg.nameElements,
+          ...displayCfg.lineGroups.flatMap(g => g.elementIds),
+        ]);
+        const orphaned = Object.keys(displayCfg.elements).filter(id => !placedIds.has(id));
+        if (orphaned.length > 0) {
+          const emptyRow = displayCfg.lineGroups.find(g => g.elementIds.length === 0);
+          if (emptyRow) {
+            emptyRow.elementIds = orphaned;
+          }
+        }
+        setStreamDisplayConfig(displayCfg);
+      }
 
       setUserAgents(data.userAgents || {
         indexerSearch: 'Prowlarr/2.3.0.5236 (alpine 3.22.2)',
@@ -603,19 +649,20 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
           resolution: {},
           video: {},
           encode: {},
-          visualTag: {},
+          visualTag: { '3D': false },
           audioTag: {},
           language: {}
         },
         maxFileSize: undefined,
+        maxStreamsPerResolution: undefined,
         maxStreamsPerQuality: undefined,
-        resolutionPriority: ['2160p', '1440p', '1080p', '720p', 'Unknown', '576p', '480p', '360p', '240p', '144p'],
-        videoPriority: ['BluRay REMUX', 'BluRay', 'WEB-DL', 'WEBRip', 'HDRip', 'HC HD-Rip', 'DVDRip', 'HDTV', 'Unknown'],
-        encodePriority: ['AV1', 'HEVC', 'AVC', 'Unknown'],
-        visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'IMAX', 'HDR10', 'HDR', '10bit', 'AI', 'SDR', 'Unknown'],
-        audioTagPriority: ['Atmos', 'DTS:X', 'DTS-HD MA', 'TrueHD', 'DTS-HD', 'DD+', 'DD'],
+        resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'],
+        videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'],
+        encodePriority: ['av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'],
+        visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'],
+        audioTagPriority: ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'],
         languagePriority: ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'],
-        editionPriority: ['Extended', 'Superfan', "Director's Cut", 'Unrated', 'Uncut', 'Theatrical', 'Special Edition', "Collector's Edition", 'Remastered', 'IMAX Edition', 'Standard']
+        editionPriority: ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard']
       };
 
       // If old config has sortBy but not sortOrder, convert it
@@ -651,41 +698,43 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         filterConfig.enabledSorts.edition = false;
       }
       if (!filterConfig.editionPriority) {
-        filterConfig.editionPriority = ['Extended', 'Superfan', "Director's Cut", 'Unrated', 'Uncut', 'Theatrical', 'Special Edition', "Collector's Edition", 'Remastered', 'IMAX Edition', 'Standard'];
+        filterConfig.editionPriority = ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'];
       }
       // Ensure Collector's Edition is in editionPriority for existing configs
       if (filterConfig.editionPriority && !filterConfig.editionPriority.includes("Collector's Edition")) {
         filterConfig.editionPriority = [...filterConfig.editionPriority, "Collector's Edition"];
       }
 
+      // Ensure age is in sortOrder for existing configs
+      if (filterConfig.sortOrder && !filterConfig.sortOrder.includes('age')) {
+        filterConfig.sortOrder = [...filterConfig.sortOrder, 'age'];
+      }
+      if (filterConfig.enabledSorts && filterConfig.enabledSorts.age === undefined) {
+        filterConfig.enabledSorts.age = false;
+      }
+
+      // Ensure bitrate is in sortOrder for existing configs
+      if (filterConfig.sortOrder && !filterConfig.sortOrder.includes('bitrate')) {
+        filterConfig.sortOrder = [...filterConfig.sortOrder, 'bitrate'];
+      }
+      if (filterConfig.enabledSorts && filterConfig.enabledSorts.bitrate === undefined) {
+        filterConfig.enabledSorts.bitrate = false;
+      }
+
+      // Ensure sortDirections exists for existing configs
+      if (!filterConfig.sortDirections) {
+        filterConfig.sortDirections = {};
+      }
+
+      // Migrate maxStreamsPerQuality → maxStreamsPerResolution for existing configs
+      if ((filterConfig as any).maxStreamsPerQuality !== undefined && filterConfig.maxStreamsPerResolution === undefined) {
+        filterConfig.maxStreamsPerResolution = (filterConfig as any).maxStreamsPerQuality;
+        delete (filterConfig as any).maxStreamsPerQuality;
+      }
+
       setFilters(filterConfig);
       setMovieFilters(data.movieFilters || null);
-      // Default TV filters: edition sort at #1 and enabled
-      // Only create defaults on first-time setup (undefined), not when
-      // the user has explicitly chosen "use global" (null)
-      if (data.tvFilters === undefined) {
-        const tvDefaults = JSON.parse(JSON.stringify(filterConfig));
-        const edIdx = tvDefaults.sortOrder.indexOf('edition');
-        if (edIdx > 0) {
-          tvDefaults.sortOrder.splice(edIdx, 1);
-          tvDefaults.sortOrder.unshift('edition');
-        }
-        tvDefaults.enabledSorts = { ...tvDefaults.enabledSorts, edition: true };
-        tvDefaults.preferNonStandardEdition = true;
-        tvDefaults.enabledPriorities = {
-          ...tvDefaults.enabledPriorities,
-          edition: {
-            ...tvDefaults.enabledPriorities?.edition,
-            'IMAX Edition': true,
-            'Theatrical': true,
-            'Remastered': true,
-          }
-        };
-        tvDefaults.maxStreams = undefined;
-        setTvFilters(tvDefaults);
-      } else {
-        setTvFilters(data.tvFilters);
-      }
+      setTvFilters(data.tvFilters || null);
 
       setHealthChecks({
         ...DEFAULT_HEALTH_CHECKS,
@@ -715,7 +764,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       const legacyTimeout = data.nzbdavJobTimeoutSeconds;
       setNzbdavMoviesTimeoutSeconds(data.nzbdavMoviesTimeoutSeconds ?? legacyTimeout ?? 30);
       setNzbdavTvTimeoutSeconds(data.nzbdavTvTimeoutSeconds ?? legacyTimeout ?? 15);
-      setNzbdavFallbackOrder(data.nzbdavFallbackOrder || 'selected');
+      setNzbdavSeasonPackTimeoutSeconds(data.nzbdavSeasonPackTimeoutSeconds ?? legacyTimeout ?? 30);
+      setNzbdavFallbackOrder(data.nzbdavFallbackOrder || 'top');
+      setAutoResolveOnSearch(data.autoResolveOnSearch !== false);
+      setNzbdavCacheTimeouts(data.nzbdavCacheTimeouts !== false);
+      setFilterDeadNzbs(data.filterDeadNzbs !== false);
       setNzbdavStreamBufferMB(data.nzbdavStreamBufferMB ?? 128);
       setNzbdavProxyEnabled(data.nzbdavProxyEnabled !== false);
       setHealthyNzbDbMode(data.healthyNzbDbMode || 'time');
@@ -1125,9 +1178,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     includeSeasonPacks, setIncludeSeasonPacks,
     seasonPackPagination, setSeasonPackPagination,
     seasonPackAdditionalPages, setSeasonPackAdditionalPages,
-    useTextSearchForAnime, setUseTextSearchForAnime,
-    skipAnimeTitleResolve, setSkipAnimeTitleResolve,
     indexerPriorityDedup, setIndexerPriorityDedup,
+    enableRemakeFiltering, setEnableRemakeFiltering,
+    allowMultiEpisodeFiles, setAllowMultiEpisodeFiles,
+    urlDedup, setUrlDedup,
     indexerPriority, setIndexerPriority,
     dedupDraggedItem, setDedupDraggedItem,
     dedupDragOverItem, setDedupDragOverItem,
@@ -1160,7 +1214,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbdavMaxFallbacks, setNzbdavMaxFallbacks,
     nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds,
     nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds,
+    nzbdavSeasonPackTimeoutSeconds, setNzbdavSeasonPackTimeoutSeconds,
     nzbdavFallbackOrder, setNzbdavFallbackOrder,
+    autoResolveOnSearch, setAutoResolveOnSearch,
+    nzbdavCacheTimeouts, setNzbdavCacheTimeouts,
+    filterDeadNzbs, setFilterDeadNzbs,
     nzbdavStreamBufferMB, setNzbdavStreamBufferMB,
     nzbdavProxyEnabled, setNzbdavProxyEnabled,
     healthyNzbDbMode, setHealthyNzbDbMode,

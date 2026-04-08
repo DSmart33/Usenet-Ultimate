@@ -9,7 +9,8 @@ import { createClient, FileStat } from 'webdav';
 import { getWebdavClient } from './webdavClient.js';
 import { resolveCategory } from './nzbdavApi.js';
 import { WEBDAV_REQUEST_TIMEOUT_MS, type NZBDavConfig, type StreamData } from './types.js';
-import { encodeWebdavPath, nzbdavError } from './utils.js';
+import { encodeWebdavPath, nzbdavError, MULTI_EPISODE_BLOCKED_ERROR } from './utils.js';
+import { config as globalConfig } from '../config/index.js';
 
 /**
  * Find video file in WebDAV directory
@@ -54,12 +55,16 @@ export async function findVideoFile(
 
     if (videos.length > 0) {
       if (episodePattern) {
+        const allowMultiEp = globalConfig.searchConfig?.allowMultiEpisodeFiles !== false;
+
         // Try exact SxxExx pattern match first
         const pattern = new RegExp(episodePattern, 'i');
         const match = videos.find(v => pattern.test(v.path));
         if (match) return match;
 
-        // Extract the episode number from the pattern (e.g. "S03E01" -> 1)
+        // Extract target episode number — /E(\d+)/i applied to the pattern STRING finds the
+        // terminal E{digits} literal. Chain-aware patterns use E\\d+ (literal backslash-d)
+        // in the non-capturing group body, so the regex skips those and matches the final number.
         const epMatch = episodePattern.match(/E(\d+)/i);
         if (epMatch) {
           const targetEp = parseInt(epMatch[1], 10);
@@ -76,7 +81,10 @@ export async function findVideoFile(
           }
 
           // Try to extract episode numbers from all filenames and pick the right one
-          const epRegex = /S\d+E(\d+)/i;
+          // (only captures first ep in chain — ep-in-chain check below handles the rest)
+          const epRegex = allowMultiEp
+            ? /S\d+E(\d+)/i
+            : /S\d+E(\d+)(?!\d|[. _-]?E\d|-\d)/i;
           const numbered = videos
             .map(v => ({ ...v, ep: parseInt((v.path.match(epRegex)?.[1] || '0'), 10) }))
             .filter(v => v.ep > 0);
@@ -85,8 +93,28 @@ export async function findVideoFile(
             if (exact) return exact;
           }
 
-          // Season pack with episode pattern but can't identify the file --
-          // return null so waitForVideoFile keeps polling instead of playing the wrong episode
+          // When multi-ep is allowed, check if targetEp appears anywhere in an SxxExx...Exx chain
+          // (handles separators like dots/dashes between chained episode numbers)
+          if (allowMultiEp) {
+            const teStr = targetEp.toString().padStart(2, '0');
+            const epInChain = new RegExp(`S\\d+(?:[. _-]?E\\d+|-\\d{1,2})*(?:[. _-]?E${teStr}|-${teStr})(?!\\d)`, 'i');
+            const chainMatch = videos.find(v => epInChain.test(v.path));
+            if (chainMatch) return chainMatch;
+          }
+
+          // Check if target episode only exists in a combined multi-episode file
+          if (!allowMultiEp) {
+            const te = targetEp.toString().padStart(2, '0');
+            const multiEpRegex = new RegExp(
+              `E${te}(?:[. _-]?E\\d+|-\\d{1,2}(?!\\d))|E\\d+(?:[. _-]?E${te}|-${te}(?!\\d))`, 'i'
+            );
+            if (videos.some(v => multiEpRegex.test(v.path.split('/').pop() || ''))) {
+              throw nzbdavError(MULTI_EPISODE_BLOCKED_ERROR);
+            }
+          }
+
+          // Season pack with multiple episodes but can't identify the file --
+          // return null to signal ambiguity; waitForVideoFile will throw "not found"
           if (videos.length > 1) {
             return null;
           }
@@ -109,6 +137,7 @@ export async function findVideoFile(
       }
     }
   } catch (err) {
+    if ((err as any).isNzbdavFailure) throw err;
     // Directory doesn't exist yet, that's ok
   }
 
@@ -116,50 +145,36 @@ export async function findVideoFile(
 }
 
 /**
- * Wait for video file to appear in WebDAV
+ * Find video file in WebDAV after job completion.
+ * Single scan — job completion is confirmed before this runs.
  */
 export async function waitForVideoFile(
   nzoId: string,
   title: string,
   config: NZBDavConfig,
-  timeoutMs = 30000,
-  pollIntervalMs = 2000,
   episodePattern?: string,
   contentType?: string,
   episodesInSeason?: number
 ): Promise<{ path: string; size: number }> {
   const client = getWebdavClient(config);
-
   const category = resolveCategory(config, contentType);
   const paths = [
     `/content/${category}/${title}`,
     `/.ids/${nzoId}`,
   ];
 
-  const startTime = Date.now();
-  console.log(`  \u{1F50D} Looking for video file (${Math.round(timeoutMs / 1000)}s budget)...`);
+  console.log(`  \u{1F50D} Looking for video file...`);
 
-  let scanCount = 0;
-  while (Date.now() - startTime < timeoutMs) {
-    scanCount++;
-    for (const p of paths) {
-      const video = await findVideoFile(client, p, 0, episodePattern, episodesInSeason);
-      if (video) {
-        const sizeMB = Math.round(video.size / 1024 / 1024);
-        console.log(`  \u2705 Video found: ${video.path} (${sizeMB}MB)`);
-        return video;
-      }
+  for (const p of paths) {
+    const video = await findVideoFile(client, p, 0, episodePattern, episodesInSeason);
+    if (video) {
+      const sizeMB = Math.round(video.size / 1024 / 1024);
+      console.log(`  \u2705 Video found: ${video.path} (${sizeMB}MB)`);
+      return video;
     }
-
-    const remaining = Math.max(0, Math.round((timeoutMs - (Date.now() - startTime)) / 1000));
-    if (scanCount > 1) {
-      console.log(`  \u{1F50D} Video not found yet — scan #${scanCount} (${remaining}s remaining)`);
-    }
-
-    await new Promise(r => setTimeout(r, pollIntervalMs));
   }
 
-  throw nzbdavError('Video file not found after job completed');
+  throw nzbdavError('Video file not found in WebDAV after job completed');
 }
 
 /**
@@ -215,6 +230,7 @@ export async function checkNzbLibrary(
       };
     }
   } catch (err) {
+    if ((err as any).isNzbdavFailure) throw err;
     console.log(`\u{1F4DA} Library check error (non-fatal): ${(err as Error).message}`);
   }
 

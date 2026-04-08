@@ -35,12 +35,16 @@ export function updateSettings(settings: {
   nzbdavJobTimeoutSeconds?: number;
   nzbdavMoviesTimeoutSeconds?: number;
   nzbdavTvTimeoutSeconds?: number;
+  nzbdavSeasonPackTimeoutSeconds?: number;
   nzbdavFallbackOrder?: 'selected' | 'top';
+  autoResolveOnSearch?: boolean;
   nzbdavStreamBufferMB?: number;
   nzbdavProxyEnabled?: boolean;
+  nzbdavCacheTimeouts?: boolean;
   healthyNzbDbMode?: 'time' | 'storage';
   healthyNzbDbTTL?: number;
   healthyNzbDbMaxSizeMB?: number;
+  filterDeadNzbs?: boolean;
   deadNzbDbMode?: 'time' | 'storage';
   deadNzbDbTTL?: number;
   deadNzbDbMaxSizeMB?: number;
@@ -163,14 +167,23 @@ export function updateSettings(settings: {
   if (settings.nzbdavTvTimeoutSeconds !== undefined) {
     configData.nzbdavTvTimeoutSeconds = settings.nzbdavTvTimeoutSeconds;
   }
+  if (settings.nzbdavSeasonPackTimeoutSeconds !== undefined) {
+    configData.nzbdavSeasonPackTimeoutSeconds = settings.nzbdavSeasonPackTimeoutSeconds;
+  }
   if (settings.nzbdavFallbackOrder !== undefined) {
     configData.nzbdavFallbackOrder = settings.nzbdavFallbackOrder;
+  }
+  if (settings.autoResolveOnSearch !== undefined) {
+    configData.autoResolveOnSearch = settings.autoResolveOnSearch;
   }
   if (settings.nzbdavStreamBufferMB !== undefined) {
     configData.nzbdavStreamBufferMB = settings.nzbdavStreamBufferMB;
   }
   if (settings.nzbdavProxyEnabled !== undefined) {
     configData.nzbdavProxyEnabled = settings.nzbdavProxyEnabled;
+  }
+  if (settings.nzbdavCacheTimeouts !== undefined) {
+    configData.nzbdavCacheTimeouts = settings.nzbdavCacheTimeouts;
   }
   if (settings.healthyNzbDbMode !== undefined) {
     configData.healthyNzbDbMode = settings.healthyNzbDbMode;
@@ -180,6 +193,9 @@ export function updateSettings(settings: {
   }
   if (settings.healthyNzbDbMaxSizeMB !== undefined) {
     configData.healthyNzbDbMaxSizeMB = Math.min(50, Math.max(1, settings.healthyNzbDbMaxSizeMB));
+  }
+  if (settings.filterDeadNzbs !== undefined) {
+    configData.filterDeadNzbs = settings.filterDeadNzbs;
   }
   if (settings.deadNzbDbMode !== undefined) {
     configData.deadNzbDbMode = settings.deadNzbDbMode;
@@ -269,6 +285,18 @@ export function updateSettings(settings: {
   }
   if (settings.streamDisplayConfig !== undefined) {
     configData.streamDisplayConfig = settings.streamDisplayConfig;
+  }
+
+  // Enforce minimum cacheTTL when auto play is enabled
+  if ((configData.autoPlay?.enabled ?? true) && configData.cacheTTL < 9000) {
+    configData.cacheTTL = 9000;
+  }
+
+  // Cancel auto-resolves when preconditions change
+  if (settings.nzbdavFallbackEnabled === false
+      || settings.nzbdavFallbackOrder === 'selected'
+      || settings.autoResolveOnSearch === false) {
+    import('../nzbdav/autoResolve.js').then(m => m.cancelAllAutoResolves()).catch(() => {});
   }
 
   // Mutual exclusion: force enabled + disable proxy/health checks for Zyclops-enabled indexers

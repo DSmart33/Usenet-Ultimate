@@ -13,14 +13,23 @@
 
 import crypto from 'crypto';
 import { config } from '../config/index.js';
-import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseReleaseGroup, parseCleanTitle, parseEdition, parseLanguage, resolutionToDisplay, formatBytes } from '../parsers/metadataParsers.js';
+import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseReleaseGroup, parseCleanTitle, parseYear, parseEdition, parseLanguage, resolutionToDisplay, formatBytes, formatAge, formatBitrate, parseDurationAttr, buildStreamFilename } from '../parsers/metadataParsers.js';
 import type { Stream, AutoPlayConfig } from '../types.js';
 import type { HealthCheckResult } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
 import { createFallbackGroup, type FallbackCandidate } from '../nzbdav/index.js';
 import { buildStreamDisplay } from './streamDisplay.js';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:1337';
+/** Resolve the base URL for stream/proxy URLs — uses the request's origin when available,
+ *  falls back to BASE_URL env or localhost for background tasks (auto-queue, health checks). */
+function getBaseUrl(): string {
+  return requestContext.getStore()?.baseUrl || process.env.BASE_URL || 'http://localhost:1337';
+}
+
+/** Get the path prefix for manifest-key routes (empty for legacy root, '/stremio' for prefixed path). */
+function getPathPrefix(): string {
+  return requestContext.getStore()?.pathPrefix || '';
+}
 
 export interface StreamBuildContext {
   allResults: any[];
@@ -29,6 +38,8 @@ export interface StreamBuildContext {
   season?: number;
   episode?: number;
   episodesInSeason?: number;
+  now: number;
+  runtime?: number;
 }
 
 export interface StreamBuildOutput {
@@ -41,7 +52,7 @@ export interface StreamBuildOutput {
  * Build Stremio Stream objects from processed search results.
  */
 export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
-  const { allResults, healthResults, type, season, episode, episodesInSeason } = ctx;
+  const { allResults, healthResults, type, season, episode, episodesInSeason, now, runtime } = ctx;
 
   // Build auto-play / binge group settings
   const autoPlay: AutoPlayConfig = config.autoPlay || { enabled: true, method: 'firstFile' as const, attributes: ['resolution', 'quality', 'edition'] as ('resolution' | 'quality' | 'edition')[] };
@@ -68,9 +79,9 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
             hash: meta.hash, filename: meta.filename, ext: meta.ext,
           });
           if (meta.sig) nzbParams.set('sig', meta.sig);
-          nzbUrl = `${BASE_URL}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
+          nzbUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
         }
-        return { nzbUrl, title: r.title, indexerName: r.indexerName };
+        return { nzbUrl, title: r.title, indexerName: r.indexerName, isSeasonPack: r.isSeasonPack || false };
       });
 
     createFallbackGroup(
@@ -90,7 +101,10 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     const resolution = parseQuality(result.title);
     const resolutionDisplay = resolutionToDisplay(resolution);
     const quality = parseSource(result.title);
-    const cleanTitle = parseCleanTitle(result.title);
+    const parsedCleanTitle = parseCleanTitle(result.title);
+    const year = type === 'movie' ? parseYear(result.title) : undefined;
+    const cleanTitle = year ? `${parsedCleanTitle} (${year})` : parsedCleanTitle;
+    const streamFilename = buildStreamFilename(result.title, type, season, episode);
     const encode = parseCodec(result.title);
     const visualTag = parseVisualTag(result.title);
     const audioTag = parseAudioTag(result.title);
@@ -99,6 +113,22 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     const edition = parseEdition(result.title);
     const language = parseLanguage(result.title);
     const indexer = result.indexerName;
+
+    // Calculate age from pubDate
+    const age = formatAge(result.pubDate, now);
+
+    // Calculate bitrate from size + duration (EasyNews provides duration; Newznab may have runtime attribute)
+    let durationSec: number | undefined = result.duration;
+    if (!durationSec) {
+      // Non-standard Newznab attributes — most indexers don't send these, but some may
+      const runtimeAttr = result.attributes?.runtime || result.attributes?.duration;
+      if (runtimeAttr) durationSec = parseDurationAttr(String(runtimeAttr));
+    }
+    if (!durationSec && runtime) {
+      durationSec = runtime;
+    }
+    const bitrateSize = result.estimatedEpisodeSize ?? result.size;
+    const bitrate = durationSec ? formatBitrate(bitrateSize, durationSec) : '';
 
     // Get health status if available
     const healthStatus = healthResults.get(result.link);
@@ -123,7 +153,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
 
     // Build display size string
     const displaySize = result.isSeasonPack && result.estimatedEpisodeSize
-      ? `~${formatBytes(result.estimatedEpisodeSize)}/ep (${size} pack)`
+      ? `${formatBytes(result.estimatedEpisodeSize)}/ep (${size} pack)`
       : result.isSeasonPack
         ? `${size} (season pack)`
         : size;
@@ -133,7 +163,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       {
         resolutionDisplay, quality, cleanTitle, rawTitle: result.title, encode, displaySize,
         visualTag, audioTag, releaseGroup, indexer, statusBadge,
-        providersLine, edition, language, isSeasonPack: result.isSeasonPack || false,
+        providersLine, edition, language, age, bitrate, isSeasonPack: result.isSeasonPack || false,
       },
       config.streamDisplayConfig
     );
@@ -174,14 +204,14 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       });
       if (meta.sig) nzbParams.set('sig', meta.sig);
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
-      const nzbProxyUrl = `${BASE_URL}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
+      const nzbProxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
 
       if (config.streamingMode === 'nzbdav') {
         const episodeParams = result.isSeasonPack && season !== undefined && episode !== undefined
-          ? `&season=${season}&episode=${episode}${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
+          ? `&season=${season}&episode=${episode}&sp=1${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
           : '';
         const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-        const proxyUrl = `${BASE_URL}/${streamManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
+        const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
         streams.push({
           name: streamName,
           title: streamTitle,
@@ -214,7 +244,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         downURL: meta.downURL,
       });
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
-      const resolveUrl = `${BASE_URL}/${streamManifestKey}/easynews/resolve?${resolveParams.toString()}`;
+      const resolveUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/easynews/resolve?${resolveParams.toString()}`;
 
       streams.push({
         name: streamName,
@@ -229,11 +259,11 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       // Encode the NZB URL and title as a proxy URL
       // For season packs, include season/episode so the correct file is selected
       const episodeParams = result.isSeasonPack && season !== undefined && episode !== undefined
-        ? `&season=${season}&episode=${episode}${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
+        ? `&season=${season}&episode=${episode}&sp=1${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
         : '';
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
       const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-      const proxyUrl = `${BASE_URL}/${streamManifestKey}/nzbdav/stream?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
+      const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}`;
 
       streams.push({
         name: streamName,

@@ -16,8 +16,8 @@ import https from 'https';
 import { PassThrough } from 'stream';
 import type { Config } from '../types.js';
 import type { NZBDavConfig } from '../nzbdav/index.js';
-import { encodeWebdavPath, WebDav404Error } from '../nzbdav/utils.js';
-import { evictReadyByVideoPath } from '../nzbdav/streamCache.js';
+import { encodeWebdavPath, WebDav404Error, buildNzbdavConfig } from '../nzbdav/utils.js';
+import { evictReadyByVideoPath, markVideoPathBroken } from '../nzbdav/streamCache.js';
 
 interface NzbdavDeps {
   config: Config;
@@ -203,7 +203,8 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
 
   // NZBDav stream endpoint (key-protected)
   // Uses history API polling to detect job completion/failure
-  router.get('/stream', async (req, res) => {
+  // :filename? is cosmetic — external video players display the URL path as the stream name
+  router.get('/stream/:filename?', async (req, res) => {
     const nzbUrl = req.query.nzb as string;
     const title = req.query.title as string || 'Unknown';
     const indexerName = req.query.indexer as string;
@@ -219,16 +220,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       console.log(`\u{1F4CA} Tracked grab from ${indexerName}: ${title}${isAuto ? ' (auto)' : ''}`);
     }
 
-    // Build NZBDav config from global config
-    const nzbdavConfig: NZBDavConfig = {
-      url: config.nzbdavUrl || 'http://localhost:3000',
-      apiKey: config.nzbdavApiKey || '',
-      webdavUrl: config.nzbdavWebdavUrl || config.nzbdavUrl || 'http://localhost:3000',
-      webdavUser: config.nzbdavWebdavUser || '',
-      webdavPassword: config.nzbdavWebdavPassword || '',
-      moviesCategory: config.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies',
-      tvCategory: config.nzbdavTvCategory || 'Usenet-Ultimate-TV',
-    };
+    const nzbdavConfig = buildNzbdavConfig();
 
     // Wrap trackGrab with the same dedup set so fallback grabs after
     // self-redirects don't double-count candidates already tracked.
@@ -513,7 +505,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       if (!upstream || aborted) { upstream?.destroy(); return; }
 
       // Follow one upstream redirect server-side (keeps credentials out of Location header)
-      const upstreamStatus = upstream.statusCode || 200;
+      const upstreamStatus = upstream.statusCode ?? 200;
       if ((upstreamStatus === 301 || upstreamStatus === 302 || upstreamStatus === 307 || upstreamStatus === 308) && upstream.headers.location) {
         upstream.destroy();
         const redirectTarget = new URL(upstream.headers.location, targetUrl);
@@ -541,13 +533,15 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         if (val) fwdHeaders[name] = val;
       }
 
-      const status = upstream.statusCode || 200;
+      const status = upstream.statusCode ?? 200;
       if (status === 404 || status === 410) {
         upstream.destroy();
-        throw new WebDav404Error(videoPath);
+        throw new WebDav404Error(videoPath, status);
       }
       if (status !== 200 && status !== 206) {
-        console.warn(`\u26A0\uFE0F WebDAV proxy: unexpected status ${status} for ${safePath}`);
+        upstream.destroy();
+        console.warn(`\u26A0\uFE0F WebDAV upstream returned ${status} for ${safePath} — triggering fallback`);
+        throw new Error(`WebDAV upstream returned ${status}`);
       }
       // Parse range info for reconnect
       const cr = parseContentRange(upstream.headers['content-range'] as string);
@@ -599,6 +593,9 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
             const evicted = evictReadyByVideoPath(videoPath);
             if (evicted) console.warn(`  🗑️ Evicted stale stream (reconnect ${newUpstream.statusCode}): ${evicted}`);
             if (evicted && config.nzbdavFallbackEnabled) console.log(`  🔄 Player retry will use fallback candidate`);
+          } else if (newUpstream.statusCode >= 500) {
+            // Mark path broken so player retry skips it via library check
+            markVideoPathBroken(videoPath);
           }
           console.warn(`  \u26A0\uFE0F Reconnect returned ${newUpstream.statusCode}. Ending stream.`);
           newUpstream.destroy();
@@ -642,8 +639,8 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     } catch (err: any) {
       if (err instanceof WebDav404Error) throw err;
       if (aborted) return;
+      if (!res.headersSent) throw err;
       console.error(`\u274C WebDAV proxy error: ${(err as Error).message}`);
-      if (!res.headersSent) res.status(502).send('WebDAV proxy error');
     } finally {
       untrackRequest(safePath, reqId);
     }
@@ -658,24 +655,43 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     try {
       await proxyVideoStream(req, res, videoPath);
     } catch (err) {
-      if (err instanceof WebDav404Error && !res.headersSent) {
-        const evicted = evictReadyByVideoPath(videoPath);
-        if (evicted) console.warn(`🗑️ Evicted stale stream (upstream 404): ${evicted}`);
+      if (!res.headersSent) {
+        // Evict ready cache so fallback advances to the next candidate.
+        // 404/410: mark NZB as dead (file permanently gone, don't retry).
+        // Other errors (5xx): evict without marking dead (transient, NZB can be retried later).
+        if (err instanceof WebDav404Error) {
+          const evicted = evictReadyByVideoPath(videoPath);
+          if (evicted) console.warn(`🗑️ Evicted stale stream (upstream ${err.statusCode}): ${evicted}`);
+        } else {
+          const evicted = evictReadyByVideoPath(videoPath, false);
+          if (evicted) console.warn(`🗑️ Evicted stream for retry (upstream error): ${evicted}`);
+          // Mark video path as broken so library check skips it (expires with fallback group TTL)
+          markVideoPathBroken(videoPath);
+        }
 
-        // Redirect to original /stream URL to try next fallback candidate.
+        // Redirect to fallback for ANY upstream error when _fb available.
         // _fb contains the relative path — reconstruct as same-origin URL.
         const fb = req.query._fb;
-        if (typeof fb === 'string' && fb.startsWith('/')) {
+        if (typeof fb === 'string' && fb.startsWith('/') && !fb.startsWith('//')) {
           const fallbackUrl = new URL(`${req.protocol}://${req.get('host')}${fb}`);
-          const rc = parseInt(fallbackUrl.searchParams.get('_rc') ?? '0', 10);
+          const rc = Math.max(0, parseInt(fallbackUrl.searchParams.get('_rc') ?? '0', 10) || 0);
           fallbackUrl.searchParams.set('_rc', String(rc + 1));
-          console.log(`🔄 Upstream 404 → fallback redirect to /stream (rc=${rc + 1})`);
+          // For non-404 errors (file exists on disk but server can't serve it),
+          // advance to the next fallback candidate so /stream doesn't re-resolve
+          // to the same broken video via library check.
+          if (!(err instanceof WebDav404Error)) {
+            const ci = Math.max(0, parseInt(fallbackUrl.searchParams.get('_ci') ?? '0', 10) || 0);
+            fallbackUrl.searchParams.set('_ci', String(ci + 1));
+          }
+          const label = err instanceof WebDav404Error ? `${err.statusCode}` : 'error';
+          console.log(`🔄 Upstream ${label} → fallback redirect to /stream (rc=${rc + 1})`);
           res.redirect(302, fallbackUrl.href);
-        } else {
+        } else if (err instanceof WebDav404Error) {
           res.status(404).send('Video file not found');
+        } else {
+          console.error(`❌ WebDAV proxy error: ${(err as Error).message}`);
+          res.status(502).send('WebDAV proxy error');
         }
-      } else if (!res.headersSent) {
-        res.status(502).send('WebDAV proxy error');
       }
     }
   });

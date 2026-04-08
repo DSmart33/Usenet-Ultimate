@@ -50,6 +50,7 @@ export interface FallbackCandidate {
   nzbUrl: string;
   title: string;
   indexerName: string;
+  isSeasonPack?: boolean;
 }
 
 export interface FallbackGroup {

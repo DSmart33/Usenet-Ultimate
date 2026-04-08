@@ -95,11 +95,11 @@ export function AutoPlayOverlay({
                   <p className="text-xs text-slate-500 mb-3">Select which stream attributes must match for auto-play to continue with the same type of stream.</p>
                   <div className="space-y-2">
                     {[
-                      { value: 'resolution', label: 'Resolution', desc: '1080p, 2160p, 720p, etc.' },
+                      { value: 'resolution', label: 'Resolution', desc: '1080p, 4k, 720p, etc.' },
                       { value: 'quality', label: 'Quality', desc: 'BluRay, WEB-DL, WEBRip, etc.' },
-                      { value: 'encode', label: 'Encode', desc: 'HEVC, AVC, AV1, etc.' },
+                      { value: 'encode', label: 'Encode', desc: 'hevc, avc, av1, etc.' },
                       { value: 'visualTag', label: 'Visual Tag', desc: 'HDR, DV, HDR10+, etc.' },
-                      { value: 'audioTag', label: 'Audio Tag', desc: 'Atmos, DTS-HD MA, TrueHD, etc.' },
+                      { value: 'audioTag', label: 'Audio Tag', desc: 'Atmos, DTS Lossless, TrueHD, etc.' },
                       { value: 'releaseGroup', label: 'Release Group', desc: 'Match the same release group' },
                       { value: 'edition', label: 'Edition', desc: 'Extended, Director\'s Cut, Superfan, Unrated, etc.' },
                       { value: 'indexer', label: 'Indexer', desc: 'Match results from the same indexer' },
@@ -141,6 +141,9 @@ export function AutoPlayOverlay({
                 <p className="text-xs text-slate-400">
                   Auto-play uses Stremio's <span className="text-orange-400 font-mono">bingeGroup</span> hint to suggest the next stream.
                   For this to work, you must also have auto-play enabled in your Stremio settings. Only applies to series (TV shows).
+                </p>
+                <p className="text-xs text-amber-400/80 mt-1">
+                  When enabled, a minimum search cache of 2.5 hours is enforced.
                 </p>
               </div>
             </>

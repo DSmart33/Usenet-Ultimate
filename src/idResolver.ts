@@ -170,6 +170,96 @@ export async function resolveTitleFromTmdb(
 }
 
 /**
+ * Resolve movie runtime in seconds from TMDB detail endpoint.
+ * Requires an extra API call to /3/movie/{id} since /find doesn't include runtime.
+ */
+export async function resolveRuntimeFromTmdb(imdbId: string): Promise<number | undefined> {
+  const cacheKey = `runtime:tmdb:${imdbId}`;
+  const cached = idCache.get<number>(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const apiKey = config.searchConfig?.tmdbApiKey;
+  if (!apiKey) return undefined;
+
+  try {
+    // Get TMDB ID (likely already cached from title resolution)
+    const tmdbResult = await findOnTmdb(imdbId, 'movie');
+    if (!tmdbResult) return undefined;
+
+    const isReadAccessToken = apiKey.length > 40 || apiKey.startsWith('eyJ');
+    const response = await axios.get(`https://api.themoviedb.org/3/movie/${tmdbResult.id}`, {
+      params: isReadAccessToken ? {} : { api_key: apiKey },
+      headers: isReadAccessToken ? { Authorization: `Bearer ${apiKey}` } : {},
+      timeout: 5000,
+    });
+
+    const runtime = response.data?.runtime;
+    if (typeof runtime === 'number' && runtime > 0) {
+      const seconds = runtime * 60;
+      idCache.set(cacheKey, seconds);
+      console.log(`🎯 TMDB runtime: ${imdbId} → ${runtime}min`);
+      return seconds;
+    }
+  } catch (error) {
+    console.warn(`⚠️  Failed to resolve TMDB runtime for ${imdbId}:`, (error as Error).message);
+  }
+  return undefined;
+}
+
+/**
+ * Detect if a TV show has a remake/reboot by searching TVDB for shows with the same title.
+ * Returns true if 2+ results share the same normalized title with different years.
+ * Cached for 24 hours since remake status doesn't change.
+ * Falls back to false if TVDB key is not configured (year-only filtering still applies).
+ */
+export async function detectRemake(title: string): Promise<boolean> {
+  const cacheKey = `remake:${title.toLowerCase()}`;
+  const cached = idCache.get<boolean>(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const token = await getTvdbToken();
+  if (!token) return false;
+
+  try {
+    const response = await axios.get('https://api4.thetvdb.com/v4/search', {
+      params: { query: title, type: 'series' },
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 5000,
+    });
+
+    const results = response.data?.data;
+    if (!Array.isArray(results) || results.length < 2) {
+      idCache.set(cacheKey, false);
+      return false;
+    }
+
+    // Check if 2+ results share the same normalized title but have different years.
+    // Strip parenthetical year suffixes like "(2003)" since TVDB often appends these to remakes.
+    const stripYearSuffix = (s: string) => s.replace(/\s*\(\d{4}\)\s*$/, '');
+    const normalizedTarget = stripYearSuffix(title).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const matchingShows = results.filter((r: any) => {
+      const name = stripYearSuffix(r.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return name === normalizedTarget;
+    });
+
+    if (matchingShows.length >= 2) {
+      const years = new Set(matchingShows.map((r: any) => r.year).filter(Boolean));
+      if (years.size >= 2) {
+        console.log(`🔄 Remake detected for "${title}": ${[...years].sort().join(', ')}`);
+        idCache.set(cacheKey, true);
+        return true;
+      }
+    }
+
+    idCache.set(cacheKey, false);
+    return false;
+  } catch (error) {
+    console.warn(`⚠️  Remake detection failed for "${title}":`, (error as Error).message);
+    return false;
+  }
+}
+
+/**
  * Shared TVDB /search/remoteid lookup — returns both the numeric ID and the canonical title.
  * Used by resolveTvdbId() (for ID resolution) and resolveTitleFromTvdb() (for title resolution).
  * Requires bearer token auth.
@@ -177,10 +267,10 @@ export async function resolveTitleFromTmdb(
 async function findOnTvdb(
   imdbId: string,
   type: 'movie' | 'series'
-): Promise<{ id: number; title: string } | null> {
+): Promise<{ id: number; title: string; year?: string } | null> {
   const tvdbType = type === 'movie' ? 'movie' : 'series';
 
-  const doSearch = async (token: string): Promise<{ id: number; title: string } | null> => {
+  const doSearch = async (token: string): Promise<{ id: number; title: string; year?: string } | null> => {
     const response = await axios.get(`https://api4.thetvdb.com/v4/search/remoteid/${imdbId}`, {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 5000,
@@ -192,8 +282,9 @@ async function findOnTvdb(
       for (const result of results) {
         const record = result[tvdbType];
         if (record?.id) {
-          console.log(`🔗 TVDB remoteid result: ${tvdbType} id=${record.id} name="${record.name || 'unknown'}"`);
-          return { id: record.id, title: record.name || '' };
+          const year = record.year ? String(record.year) : record.firstAired?.match(/^\d{4}/)?.[0];
+          console.log(`🔗 TVDB remoteid result: ${tvdbType} id=${record.id} name="${record.name || 'unknown'}"${year ? ` (${year})` : ''}`);
+          return { id: record.id, title: record.name || '', year };
         }
       }
     }
@@ -242,9 +333,12 @@ async function resolveTvdbId(
   const result = await findOnTvdb(imdbId, type);
   if (!result) return null;
 
-  // Cache the canonical title as a side effect
+  // Cache the canonical title and year as side effects
   if (result.title) {
     idCache.set(`title:${imdbId}`, result.title);
+  }
+  if (result.year) {
+    idCache.set(`year:tvdb:${imdbId}`, result.year);
   }
 
   return { idParam: 'tvdbid', idValue: result.id.toString() };
@@ -262,12 +356,13 @@ async function resolveTvdbId(
 export async function resolveTitleFromTvdb(
   imdbId: string,
   type: 'movie' | 'series'
-): Promise<string | null> {
+): Promise<{ title: string; year?: string } | null> {
   const titleCacheKey = `title:${imdbId}`;
   const cached = idCache.get<string>(titleCacheKey);
   if (cached) {
+    const cachedYear = idCache.get<string>(`year:tvdb:${imdbId}`);
     console.log(`🎯 TVDB title cache hit: ${imdbId} → "${cached}"`);
-    return cached;
+    return { title: cached, year: cachedYear };
   }
 
   const apiKey = config.searchConfig?.tvdbApiKey;
@@ -278,6 +373,9 @@ export async function resolveTitleFromTvdb(
     if (!result?.title) return null;
 
     idCache.set(titleCacheKey, result.title);
+    if (result.year) {
+      idCache.set(`year:tvdb:${imdbId}`, result.year);
+    }
 
     // Also cache the ID as a bonus
     const idCacheKey = `id:${imdbId}:tvdb`;
@@ -286,7 +384,7 @@ export async function resolveTitleFromTvdb(
     }
 
     console.log(`🎯 TVDB title resolved: ${imdbId} → "${result.title}"`);
-    return result.title;
+    return { title: result.title, year: result.year };
   } catch (error) {
     console.warn(`⚠️  Failed to resolve TVDB title for ${imdbId}:`, (error as Error).message);
     return null;
@@ -362,15 +460,19 @@ async function resolveTvmazeId(
  */
 export async function resolveEpisodeCountFromTvdb(
   imdbId: string,
-  season: number
-): Promise<number | undefined> {
+  season: number,
+  episode?: number
+): Promise<{ count: number; runtime?: number; episodeName?: string } | undefined> {
   const apiKey = config.searchConfig?.tvdbApiKey;
   if (!apiKey) return undefined;
 
-  // Cache key for episode counts
-  const cacheKey = `epcount:${imdbId}:${season}`;
-  const cached = idCache.get<number>(cacheKey);
-  if (cached !== undefined) return cached;
+  // Cache key for episode data (per-season, includes episode names map)
+  const cacheKey = `epdata:${imdbId}:${season}`;
+  const cached = idCache.get<{ count: number; runtime?: number; episodeNames?: Record<number, string> }>(cacheKey);
+  if (cached !== undefined) {
+    const episodeName = episode !== undefined ? cached.episodeNames?.[episode] : undefined;
+    return { count: cached.count, runtime: cached.runtime, episodeName };
+  }
 
   try {
     // Get the TVDB series ID (may already be cached from earlier lookups)
@@ -393,11 +495,34 @@ export async function resolveEpisodeCountFromTvdb(
     const episodes = response.data?.data?.episodes;
     if (Array.isArray(episodes) && episodes.length > 0) {
       // TVDB may paginate — count episodes matching the requested season
-      const count = episodes.filter((ep: any) => ep.seasonNumber === season).length;
+      const seasonEps = episodes.filter((ep: any) => ep.seasonNumber === season);
+      const count = seasonEps.length;
       if (count > 0) {
-        idCache.set(cacheKey, count);
-        console.log(`🔗 TVDB episode count: ${imdbId} S${season.toString().padStart(2, '0')} → ${count} episodes`);
-        return count;
+        // Extract runtime: prefer specific episode, fall back to average across season
+        let runtime: number | undefined;
+        if (episode !== undefined) {
+          const targetEp = seasonEps.find((ep: any) => ep.number === episode);
+          if (targetEp?.runtime && targetEp.runtime > 0) runtime = targetEp.runtime * 60;
+        }
+        if (!runtime) {
+          const runtimes = seasonEps.map((ep: any) => ep.runtime).filter((r: any) => typeof r === 'number' && r > 0);
+          if (runtimes.length > 0) {
+            const avg = runtimes.reduce((a: number, b: number) => a + b, 0) / runtimes.length;
+            runtime = Math.round(avg) * 60;
+          }
+        }
+        // Build episode names map for remake/version detection
+        const episodeNames: Record<number, string> = {};
+        for (const ep of seasonEps) {
+          if (ep.number != null && ep.name) {
+            episodeNames[ep.number] = ep.name;
+          }
+        }
+        const cacheResult = { count, runtime, episodeNames };
+        idCache.set(cacheKey, cacheResult);
+        const episodeName = episode !== undefined ? episodeNames[episode] : undefined;
+        console.log(`🔗 TVDB episode count: ${imdbId} S${season.toString().padStart(2, '0')} → ${count} episodes${runtime ? ` (${Math.round(runtime / 60)}min)` : ''}${episodeName ? ` [${episodeName}]` : ''}`);
+        return { count, runtime, episodeName };
       }
     }
   } catch (error) {
