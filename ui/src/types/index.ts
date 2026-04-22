@@ -151,7 +151,6 @@ export interface Config {
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
   nzbdavFallbackEnabled?: boolean;
-  nzbdavLibraryCheckEnabled?: boolean;
   nzbdavMaxFallbacks?: number;
   nzbdavJobTimeoutSeconds?: number;
   nzbdavMoviesTimeoutSeconds?: number;

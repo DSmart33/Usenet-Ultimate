@@ -89,18 +89,6 @@ export const config: Config = {
     // Default: disabled — user must explicitly enable fallback
     return false;
   },
-  get nzbdavLibraryCheckEnabled() {
-    const env = envBool('NZBDAV_LIBRARY_CHECK');
-    if (env !== undefined) return env;
-    // Force on when auto-resolve or Ultimate-Resolve is active (relies on library checks)
-    if (configData.ultimateResolve?.enabled) return true;
-    if (configData.autoResolveOnSearch !== false
-        && configData.nzbdavFallbackEnabled
-        && configData.nzbdavFallbackOrder === 'top') {
-      return true;
-    }
-    return configData.nzbdavLibraryCheckEnabled !== false;
-  },
   get nzbdavMaxFallbacks() {
     return envInt('NZBDAV_MAX_FALLBACKS') ?? configData.nzbdavMaxFallbacks ?? 0;
   },

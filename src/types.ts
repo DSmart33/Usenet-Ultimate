@@ -133,7 +133,6 @@ export interface Config {
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
   nzbdavFallbackEnabled?: boolean; // Master toggle for fallback feature (default false)
-  nzbdavLibraryCheckEnabled?: boolean; // Check WebDAV library before grabbing NZB (default true)
   nzbdavMaxFallbacks?: number;  // 0 = try all results (default), 1-20 = limit
   nzbdavJobTimeoutSeconds?: number;            // Legacy — use nzbdavMoviesTimeoutSeconds / nzbdavTvTimeoutSeconds
   nzbdavMoviesTimeoutSeconds?: number;         // Max seconds to wait for movie streams (1-90, default 30)

@@ -64,7 +64,6 @@ function buildConfigResponse(config: Config) {
     nzbdavMoviesCategory: config.nzbdavMoviesCategory,
     nzbdavTvCategory: config.nzbdavTvCategory,
     nzbdavFallbackEnabled: config.nzbdavFallbackEnabled,
-    nzbdavLibraryCheckEnabled: configData.nzbdavLibraryCheckEnabled !== false,
     nzbdavMaxFallbacks: config.nzbdavMaxFallbacks,
     nzbdavJobTimeoutSeconds: config.nzbdavJobTimeoutSeconds,
     nzbdavMoviesTimeoutSeconds: config.nzbdavMoviesTimeoutSeconds,

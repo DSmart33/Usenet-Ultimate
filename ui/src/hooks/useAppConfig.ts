@@ -127,7 +127,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavMoviesCategory, setNzbdavMoviesCategory] = useState('Usenet-Ultimate-Movies');
   const [nzbdavTvCategory, setNzbdavTvCategory] = useState('Usenet-Ultimate-TV');
   const [nzbdavFallbackEnabled, setNzbdavFallbackEnabled] = useState(false);
-  const [nzbdavLibraryCheckEnabled, setNzbdavLibraryCheckEnabled] = useState(true);
   const [nzbdavMaxFallbacks, setNzbdavMaxFallbacks] = useState(0);
   const [nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds] = useState(30);
   const [nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds] = useState(15);
@@ -316,11 +315,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
-      nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder,
+      nzbdavFallbackEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder,
       nzbdavMaxFallbacks, nzbdavStreamingMethod, autoResolveOnSearch, autoResolveTargets,
     }), 500);
     return () => clearTimeout(timer);
-  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavStreamingMethod, autoResolveOnSearch, autoResolveTargets, saveSettings]);
+  }, [nzbdavFallbackEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavStreamingMethod, autoResolveOnSearch, autoResolveTargets, saveSettings]);
 
   // Auto-save: NZB database settings
   useEffect(() => {
@@ -777,7 +776,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavMoviesCategory(data.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies');
       setNzbdavTvCategory(data.nzbdavTvCategory || 'Usenet-Ultimate-TV');
       setNzbdavFallbackEnabled(data.nzbdavFallbackEnabled === true);
-      setNzbdavLibraryCheckEnabled(data.nzbdavLibraryCheckEnabled !== false);
       setNzbdavMaxFallbacks(data.nzbdavMaxFallbacks ?? 0);
       // Legacy: nzbdavJobTimeoutSeconds is used as a fallback seed for per-type timeouts on old configs
       const legacyTimeout = data.nzbdavJobTimeoutSeconds;
@@ -1234,7 +1232,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbdavMoviesCategory, setNzbdavMoviesCategory,
     nzbdavTvCategory, setNzbdavTvCategory,
     nzbdavFallbackEnabled, setNzbdavFallbackEnabled,
-    nzbdavLibraryCheckEnabled, setNzbdavLibraryCheckEnabled,
     nzbdavMaxFallbacks, setNzbdavMaxFallbacks,
     nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds,
     nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds,

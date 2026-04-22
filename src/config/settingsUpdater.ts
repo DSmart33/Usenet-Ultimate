@@ -30,7 +30,6 @@ export function updateSettings(settings: {
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
   nzbdavFallbackEnabled?: boolean;
-  nzbdavLibraryCheckEnabled?: boolean;
   nzbdavMaxFallbacks?: number;
   nzbdavJobTimeoutSeconds?: number;
   nzbdavMoviesTimeoutSeconds?: number;
@@ -170,9 +169,6 @@ export function updateSettings(settings: {
   }
   if (settings.nzbdavFallbackEnabled !== undefined) {
     configData.nzbdavFallbackEnabled = settings.nzbdavFallbackEnabled;
-  }
-  if (settings.nzbdavLibraryCheckEnabled !== undefined) {
-    configData.nzbdavLibraryCheckEnabled = settings.nzbdavLibraryCheckEnabled;
   }
   if (settings.nzbdavMaxFallbacks !== undefined) {
     configData.nzbdavMaxFallbacks = settings.nzbdavMaxFallbacks;

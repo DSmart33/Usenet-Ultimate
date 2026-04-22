@@ -696,8 +696,6 @@ function App() {
           onClose={() => ac.setActiveOverlay(null)}
           nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
           setNzbdavFallbackEnabled={ac.setNzbdavFallbackEnabled}
-          nzbdavLibraryCheckEnabled={ac.nzbdavLibraryCheckEnabled}
-          setNzbdavLibraryCheckEnabled={ac.setNzbdavLibraryCheckEnabled}
           nzbdavMoviesTimeoutSeconds={ac.nzbdavMoviesTimeoutSeconds}
           setNzbdavMoviesTimeoutSeconds={ac.setNzbdavMoviesTimeoutSeconds}
           nzbdavTvTimeoutSeconds={ac.nzbdavTvTimeoutSeconds}
