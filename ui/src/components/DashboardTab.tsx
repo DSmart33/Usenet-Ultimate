@@ -72,6 +72,7 @@ export interface DashboardTabProps {
     candidateCount: number;
     preferenceMode: 'priority' | 'speed';
     maxCandidates: number;
+    desiredBackups: number;
   };
   statsData: any;
   fetchStats: () => void;
@@ -823,7 +824,9 @@ export function DashboardTab({
                         ? "bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent"
                         : "group-hover:text-amber-400 group-active:text-amber-400"
                     )}>
-                      {ultimateResolve.enabled ? 'Enabled' : 'Disabled'}
+                      {ultimateResolve.enabled
+                        ? <>Enabled{ultimateResolve.desiredBackups > 0 && <span className="text-lg font-normal text-amber-400 ml-2">+ {ultimateResolve.desiredBackups} NZB Backup{ultimateResolve.desiredBackups === 1 ? '' : 's'}</span>}</>
+                        : 'Disabled'}
                     </div>
                     <div className="relative text-xs text-slate-500 mt-1">
                       {ultimateResolve.enabled
