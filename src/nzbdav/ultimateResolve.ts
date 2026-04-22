@@ -38,6 +38,7 @@ interface CandidateState {
   duplicate?: boolean;         // Resolved to same videoPath as another candidate
   duplicateOf?: number;        // poolIndex of the original candidate this duplicates
   replaced?: boolean;          // Replacement already pulled for this dead candidate
+  nzbdavDeadWritten?: boolean; // setDeadNzbEntry already wrote a specific nzbdav-failure entry — don't shadow it with a generic URL-only one at end-of-pipeline
 }
 
 interface UltimateResolveOptions {
@@ -382,6 +383,7 @@ export async function ultimateResolveFromCandidates(
         if (cs.nzoId) cancelJob(cs.nzoId, nzbdavConfig, 'pipeline failure').catch(() => {});
         if ((err as any)?.isNzbdavFailure) {
           setDeadNzbEntry(cs.candidate.nzbUrl, cs.candidate.title, err as Error, episodePattern);
+          cs.nzbdavDeadWritten = true;
         }
         cs.nzbdavStatus = 'failed';
         console.log(`${logPrefix}❌ Failed: ${(err as Error).message}`);
@@ -745,10 +747,13 @@ export async function ultimateResolveFromCandidates(
       console.log(`${tag} ${divider}`);
     }
 
-    // Write dead candidates to dead NZB database so fallback loop skips them
+    // Write dead candidates to dead NZB database so fallback loop skips them.
+    // Skip candidates whose nzbdav step already wrote a specific failure entry via setDeadNzbEntry —
+    // writing a URL-only shadow here would overwrite the real error with a generic "Health check: blocked",
+    // which defeats selective clears like clearMultiEpisodeDeadEntries / clearTimeoutDeadEntries.
     let deadWrites = 0;
     for (const cs of activePool) {
-      if (cs.healthStatus === 'dead') {
+      if (cs.healthStatus === 'dead' && !cs.nzbdavDeadWritten) {
         addDeadNzbByUrl(cs.candidate.nzbUrl, cs.candidate.title);
         deadWrites++;
       }
