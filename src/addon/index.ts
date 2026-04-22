@@ -145,16 +145,20 @@ builder.defineStreamHandler(async ({ type, id }) => {
       if (!fallbackCandidates?.length) return;
 
       const contentKey = `${type}:${imdbId}:${season ?? ''}:${episode ?? ''}`;
+      const urManifestKey = requestContext.getStore()?.manifestKey || '';
+      const sessionKey = `${urManifestKey}:${contentKey}`;
       const nzbdavConfig = buildNzbdavConfig();
       const epPattern = (type === 'series' && season !== undefined && episode !== undefined)
         ? buildEpisodePattern(season, episode, config.searchConfig?.allowMultiEpisodeFiles !== false)
         : undefined;
 
-      // Ultimate-Resolve takes priority — handles health checking + nzbdav internally
-      if (config.ultimateResolve?.enabled) {
+      // Ultimate-Resolve takes priority — handles health checking + nzbdav internally.
+      // Guarded by streamingMode=nzbdav: UR resolves via NZBDav, so running it for other modes
+      // wastes cycles and produces a tile URL the handler can't serve.
+      if (config.ultimateResolve?.enabled && config.streamingMode === 'nzbdav') {
         const ur = config.ultimateResolve;
         ultimateResolveFromCandidates(
-          contentKey, fallbackCandidates, nzbdavConfig,
+          sessionKey, fallbackCandidates, nzbdavConfig,
           { candidateCount: ur.candidateCount, preferenceMode: ur.preferenceMode, archiveInspection: ur.archiveInspection, sampleCount: ur.sampleCount, maxCandidates: ur.maxCandidates, desiredBackups: ur.desiredBackups, backupProcessingLimit: ur.backupProcessingLimit, healthCheckIndexers: ur.healthCheckIndexers },
           epPattern, type, episodesInSeason,
         ).catch(err => console.error('❌ Ultimate-Resolve error:', err));

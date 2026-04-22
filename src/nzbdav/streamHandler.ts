@@ -358,14 +358,23 @@ export async function handleStream(
   trackGrabFn?: (indexerName: string, title: string) => void,
   proxyFn?: (req: Request, res: ExpressResponse, videoPath: string) => Promise<void>
 ): Promise<void> {
-  const nzbUrl = req.query.nzb as string;
-  const title = req.query.title as string;
+  // Default to '' so downstream code keeps treating these as strings; UR tile requests
+  // (no nzb/title) short-circuit before any empty-string values are actually used.
+  const nzbUrl = (req.query.nzb as string | undefined) ?? '';
+  const title = (req.query.title as string | undefined) ?? '';
   const contentType = req.query.type as string | undefined;
   const seasonParam = req.query.season as string | undefined;
   const episodeParam = req.query.episode as string | undefined;
   const fallbackGroupId = req.query.fbg as string | undefined;
+  // Strict string equality on query params — Express can yield string[] for repeated keys.
+  const userPickRaw = req.query.user_pick;
+  const userPick = typeof userPickRaw === 'string' && userPickRaw === '1';
+  const sessionKey = typeof req.query.sk === 'string' ? req.query.sk : undefined;
 
-  if (!nzbUrl || !title) {
+  // UR tile clicks send only `sk` (no nzb/title) and rely on the lobby block below.
+  // Regular requests must still provide nzb+title.
+  const isUrTileRequest = !userPick && !!sessionKey && !nzbUrl && globalConfig.ultimateResolve?.enabled === true;
+  if (!isUrTileRequest && (!nzbUrl || !title)) {
     res.status(400).send('Missing required parameters: nzb, title');
     return;
   }
@@ -494,11 +503,11 @@ export async function handleStream(
   }
 
   // ── Ultimate-Resolve Lobby ─────────────────────────────────────────
-  // When Ultimate-Resolve is active, await its session promise instead of
-  // starting our own nzbdav submission. Self-redirect keeps ExoPlayer alive.
-  const contentKey = req.query.ck as string | undefined;
-  if (globalConfig.ultimateResolve?.enabled && contentKey) {
-    const sessionPromise = getSessionPromise(contentKey);
+  // When Ultimate-Resolve is active and the user didn't explicitly pick a
+  // stream tile (user_pick=1), await its session promise instead of starting
+  // our own nzbdav submission. Self-redirect keeps ExoPlayer alive.
+  if (!userPick && globalConfig.ultimateResolve?.enabled && sessionKey) {
+    const sessionPromise = getSessionPromise(sessionKey);
     if (sessionPromise) {
       const elapsed = Date.now() - streamStartTime;
       const remainingMs = STREMIO_TIMEOUT_MS - elapsed - STREMIO_SAFETY_MARGIN_MS;
@@ -526,7 +535,7 @@ export async function handleStream(
           const lastLobby = lastDeliveryLog.get(streamData.videoPath);
           const shouldLogLobby = !lastLobby || lastLobby.mode !== mode;
           lastDeliveryLog.set(streamData.videoPath, { mode, at: Date.now() });
-          if (shouldLogLobby) console.log(`👑 Lobby: serving Ultimate-Resolve result for ${contentKey}`);
+          if (shouldLogLobby) console.log(`👑 Lobby: serving Ultimate-Resolve result for ${sessionKey}`);
           if (mode === 'proxy') {
             if (shouldLogLobby) console.log(`  📡 Proxy streaming: ${streamData.videoPath}`);
             const lobbyFallbackOn = globalConfig.nzbdavFallbackEnabled === true || globalConfig.ultimateResolve?.enabled;
@@ -561,13 +570,27 @@ export async function handleStream(
     }
   }
 
+  // UR tile request (no nzb/title in URL) can only be resolved via the lobby.
+  // If we reach here, the lobby either timed out beyond MAX_SELF_REDIRECTS or
+  // the session was missing/rejected — no candidate fallback is possible.
+  if (isUrTileRequest) {
+    console.log(`👑 UR tile: no session or lobby exhausted — serving failure video`);
+    await sendFailureVideo(req, res);
+    return;
+  }
+
   const deadSkipKey = fallbackGroupId || nzbUrl;
   const logDeadSkips = !deadSkipLoggedGroups.has(deadSkipKey);
 
-  // Build candidate order: try Ultimate-Resolve backups first, then sequential from after last vetted
-  const sessionBackups = contentKey ? getSessionBackups(contentKey) : null;
+  // Build candidate order.
+  // user_pick: honor the user's click — try only that NZB; fall into UR lobby on failure.
+  // Otherwise (UR tile click / lobby fall-through): prefer UR's pre-vetted backups, then
+  // resume sequential from after the last vetted URL.
+  const sessionBackups = sessionKey ? getSessionBackups(sessionKey) : null;
   const candidateOrder: number[] = [];
-  if (sessionBackups?.backupUrls?.size && candidates.length > 0) {
+  if (userPick) {
+    candidateOrder.push(candidateStart);
+  } else if (sessionBackups?.backupUrls?.size && candidates.length > 0) {
     for (let i = candidateStart; i < maxCandidates; i++) {
       if (sessionBackups.backupUrls.has(candidates[i].nzbUrl)) candidateOrder.push(i);
     }
@@ -747,7 +770,43 @@ export async function handleStream(
 
       const err = error as Error & { isNzbdavFailure?: boolean };
       console.error(`\u274C Stream failed [${i + 1}/${maxCandidates}] ${candidate.title}: ${err.message}`);
+
+      // User-pick failure: fall straight into the UR lobby instead of walking the candidate chain.
+      // The user explicitly chose this NZB; when it fails, UR's pre-vetted pool is the fallback.
+      // Redirect only if we still have self-redirect budget and haven't already sent headers.
+      if (
+        userPick
+        && sessionKey
+        && globalConfig.ultimateResolve?.enabled
+        && redirectCount < MAX_SELF_REDIRECTS
+        && !res.headersSent
+      ) {
+        const lobbyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/stream/ultimate-resolve`);
+        lobbyUrl.searchParams.set('sk', sessionKey);
+        lobbyUrl.searchParams.set('_rc', String(redirectCount + 1));
+        console.log(`👑 User-pick failed — redirecting to UR lobby (rc=${redirectCount + 1})`);
+        res.redirect(302, lobbyUrl.href);
+        return;
+      }
     }
+  }
+
+  // User-pick loop exhausted without serving (e.g. the clicked NZB was dead-cached and
+  // `continue`d past the catch-block's lobby redirect). Fall into the UR lobby as the
+  // final fallback before the failure video.
+  if (
+    userPick
+    && sessionKey
+    && globalConfig.ultimateResolve?.enabled
+    && redirectCount < MAX_SELF_REDIRECTS
+    && !res.headersSent
+  ) {
+    const lobbyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/stream/ultimate-resolve`);
+    lobbyUrl.searchParams.set('sk', sessionKey);
+    lobbyUrl.searchParams.set('_rc', String(redirectCount + 1));
+    console.log(`👑 User-pick exhausted — redirecting to UR lobby (rc=${redirectCount + 1})`);
+    res.redirect(302, lobbyUrl.href);
+    return;
   }
 
   // All candidates exhausted -- serve the 3-hour failure video. The long duration

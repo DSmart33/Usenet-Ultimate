@@ -20,6 +20,20 @@ import { requestContext } from '../requestContext.js';
 import { createFallbackGroup, type FallbackCandidate } from '../nzbdav/index.js';
 import { buildStreamDisplay } from './streamDisplay.js';
 
+// Ultimate Resolve tile + query param identifiers
+const UR_TILE_BASE_NAME = '👑 Ultimate Resolve';
+const UR_STREAM_PATH = 'ultimate-resolve';
+const QUERY_PARAM_USER_PICK = 'user_pick';
+const USER_PICK_FLAG = `&${QUERY_PARAM_USER_PICK}=1`;
+
+/** Build the UR tile's display name + title based on the active preference mode. */
+function urTileDisplay(mode: 'speed' | 'priority' | undefined): { name: string; title: string } {
+  if (mode === 'priority') {
+    return { name: `${UR_TILE_BASE_NAME} · 🥇 Priority`, title: 'Auto-select highest-quality healthy stream' };
+  }
+  return { name: `${UR_TILE_BASE_NAME} · ⚡ Speed`, title: 'Auto-select fastest healthy stream' };
+}
+
 /** Resolve the base URL for stream/proxy URLs — uses the request's origin when available,
  *  falls back to BASE_URL env or localhost for background tasks (auto-queue, health checks). */
 function getBaseUrl(): string {
@@ -54,7 +68,11 @@ export interface StreamBuildOutput {
  */
 export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   const { allResults, healthResults, type, imdbId, season, episode, episodesInSeason, now, runtime } = ctx;
-  const ckParam = imdbId ? `&ck=${encodeURIComponent(`${type}:${imdbId}:${season ?? ''}:${episode ?? ''}`)}` : '';
+  // sessionKey includes manifestKey so concurrent requests from different Stremio installations
+  // don't share UR session state (avoids cross-tenant state leaks on multi-user deployments).
+  const streamManifestKey = requestContext.getStore()?.manifestKey || '';
+  const sessionKey = imdbId ? `${streamManifestKey}:${type}:${imdbId}:${season ?? ''}:${episode ?? ''}` : '';
+  const skParam = sessionKey ? `&sk=${encodeURIComponent(sessionKey)}` : '';
 
   // Build auto-play / binge group settings
   const autoPlay: AutoPlayConfig = config.autoPlay || { enabled: true, method: 'firstFile' as const, attributes: ['resolution', 'quality', 'edition'] as ('resolution' | 'quality' | 'edition')[] };
@@ -64,7 +82,6 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   let fallbackCandidates: FallbackCandidate[] | undefined;
   if (config.streamingMode === 'nzbdav' && (config.nzbdavFallbackEnabled === true || config.ultimateResolve?.enabled)) {
     fallbackGroupId = crypto.randomUUID().slice(0, 12);
-    const streamManifestKey = requestContext.getStore()?.manifestKey || '';
 
     fallbackCandidates = allResults
       .filter(r => {
@@ -213,7 +230,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           ? `&season=${season}&episode=${episode}&sp=1${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
           : '';
         const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-        const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}${ckParam}`;
+        const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(nzbProxyUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}${skParam}${USER_PICK_FLAG}`;
         streams.push({
           name: streamName,
           title: streamTitle,
@@ -265,7 +282,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         : '';
       const streamManifestKey = requestContext.getStore()?.manifestKey || '';
       const fbgParam = fallbackGroupId ? `&fbg=${fallbackGroupId}` : '';
-      const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}${ckParam}`;
+      const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(result.link)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}${episodeParams}${fbgParam}${skParam}${USER_PICK_FLAG}`;
 
       streams.push({
         name: streamName,
@@ -287,6 +304,30 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         },
       });
     }
+  }
+
+  // Prepend synthetic Ultimate Resolve tile so users can opt into the UR lobby explicitly.
+  // Guarded by streamingMode=nzbdav: UR resolves via NZBDav, so showing the tile in other
+  // modes would produce a URL the handler can't serve. sessionKey gate skips item pages
+  // that don't have an imdbId (shouldn't happen in practice, but defensive).
+  if (
+    config.ultimateResolve?.enabled
+    && config.streamingMode === 'nzbdav'
+    && sessionKey
+  ) {
+    const urUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${UR_STREAM_PATH}?sk=${encodeURIComponent(sessionKey)}`;
+    // bingeGroup matches regular tiles so cross-episode auto-play can continue via UR.
+    const urBingeGroup = autoPlay.enabled && autoPlay.method === 'firstFile' ? 'usenetultimate' : undefined;
+    const urDisplay = urTileDisplay(config.ultimateResolve?.preferenceMode);
+    streams.unshift({
+      name: urDisplay.name,
+      title: urDisplay.title,
+      url: urUrl,
+      behaviorHints: {
+        notWebReady: false,
+        bingeGroup: urBingeGroup,
+      },
+    });
   }
 
   return { streams, fallbackGroupId, fallbackCandidates };

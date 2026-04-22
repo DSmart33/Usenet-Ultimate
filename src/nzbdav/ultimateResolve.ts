@@ -66,14 +66,14 @@ interface DeferredStream {
 const sessionPromises = new Map<string, DeferredStream>();
 const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-/** Get the session promise for a content key (used by stream handler lobby). */
-export function getSessionPromise(contentKey: string): Promise<StreamData> | null {
-  return sessionPromises.get(contentKey)?.promise ?? null;
+/** Get the session promise for a session key (used by stream handler lobby). */
+export function getSessionPromise(sessionKey: string): Promise<StreamData> | null {
+  return sessionPromises.get(sessionKey)?.promise ?? null;
 }
 
-/** Get backup URLs and last vetted URL for a content key (used by fallback loop). */
-export function getSessionBackups(contentKey: string): { backupUrls: Set<string>; lastVettedUrl?: string } | null {
-  const deferred = sessionPromises.get(contentKey);
+/** Get backup URLs and last vetted URL for a session key (used by fallback loop). */
+export function getSessionBackups(sessionKey: string): { backupUrls: Set<string>; lastVettedUrl?: string } | null {
+  const deferred = sessionPromises.get(sessionKey);
   if (!deferred?.backupUrls?.size) return null;
   return { backupUrls: deferred.backupUrls, lastVettedUrl: deferred.lastVettedUrl };
 }
@@ -144,7 +144,7 @@ async function probeVideo(config: NZBDavConfig, videoPath: string, logPrefix: st
 // ── Main pipeline ────────────────────────────────────────────────────
 
 export async function ultimateResolveFromCandidates(
-  contentKey: string,
+  sessionKey: string,
   candidates: FallbackCandidate[],
   nzbdavConfig: NZBDavConfig,
   options: UltimateResolveOptions,
@@ -152,19 +152,19 @@ export async function ultimateResolveFromCandidates(
   contentType?: string,
   episodesInSeason?: number,
 ): Promise<void> {
-  if (activeSessions.has(contentKey)) return;
+  if (activeSessions.has(sessionKey)) return;
 
   const controller = new AbortController();
-  activeSessions.set(contentKey, controller);
+  activeSessions.set(sessionKey, controller);
 
   // Create deferred promise — lobby awaits this to get the resolved stream
   let sessionResolve!: (data: StreamData) => void;
   let sessionReject!: (err: Error) => void;
   const sessionPromise = new Promise<StreamData>((res, rej) => { sessionResolve = res; sessionReject = rej; });
   const deferred: DeferredStream = { promise: sessionPromise, resolve: sessionResolve, reject: sessionReject, backupUrls: new Set() };
-  sessionPromises.set(contentKey, deferred);
+  sessionPromises.set(sessionKey, deferred);
 
-  const tag = `👑 Ultimate-Resolve [${contentKey}]`;
+  const tag = `👑 Ultimate-Resolve [${sessionKey}]`;
   const providers = (globalConfig.healthChecks?.providers ?? []).filter(p => p.enabled);
   const userAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
   const hasProviders = providers.length > 0;
@@ -759,12 +759,12 @@ export async function ultimateResolveFromCandidates(
     sessionReject(err instanceof Error ? err : new Error(String(err)));
   } finally {
     pool?.destroyAll();
-    activeSessions.delete(contentKey);
+    activeSessions.delete(sessionKey);
     // Keep session promise available for 2h30s so auto-play / binge watching can find it after episodes finish
     const timer = setTimeout(() => {
-      sessionPromises.delete(contentKey);
-      cleanupTimers.delete(contentKey);
+      sessionPromises.delete(sessionKey);
+      cleanupTimers.delete(sessionKey);
     }, 2 * 60 * 60 * 1000 + 30_000);
-    cleanupTimers.set(contentKey, timer);
+    cleanupTimers.set(sessionKey, timer);
   }
 }
