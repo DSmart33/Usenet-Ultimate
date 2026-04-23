@@ -237,6 +237,29 @@ export interface FilterConfig {
   preferNonStandardEdition?: boolean;        // Prioritize all enabled non-standard editions equally over Standard
   enableRemakeFiltering?: boolean;           // TV-only. Cross-reference TVDB to filter wrong-version results for shows with remakes. Default true. Env: ENABLE_REMAKE_DETECTION.
   allowMultiEpisodeFiles?: boolean;          // TV-only. Allow multi-episode files (e.g. S01E01E02.mkv). Default true. Env: ALLOW_MULTI_EPISODE_FILES.
+  rules?: {
+    rankedRegexPatterns?: RankedRegexRule[];
+    rankedStreamExpressions?: RankedSelRule[];
+    remoteRankedRegexUrls?: string[];
+    remoteRankedStreamExpressionUrls?: string[];
+  };
+}
+
+// Ranked rule shared shape. score: 0 excludes, positive boosts, negative penalizes.
+interface RankedRuleBase {
+  id: string;                   // Stable UUID for React keys and cross-tab identity
+  name: string;                 // Display name
+  score: number;                // Exclude when 0; clamped to ±10_000 at save time
+  enabled?: boolean;            // Defaults to true when undefined
+}
+
+export interface RankedRegexRule extends RankedRuleBase {
+  pattern: string;              // Regex source, no leading/trailing slashes
+  flags?: string;               // Regex flags (e.g. 'i')
+}
+
+export interface RankedSelRule extends RankedRuleBase {
+  expression: string;           // Stream Expression Language source
 }
 
 // Usenet provider for health checking
