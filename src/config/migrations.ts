@@ -253,3 +253,106 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
     console.log('✅ Inserted VVC (h.266) at top of encodePriority');
   }
 }
+
+// Insert 'DCP' (Digital Cinema Package leaks) into videoPriority at the correct
+// tier: just after 'BluRay', above 'WEB-DL'. DCP releases are theatrical-master
+// transcodes — BluRay-adjacent quality, not screener-grade. Also reposition DCP
+// for users who got the old beta placement (between TeleCine and TeleSync).
+{
+  const correctIndex = (arr: string[]): number => {
+    const bluray = arr.indexOf('BluRay');
+    return bluray >= 0 ? bluray + 1 : 0;
+  };
+  const needsUpdate = (arr: string[] | undefined): boolean => {
+    if (!arr || arr.length === 0) return false;
+    const dcpIdx = arr.indexOf('DCP');
+    if (dcpIdx < 0) return true; // DCP missing, insert it
+    return dcpIdx !== correctIndex(arr); // DCP present but at wrong tier
+  };
+  let migrated = false;
+  for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
+    const f = configData[key] as any;
+    if (needsUpdate(f?.videoPriority)) {
+      const copy = (f.videoPriority as string[]).filter(v => v !== 'DCP');
+      copy.splice(correctIndex(copy), 0, 'DCP');
+      f.videoPriority = copy;
+      migrated = true;
+    }
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ DCP ranked above WEB-DL in videoPriority');
+  }
+}
+
+// Migrate audioTagPriority from coarse library-style tokens ('DDP', 'DTS Lossless'
+// etc.) to fine-grained canonical tokens that match community template rules
+// ('DD+', 'DTS-HD MA', 'DTS:X', etc.). Parser now emits the fine-grained form.
+{
+  const AUDIO_RENAME: Record<string, string> = {
+    'DDP': 'DD+',
+    'Atmos (DDP)': 'Atmos (DD+)',
+    'OPUS': 'Opus',
+  };
+  const NEW_TOKENS = ['DTS:X', 'DTS-HD MA', 'DTS-HD', 'DTS-ES'];
+
+  const migrateList = (arr: string[] | undefined): { out: string[]; changed: boolean } => {
+    if (!Array.isArray(arr) || arr.length === 0) return { out: arr ?? [], changed: false };
+    let changed = false;
+    // Rename existing tokens
+    const renamed = arr.map(v => {
+      if (AUDIO_RENAME[v]) { changed = true; return AUDIO_RENAME[v]; }
+      return v;
+    });
+    // Remove obsolete tokens that no longer exist
+    const kept = renamed.filter(v => {
+      if (v === 'DTS Lossless' || v === 'DTS Lossy') { changed = true; return false; }
+      return true;
+    });
+    // Append new tokens the user didn't have yet (keep them togglable)
+    for (const t of NEW_TOKENS) {
+      if (!kept.includes(t)) { kept.push(t); changed = true; }
+    }
+    return { out: kept, changed };
+  };
+
+  let migrated = false;
+  for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
+    const f = configData[key] as any;
+    if (!f) continue;
+    const r = migrateList(f.audioTagPriority);
+    if (r.changed) { f.audioTagPriority = r.out; migrated = true; }
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ Migrated audioTagPriority to fine-grained audio tokens (DD+, DTS-HD MA, DTS:X, etc.)');
+  }
+}
+
+// Ensure regexScore / seScore sort methods are present, and put regexScore at
+// position 0 so that once a user enables it, rule-based ranking takes precedence
+// over every other sort method. Both remain disabled by default.
+{
+  let migrated = false;
+  for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
+    const f = configData[key] as any;
+    if (!Array.isArray(f?.sortOrder) || f.sortOrder.length === 0) continue;
+    const so: string[] = f.sortOrder;
+    const needsRegexReposition = so.indexOf('regexScore') !== 0;
+    const needsSeAppend = !so.includes('seScore');
+    if (!needsRegexReposition && !needsSeAppend) continue;
+    const withoutRegex = so.filter(m => m !== 'regexScore');
+    const next = ['regexScore', ...withoutRegex];
+    if (!next.includes('seScore')) next.push('seScore');
+    f.sortOrder = next;
+    if (f.enabledSorts) {
+      if (f.enabledSorts.regexScore === undefined) f.enabledSorts.regexScore = false;
+      if (f.enabledSorts.seScore === undefined) f.enabledSorts.seScore = false;
+    }
+    migrated = true;
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ regexScore sort method ranked first');
+  }
+}
