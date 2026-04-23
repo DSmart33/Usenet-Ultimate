@@ -45,7 +45,7 @@ export function parseMetadata(title: string): ParsedMetadata {
 
   return {
     resolution: parseResolution(parsed, title),
-    codec: normalizeCodec(parsed.codec),
+    codec: normalizeCodec(parsed.codec, title),
     source: parseSourceFromLib(parsed),
     visualTag: parseVisualFromLib(parsed, title),
     audioTag: parseAudioFromLib(parsed),
@@ -79,11 +79,17 @@ export function resolutionToDisplay(resolution: string): string {
 
 // ── Codec ────────────────────────────────────────────────────────────
 
-function normalizeCodec(codec: string | undefined): string {
+// VVC / h.266 — parse-torrent-title doesn't recognize these, so detect
+// from the raw title before falling back to the library's codec field.
+const VVC_PATTERN = /(?:^|[^a-z0-9])(h\.?266|x266|vvc|vvenc)(?:[^a-z0-9]|$)/i;
+
+function normalizeCodec(codec: string | undefined, title?: string): string {
+  if (title && VVC_PATTERN.test(title)) return 'vvc';
   if (!codec) return 'Unknown';
   const c = codec.toLowerCase();
   if (c === 'h265' || c === 'x265') return 'hevc';
   if (c === 'h264' || c === 'x264') return 'avc';
+  if (c === 'h266' || c === 'x266' || c === 'vvc' || c === 'vvenc') return 'vvc';
   if (c === 'divx' || c === 'dvix') return 'xvid';
   return c;
 }

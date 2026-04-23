@@ -233,3 +233,23 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
     console.log('✅ Migrated enableRemakeFiltering / allowMultiEpisodeFiles from searchConfig to filters');
   }
 }
+
+// Insert 'vvc' at the top of encodePriority arrays that pre-date VVC/h.266 support.
+// VVC is the MPEG successor to HEVC and the most efficient codec in the list,
+// so it ranks above av1/hevc/etc by default. Users who can't decode VVC can
+// disable it via the Encode Filter toggle in the filters overlay.
+{
+  const needsVvc = (arr: string[] | undefined): boolean => !!arr && arr.length > 0 && !arr.includes('vvc');
+  let migrated = false;
+  for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
+    const f = configData[key] as any;
+    if (needsVvc(f?.encodePriority)) {
+      f.encodePriority = ['vvc', ...f.encodePriority];
+      migrated = true;
+    }
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ Inserted VVC (h.266) at top of encodePriority');
+  }
+}
