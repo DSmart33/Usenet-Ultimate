@@ -254,6 +254,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   const RECONNECT_BASE_DELAY_MS = 50;
   const RECONNECT_MAX_DELAY_MS = 8000;
   const MAX_CONCURRENT_PER_FILE = 6;
+  const TCP_KEEPALIVE_DELAY_MS = 10_000; // Initial delay before first TCP keepalive probe on idle WebDAV sockets — detects dead connections (NAT timeout, TLS half-open) so they get culled from the pool.
 
   // Per-file request tracker — aborts superseded/excess connections.
   interface TrackedReq { id: number; rangeStart: number; isFullRequest: boolean; abort: () => void; }
@@ -306,11 +307,25 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   const agentOpts = {
     keepAlive: true,
     maxSockets: 32,
-    keepAliveMsecs: 30_000,
-    scheduling: 'lifo' as const,
+    keepAliveMsecs: 15_000,
+    scheduling: 'fifo' as const, // Rotate sockets across long-running sessions so a degraded socket doesn't stay pinned at the top of the pool.
   };
   const webdavHttpAgent = new http.Agent(agentOpts);
   const webdavHttpsAgent = new https.Agent(agentOpts);
+
+  // TCP-level SO_KEEPALIVE on every new socket — pairs with scheduling: 'fifo'
+  // above. FIFO rotates sockets across requests; keepalive culls the dead ones.
+  // Together they keep multi-hour streaming pools healthy without restart.
+  for (const agent of [webdavHttpAgent, webdavHttpsAgent]) {
+    const base = agent.createConnection.bind(agent);
+    (agent as any).createConnection = (options: any, callback: any) => {
+      const socket = base(options, callback) as { setKeepAlive?: (enable: boolean, delay: number) => void } | undefined;
+      if (socket && typeof socket.setKeepAlive === 'function') {
+        socket.setKeepAlive(true, TCP_KEEPALIVE_DELAY_MS);
+      }
+      return socket;
+    };
+  }
 
   /** Resolve dual-stage proxy buffer size (accessor handles env var → config → 128 MB default). */
   function getStreamBufferBytes(): number {
