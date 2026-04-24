@@ -151,7 +151,7 @@ export function UltimateResolveOverlay({
           {/* Description */}
           <ul className="text-xs text-slate-400 leading-relaxed list-disc list-inside space-y-1">
             <li>Ultimate Resolve is the fastest way to start streaming a healthy NZB. It races multiple candidates in parallel, verifies each is alive before and during submission, and streams from the best candidate based on your preference mode, highest priority or first to resolve.</li>
-            <li>After the primary starts, the pipeline keeps running to pre-cache container-matched backups, if the stream dies mid-playback, the fallback is already loaded. No re-resolve, no search, no interruption.</li>
+            <li>After the primary starts, the pipeline keeps running to pre-cache container-matched backups, if the stream dies mid-playback, the fallback is already loaded.</li>
           </ul>
 
           {/* Enable Toggle */}
