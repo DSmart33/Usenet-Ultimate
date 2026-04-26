@@ -456,6 +456,13 @@ export async function ultimateResolveFromCandidates(
       // candidate gets grabbed between backupCount incrementing and the next
       // iteration's drain signal.
       if (primaryResolved) {
+        // No backups wanted — block any post-primary grab. Catches the
+        // inline-call race where `backupLimitReached` hasn't been set yet
+        // by the top of the loop. Already-grabbed candidates still flow
+        // through nzbdav submission (free backups); we just refuse to
+        // start *new* work. Free library hits are picked up by the
+        // post-drain sweep below regardless.
+        if (options.desiredBackups === 0) return null;
         if (options.desiredBackups > 0 && backupCount >= options.desiredBackups) return null;
         // Cap total backup NZBs attempted via NNTP. Library-hit pool members
         // never grab segments (promoted at pool entry) so they don't count
@@ -516,7 +523,7 @@ export async function ultimateResolveFromCandidates(
       if (primaryResolved) {
         if (options.desiredBackups === 0 && !backupLimitReached) {
           backupLimitReached = true;
-          console.log(`${tag} 📦 No replacement backups (desiredBackups=0) — draining initial pool`);
+          console.log(`${tag} 📦 No replacement grabs (desiredBackups=0) — draining; free library hits still captured`);
         } else if (options.desiredBackups > 0 && backupCount >= options.desiredBackups && !backupLimitReached) {
           backupLimitReached = true;
           console.log(`${tag} 📦 Desired backups reached (${backupCount}/${options.desiredBackups}) — draining pool`);
@@ -700,12 +707,12 @@ export async function ultimateResolveFromCandidates(
     }
 
     // ── Post-drain library sweep ─────────────────────────────────
-    // Library hits cost no NNTP grabs, so fill remaining backup slots for free
-    // once the pool has drained. backupProcessingLimit is a grab budget and
-    // does not gate this sweep — desiredBackups is the only cap.
-    if (primaryResolved && options.desiredBackups > 0 && backupCount < options.desiredBackups) {
+    // Library hits cost no NNTP grabs, so always sweep when primary resolved —
+    // free backups are honored even when desiredBackups=0. The cap moves
+    // inside the loop so it only fires when desiredBackups > 0.
+    if (primaryResolved) {
       for (const hit of hits) {
-        if (backupCount >= options.desiredBackups) break;
+        if (options.desiredBackups > 0 && backupCount >= options.desiredBackups) break;
         if (libraryResolvedUrls.has(hit.candidate.nzbUrl)) continue;
         if (hit.index === primaryPoolIndex) continue;
         if (resolvedVideoPaths.has(hit.data.videoPath)) continue;
