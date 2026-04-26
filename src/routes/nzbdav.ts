@@ -807,6 +807,14 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       res.status(400).send('Missing path parameter');
       return;
     }
+    // _norange=1: the previous /v hop just switched candidate files; the
+    // player's Range was for the broken file and is invalid here. Drop it so
+    // the new backup serves from byte 0. Set in the eviction-redirect builder
+    // when _ci advances; same-file _rc++ retries (lobby self-redirects,
+    // transient blips) preserve Range so manual seek positions survive.
+    if (req.query._norange === '1') {
+      delete (req.headers as Record<string, unknown>).range;
+    }
     try {
       await proxyVideoStream(req, res, videoPath);
     } catch (err) {
@@ -832,9 +840,14 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
           const fallbackUrl = new URL(`${req.protocol}://${req.get('host')}${fb}`);
           const rc = Math.max(0, parseInt(fallbackUrl.searchParams.get('_rc') ?? '0', 10) || 0);
           fallbackUrl.searchParams.set('_rc', String(rc + 1));
+          // Any error here means the candidate file is being abandoned — the
+          // next /v hop will serve a different file, so the player's Range is
+          // invalid. Signal _norange=1 unconditionally; the next /v drops it.
+          fallbackUrl.searchParams.set('_norange', '1');
           // For non-404 errors (file exists on disk but server can't serve it),
-          // advance to the next fallback candidate so /stream doesn't re-resolve
-          // to the same broken video via library check.
+          // advance _ci so /stream doesn't re-resolve to the same broken video
+          // via library check. 404 doesn't need _ci++ because markVideoPathBroken
+          // already excludes that path from re-resolution.
           if (!(err instanceof WebDav404Error)) {
             const ci = Math.max(0, parseInt(fallbackUrl.searchParams.get('_ci') ?? '0', 10) || 0);
             fallbackUrl.searchParams.set('_ci', String(ci + 1));

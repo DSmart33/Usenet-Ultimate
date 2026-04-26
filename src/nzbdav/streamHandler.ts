@@ -573,6 +573,7 @@ export async function handleStream(
           const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
           proxyUrl.searchParams.set('path', cached.streamData.videoPath);
           proxyUrl.searchParams.set('_fb', req.originalUrl);
+          if (req.query._norange === '1') proxyUrl.searchParams.set('_norange', '1');
           const label = cached.streamingMethod === 'pipe' ? '🔗 Pipe' : '📡 Dual-Stage Proxy';
           console.log(`  ${label} 302 streaming: ${cached.streamData.videoPath}${sizeSuffix}`);
           res.redirect(302, proxyUrl.href);
@@ -629,6 +630,7 @@ export async function handleStream(
               const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
               proxyUrl.searchParams.set('path', streamData.videoPath);
               proxyUrl.searchParams.set('_fb', req.originalUrl);
+              if (req.query._norange === '1') proxyUrl.searchParams.set('_norange', '1');
               res.redirect(302, proxyUrl.href);
             }
           } else {
@@ -678,6 +680,7 @@ export async function handleStream(
         const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
         proxyUrl.searchParams.set('path', usable.videoPath);
         proxyUrl.searchParams.set('_fb', req.originalUrl);
+        if (req.query._norange === '1') proxyUrl.searchParams.set('_norange', '1');
         res.redirect(302, proxyUrl.href);
       }
       return;
@@ -855,6 +858,7 @@ export async function handleStream(
           const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
           proxyUrl.searchParams.set('path', streamData.videoPath);
           proxyUrl.searchParams.set('_fb', req.originalUrl);
+          if (req.query._norange === '1') proxyUrl.searchParams.set('_norange', '1');
           res.redirect(302, proxyUrl.href);
         }
       } else {
