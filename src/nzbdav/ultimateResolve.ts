@@ -109,6 +109,10 @@ export function hasAnySessions(): boolean {
 
 /** Cancel all running Ultimate-Resolve sessions (called on settings change). */
 export function cancelAllUltimateResolves(): void {
+  const activeCount = activeSessions.size;
+  if (activeCount > 0) {
+    console.warn(`👑 Cancelling ${activeCount} active Ultimate-Resolve session(s)`);
+  }
   for (const [, controller] of activeSessions) {
     controller.abort();
   }
@@ -117,10 +121,13 @@ export function cancelAllUltimateResolves(): void {
     clearTimeout(timer);
   }
   cleanupTimers.clear();
-  // Reject any pending session promises
-  for (const [key, deferred] of sessionPromises) {
+  // Reject pending deferreds so awaiting lobbies wake. DO NOT delete from
+  // sessionPromises — resolved entries are cached primary streams; deleting
+  // them severs in-flight playback for clients still polling the lobby URL.
+  // The per-session cleanup setTimeout in ultimateResolveFromCandidates is
+  // the sole deletion path. Rejecting an already-resolved promise is a no-op.
+  for (const [, deferred] of sessionPromises) {
     deferred.reject(new Error('Ultimate-Resolve cancelled'));
-    sessionPromises.delete(key);
   }
 }
 
