@@ -303,7 +303,13 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         const episodeStr = needsEpisodeCtx ? String(episode) : '';
         const spStr = needsEpisodeCtx ? '1' : '';
         const epcountStr = needsEpisodeCtx && episodesInSeason ? String(episodesInSeason) : '';
-        const packed = `${fallbackGroupId}.${candidateIdx}.${sessionKeyEnc}.${seasonStr}.${episodeStr}.${spStr}.${epcountStr}`;
+        // base64url has no `.`, so positional split() stays intact. These trailing fields
+        // let the handler still attempt a single shot when the fallback group has been
+        // evicted (group TTL < the lifetime of cached tile URLs).
+        const urlB64 = Buffer.from(result.link, 'utf8').toString('base64url');
+        const titleB64 = Buffer.from(result.title, 'utf8').toString('base64url');
+        const indexerB64 = Buffer.from(result.indexerName || '', 'utf8').toString('base64url');
+        const packed = `${fallbackGroupId}.${candidateIdx}.${sessionKeyEnc}.${seasonStr}.${episodeStr}.${spStr}.${epcountStr}.${urlB64}.${titleB64}.${indexerB64}`;
         streams.push({
           name: streamName,
           title: streamTitle,

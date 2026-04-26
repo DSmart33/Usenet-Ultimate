@@ -383,14 +383,21 @@ export async function handleStream(
   const tParam = req.query.t as string | undefined;
   if (tParam) {
     const parts = tParam.split('.');
-    const [fbgPart, idxPart, skPart, seasonPart, episodePart, spPart, epcountPart] = parts;
+    // Trailing url/title/indexer (b64url) are a survival fallback for when the
+    // in-memory fallback group has been evicted (TTL elapsed) — keeps a
+    // single-shot attempt possible instead of returning HTTP 400.
+    const [fbgPart, idxPart, skPart, seasonPart, episodePart, spPart, epcountPart, urlB64, titleB64, indexerB64] = parts;
     fallbackGroupId = fbgPart || undefined;
     const idx = idxPart ? parseInt(idxPart, 10) : NaN;
     const group = fallbackGroupId ? getFallbackGroup(fallbackGroupId) : undefined;
     const cand = Number.isFinite(idx) && group ? group.candidates[idx] : undefined;
-    nzbUrl = cand?.nzbUrl ?? '';
-    title = cand?.title ?? '';
-    indexerName = cand?.indexerName ?? '';
+    const decodeB64 = (s: string | undefined): string => {
+      if (!s) return '';
+      try { return Buffer.from(s, 'base64url').toString('utf8'); } catch { return ''; }
+    };
+    nzbUrl = cand?.nzbUrl ?? decodeB64(urlB64);
+    title = cand?.title ?? decodeB64(titleB64);
+    indexerName = cand?.indexerName ?? decodeB64(indexerB64);
     contentType = group?.type;
     tPackSessionKey = skPart ? decodeURIComponent(skPart) : undefined;
     seasonParam = seasonPart || undefined;
