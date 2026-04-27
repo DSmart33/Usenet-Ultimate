@@ -178,21 +178,20 @@ builder.defineStreamHandler(async ({ type, id }) => {
       // Apply current user filter/sort preferences (deprioritized packs appended after sort)
       allResults = applyUserFilters(allResults, titleMeta.type, titleMeta.now, titleMeta.runtime, deprioritizedPacks);
 
-      // When Ultimate-Resolve is enabled, it handles health checking + nzbdav internally
-      if (!config.ultimateResolve?.enabled) {
-        // Health checks — pass pre-existing health data so the coordinator skips
-        // already-checked results and smart mode counts them toward its threshold
-        const { healthResults: newHealth, filteredResults } = await coordinateHealthChecks({
-          allResults,
-          type: titleMeta.type,
-          season: titleMeta.season,
-          episode: titleMeta.episode,
-          episodesInSeason: titleMeta.episodesInSeason,
-          preExistingHealth: healthMap.size > 0 ? healthMap : undefined,
-        });
-        for (const [key, val] of newHealth) healthMap.set(key, val);
-        allResults = filteredResults;
-      }
+      // Health checks pre-filter results before UR sees them; UR also performs
+      // its own per-candidate verification. Pass pre-existing health data so the
+      // coordinator skips already-checked results and smart mode counts them
+      // toward its threshold. Inner gate respects config.healthChecks.enabled.
+      const { healthResults: newHealth, filteredResults } = await coordinateHealthChecks({
+        allResults,
+        type: titleMeta.type,
+        season: titleMeta.season,
+        episode: titleMeta.episode,
+        episodesInSeason: titleMeta.episodesInSeason,
+        preExistingHealth: healthMap.size > 0 ? healthMap : undefined,
+      });
+      for (const [key, val] of newHealth) healthMap.set(key, val);
+      allResults = filteredResults;
 
       // Auto-mark EasyNews and Zyclops results as verified
       autoMarkRemainingResults(allResults, healthMap);

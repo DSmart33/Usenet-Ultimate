@@ -658,15 +658,12 @@ export function DashboardTab({
                     onDrop={(e) => handleCardDrop(e, 'healthChecks')}
                     onDragEnd={handleCardDragEnd}
                     className={clsx(
-                      "card p-4 group transition-all",
-                      ultimateResolve.enabled
-                        ? "opacity-50 cursor-not-allowed"
-                        : "cursor-move hover:!border-pink-400/50 hover:!shadow-pink-400/30 active:!border-pink-400/50 active:!shadow-pink-400/30",
+                      "card p-4 group transition-all cursor-move hover:!border-pink-400/50 hover:!shadow-pink-400/30 active:!border-pink-400/50 active:!shadow-pink-400/30",
                       isDragging && "opacity-50 scale-95",
                       isOver && "ring-2 ring-pink-400 scale-105"
                     )}
                     onClick={() => {
-                      if (!draggedCard && !ultimateResolve.enabled) setActiveOverlay('healthChecks');
+                      if (!draggedCard) setActiveOverlay('healthChecks');
                     }}
                   >
                     <div className="flex items-center gap-3 mb-2">
@@ -674,13 +671,6 @@ export function DashboardTab({
                       <Heart className="w-5 h-5 text-pink-400 group-hover:scale-110 group-active:scale-110 transition-transform" />
                       <span className="text-slate-400 text-sm">Health Checks</span>
                     </div>
-                    {ultimateResolve.enabled ? (
-                      <>
-                        <div className="text-3xl font-bold text-slate-500">Managed</div>
-                        <span className="text-xs text-amber-400/80">Managed by Ultimate Resolve</span>
-                      </>
-                    ) : (
-                      <>
                     <div className="text-3xl font-bold group-hover:text-pink-400 group-active:text-pink-400 transition-colors">
                       {healthChecks.enabled ? 'Enabled' : 'Disabled'}
                       {healthChecks.enabled && healthChecks.autoQueueMode !== 'off' && (
@@ -705,8 +695,6 @@ export function DashboardTab({
                           })()
                         : 'Click to configure →'}
                     </div>
-                      </>
-                    )}
                   </div>
                 ),
                 ultimateResolve: (
