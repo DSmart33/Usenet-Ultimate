@@ -13,6 +13,7 @@ interface UltimateResolveOverlayProps {
   onClose: () => void;
   ultimateResolve: {
     enabled: boolean;
+    healthCheckEnabled: boolean;
     whenToResolve: 'on-results' | 'on-tile-selection';
     userPickFallback: 'ur-lobby' | 'failure-video' | 'fallback-chain';
     candidateCount: number;
@@ -121,7 +122,7 @@ export function UltimateResolveOverlay({
 
   const enabledPoolProviders = healthChecks.providers.filter(p => p.enabled && p.type === 'pool').length;
   const hasProviders = enabledPoolProviders > 0 || healthChecks.providers.some(p => p.enabled && p.type === 'backup');
-  const maxConnections = ultimateResolve.candidateCount * Math.max(1, enabledPoolProviders);
+  const maxConnections = ultimateResolve.healthCheckEnabled ? ultimateResolve.candidateCount * Math.max(1, enabledPoolProviders) : 0;
 
   const handleProvidersChange = useCallback((providers: UsenetProvider[]) => {
     setHealthChecks(prev => ({ ...prev, providers }));
@@ -238,7 +239,7 @@ export function UltimateResolveOverlay({
           )}
 
           {/* Empty providers warning */}
-          {ultimateResolve.enabled && !hasProviders && (
+          {ultimateResolve.enabled && ultimateResolve.healthCheckEnabled && !hasProviders && (
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
               <p className="text-xs text-amber-400">
                 Configure at least one Usenet provider in Health Checks to use Ultimate Resolve.
@@ -534,13 +535,17 @@ export function UltimateResolveOverlay({
               </div>
             </div>
             <div className="text-xs text-slate-500">The number of NZBs to process from the top of the results list in parallel. The first to resolve (based on Preference Mode above) becomes the primary stream; the rest hold as backup candidates.</div>
-            <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1">
-              <span className="text-amber-400/70 font-medium tabular-nums">{maxConnections}</span>
-              <span>max NNTP connections ({ultimateResolve.candidateCount} candidate{ultimateResolve.candidateCount !== 1 ? 's' : ''} × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
-            </div>
-            <div className="text-xs text-amber-400/50 mt-1">
-              These connections are separate from NZBDav's download connections. Ensure your provider allows enough concurrent connections for both.
-            </div>
+            {maxConnections > 0 && (
+              <>
+                <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1">
+                  <span className="text-amber-400/70 font-medium tabular-nums">{maxConnections}</span>
+                  <span>max NNTP connections ({ultimateResolve.candidateCount} candidate{ultimateResolve.candidateCount !== 1 ? 's' : ''} × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
+                </div>
+                <div className="text-xs text-amber-400/50 mt-1">
+                  These connections are separate from NZBDav's download connections. Ensure your provider allows enough concurrent connections for both.
+                </div>
+              </>
+            )}
           </div>
 
           {/* Desired Backups */}
@@ -587,56 +592,81 @@ export function UltimateResolveOverlay({
             )}
           </div>
 
-          {/* Health Checking — provider config, sample count, archive inspection */}
+          {/* Health Checking — toggle, provider config, sample count, archive inspection */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
-            <div className="text-sm font-medium text-slate-300">Health Checking</div>
-
-            {/* Usenet Providers (shared with Health Checks) */}
-            <ProviderManager
-              providers={healthChecks.providers}
-              onProvidersChange={handleProvidersChange}
-              apiFetch={apiFetch}
-              accentColor="amber"
-            />
-
-            {/* Articles to Sample */}
-            <div className="space-y-3">
-              <div className="text-sm font-medium text-slate-300">Articles to Sample</div>
-              <div className="flex gap-3">
-                {([3, 7] as const).map(count => (
-                  <button
-                    key={count}
-                    onClick={() => update('sampleCount', count)}
-                    className={clsx(
-                      "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
-                      ultimateResolve.sampleCount === count
-                        ? "bg-amber-500/20 border border-amber-500/40 text-amber-300"
-                        : "bg-slate-700/40 border border-slate-600/30 text-slate-400 hover:text-slate-200 hover:border-slate-500/50"
-                    )}
-                  >
-                    {count} samples
-                  </button>
-                ))}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1">
+                <div className="text-sm font-medium text-slate-300">Health Checking</div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Verifies every candidate in parallel before and during nzbdav submission, sampling articles to confirm the NZB is alive and detecting its container format up front. Disable to skip the parallel phase, UR will submit candidates straight to nzbdav and detect each container after extraction.
+                </div>
               </div>
-              <p className="text-xs text-slate-500">More samples means more accurate health checks but slightly slower.</p>
+              <button
+                aria-label="Enable Health Checking"
+                aria-pressed={ultimateResolve.healthCheckEnabled}
+                onClick={() => update('healthCheckEnabled', !ultimateResolve.healthCheckEnabled)}
+                className={clsx(
+                  "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                  ultimateResolve.healthCheckEnabled ? "bg-amber-500" : "bg-slate-600"
+                )}
+              >
+                <div className={clsx(
+                  "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                  ultimateResolve.healthCheckEnabled ? "left-5" : "left-1"
+                )} />
+              </button>
             </div>
 
-            {/* Archive Inspection — always on for UR */}
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-medium text-slate-200">Archive Header Inspection</div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Inspects RAR and 7Z archives to detect the container format, encryption, and
-                  nested archives. Always on for Ultimate Resolve because backup matching works
-                  best when detecting each candidate's format up front.
-                </p>
+            <div className={clsx("space-y-4 transition-opacity", !ultimateResolve.healthCheckEnabled && "opacity-40 pointer-events-none")}>
+              {/* Usenet Providers (shared with Health Checks) */}
+              <ProviderManager
+                providers={healthChecks.providers}
+                onProvidersChange={handleProvidersChange}
+                apiFetch={apiFetch}
+                accentColor="amber"
+              />
+
+              {/* Articles to Sample */}
+              <div className="space-y-3">
+                <div className="text-sm font-medium text-slate-300">Articles to Sample</div>
+                <div className="flex gap-3">
+                  {([3, 7] as const).map(count => (
+                    <button
+                      key={count}
+                      onClick={() => update('sampleCount', count)}
+                      className={clsx(
+                        "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
+                        ultimateResolve.sampleCount === count
+                          ? "bg-amber-500/20 border border-amber-500/40 text-amber-300"
+                          : "bg-slate-700/40 border border-slate-600/30 text-slate-400 hover:text-slate-200 hover:border-slate-500/50"
+                      )}
+                    >
+                      {count} samples
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500">More samples means more accurate health checks but slightly slower.</p>
               </div>
-              <span
-                className="text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1 flex-shrink-0"
-                aria-label="Always on"
-              >
-                Always On
-              </span>
+
+              {/* Archive Inspection — always on for UR */}
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-slate-200">Archive Header Inspection</div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Inspects RAR and 7Z archives to detect the container format, encryption, and
+                    nested archives. Always on for Ultimate Resolve because backup matching works
+                    best when detecting each candidate's format up front.
+                  </p>
+                </div>
+                {ultimateResolve.healthCheckEnabled && (
+                  <span
+                    className="text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1 flex-shrink-0"
+                    aria-label="Always on"
+                  >
+                    Always On
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -646,6 +676,7 @@ export function UltimateResolveOverlay({
               onClick={() => {
                 setUltimateResolve({
                   enabled: false,
+                  healthCheckEnabled: true,
                   whenToResolve: 'on-results',
                   userPickFallback: 'ur-lobby',
                   candidateCount: 3,

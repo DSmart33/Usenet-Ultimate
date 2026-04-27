@@ -116,6 +116,7 @@ export interface ConfigData {
   };
   ultimateResolve?: {
     enabled: boolean;
+    healthCheckEnabled?: boolean;
     whenToResolve?: 'on-results' | 'on-tile-selection';
     userPickFallback?: 'ur-lobby' | 'failure-video' | 'fallback-chain';
     candidateCount?: number;

@@ -319,6 +319,7 @@ export interface HealthCheckConfig {
 // Ultimate-Resolve: combines NZB Fallback with Health Checking for fastest resolution
 export interface UltimateResolveConfig {
   enabled: boolean;
+  healthCheckEnabled?: boolean;        // Run NNTP health-check pre-flight before nzbdav submission (default true)
   whenToResolve: 'on-results' | 'on-tile-selection';   // When to fire UR — on search results (default) or on user tile click
   userPickFallback: 'ur-lobby' | 'failure-video' | 'fallback-chain';      // When an individual stream tile fails — fall back to UR (default) or show failure video
   candidateCount: number;              // Active pool size (1-10, default 3)

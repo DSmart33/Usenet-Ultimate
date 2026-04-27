@@ -449,6 +449,7 @@ export const config: Config = {
   get ultimateResolve(): UltimateResolveConfig {
     const ur = configData.ultimateResolve;
     const enabled = envBool('ULTIMATE_RESOLVE_ENABLED') ?? ur?.enabled ?? false;
+    const healthCheckEnabled = envBool('ULTIMATE_RESOLVE_HEALTH_CHECK_ENABLED') ?? ur?.healthCheckEnabled ?? true;
     const whenToResolve = envEnum('ULTIMATE_RESOLVE_WHEN_TO_RESOLVE', ['on-results', 'on-tile-selection']) ?? ur?.whenToResolve ?? 'on-results';
     const userPickFallback = envEnum('ULTIMATE_RESOLVE_USER_PICK_FALLBACK', ['ur-lobby', 'failure-video', 'fallback-chain']) ?? ur?.userPickFallback ?? 'ur-lobby';
     const candidateCount = Math.max(1, Math.min(10, envInt('ULTIMATE_RESOLVE_CANDIDATE_COUNT') ?? ur?.candidateCount ?? 3));
@@ -471,6 +472,7 @@ export const config: Config = {
     const speedSeasonPackTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_SPEED_SEASON_PACK_TIMEOUT') ?? ur?.speedSeasonPackTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.speed.seasonPack));
     return {
       enabled,
+      healthCheckEnabled,
       whenToResolve,
       userPickFallback,
       candidateCount,

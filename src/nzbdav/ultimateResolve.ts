@@ -199,8 +199,12 @@ export async function ultimateResolveFromCandidates(
   const tag = `👑 Ultimate-Resolve [${sessionKey}]`;
   const providers = (globalConfig.healthChecks?.providers ?? []).filter(p => p.enabled);
   const userAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
-  const hasProviders = providers.length > 0;
+  const healthCheckEnabled = globalConfig.ultimateResolve?.healthCheckEnabled !== false;
+  const hasProviders = healthCheckEnabled && providers.length > 0;
   const pool = hasProviders ? new NntpConnectionPool() : undefined;
+  if (!healthCheckEnabled) {
+    console.log(`${tag} 🏥 Health checking disabled — submitting candidates direct to nzbdav`);
+  }
 
   try {
     // Filter out opted-out indexers
@@ -604,7 +608,8 @@ export async function ultimateResolveFromCandidates(
             console.log(`${tag} 📦 Primary videoPath has no file extension (${resolvedStreamData.videoPath}) — submitting all healthy backups without container filtering`);
           }
           if (skipContainerMatching) {
-            console.log(`${tag} 📦 No NNTP providers configured — skipping container matching, submitting all healthy backups`);
+            const reason = !healthCheckEnabled ? 'health checking disabled' : 'no NNTP providers configured';
+            console.log(`${tag} 📦 ${reason} — skipping container matching, submitting all healthy backups`);
           }
         } else {
           // ── Backup completion ──
