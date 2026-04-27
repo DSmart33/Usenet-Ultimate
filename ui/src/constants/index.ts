@@ -184,6 +184,7 @@ export const DEFAULT_ULTIMATE_RESOLVE = {
   preferenceMode: 'priority' as 'priority' | 'speed',
   archiveInspection: true,
   sampleCount: 3 as 3 | 7,
+  maxAttempts: 0,
   desiredBackups: 2,
   backupProcessingLimit: 3,
   // Keep in sync with src/nzbdav/timeoutDefaults.ts (UR_TIMEOUT_DEFAULTS).

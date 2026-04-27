@@ -462,6 +462,7 @@ export const config: Config = {
     const archiveInspection = true;
     const rawSample = envInt('ULTIMATE_RESOLVE_SAMPLE_COUNT') ?? ur?.sampleCount ?? 3;
     const sampleCount: 3 | 7 = rawSample === 7 ? 7 : 3;
+    const maxAttempts = Math.max(0, Math.min(20, envInt('ULTIMATE_RESOLVE_MAX_ATTEMPTS') ?? ur?.maxAttempts ?? 0));
     const desiredBackups = Math.max(0, Math.min(10, envInt('ULTIMATE_RESOLVE_DESIRED_BACKUPS') ?? ur?.desiredBackups ?? 2));
     const backupProcessingLimit = Math.max(0, Math.min(20, envInt('ULTIMATE_RESOLVE_BACKUP_PROCESSING_LIMIT') ?? ur?.backupProcessingLimit ?? 3));
     const priorityMoviesTimeoutSeconds = Math.max(1, Math.min(90, envInt('ULTIMATE_RESOLVE_PRIORITY_MOVIES_TIMEOUT') ?? ur?.priorityMoviesTimeoutSeconds ?? UR_TIMEOUT_DEFAULTS.priority.movies));
@@ -479,6 +480,7 @@ export const config: Config = {
       preferenceMode,
       archiveInspection,
       sampleCount,
+      maxAttempts,
       desiredBackups,
       backupProcessingLimit,
       priorityMoviesTimeoutSeconds,

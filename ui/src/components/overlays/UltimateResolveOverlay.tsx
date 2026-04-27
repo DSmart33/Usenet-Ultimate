@@ -20,6 +20,7 @@ interface UltimateResolveOverlayProps {
     preferenceMode: 'priority' | 'speed';
     archiveInspection: boolean;
     sampleCount: 3 | 7;
+    maxAttempts: number;
     desiredBackups: number;
     backupProcessingLimit: number;
     priorityMoviesTimeoutSeconds: number;
@@ -63,7 +64,20 @@ export function UltimateResolveOverlay({
   }, [setUltimateResolve]);
 
   const candidateDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, candidateCount: Math.max(1, prev.candidateCount - 1) })), [setUltimateResolve]));
-  const candidateInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, candidateCount: Math.min(10, prev.candidateCount + 1) })), [setUltimateResolve]));
+  const candidateInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+    const ceiling = prev.maxAttempts > 0 ? Math.min(10, prev.maxAttempts) : 10;
+    return { ...prev, candidateCount: Math.min(ceiling, prev.candidateCount + 1) };
+  }), [setUltimateResolve]));
+  const attemptsDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+    const newAttempts = Math.max(0, prev.maxAttempts - 1);
+    const newCandidateCount = newAttempts > 0 && prev.candidateCount > newAttempts ? newAttempts : prev.candidateCount;
+    return { ...prev, maxAttempts: newAttempts, candidateCount: newCandidateCount };
+  }), [setUltimateResolve]));
+  const attemptsInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => {
+    const newAttempts = Math.min(20, prev.maxAttempts + 1);
+    const newCandidateCount = newAttempts > 0 && prev.candidateCount > newAttempts ? newAttempts : prev.candidateCount;
+    return { ...prev, maxAttempts: newAttempts, candidateCount: newCandidateCount };
+  }), [setUltimateResolve]));
   const backupsDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, desiredBackups: Math.max(0, prev.desiredBackups - 1) })), [setUltimateResolve]));
   const backupsInc = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, desiredBackups: Math.min(10, prev.desiredBackups + 1) })), [setUltimateResolve]));
   const bplDec = useHoldRepeat(useCallback(() => setUltimateResolve(prev => ({ ...prev, backupProcessingLimit: Math.max(0, prev.backupProcessingLimit - 1) })), [setUltimateResolve]));
@@ -518,34 +532,53 @@ export function UltimateResolveOverlay({
             </ul>
           </div>
 
-          {/* Parallel NZB Candidates */}
+          {/* Primary Attempt Limit (with nested Parallel NZB Candidates) */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-2 transition-opacity", !ultimateResolve.enabled && "opacity-40 pointer-events-none")}>
             <div className="flex items-center gap-3">
-              <span className="text-sm text-slate-300 whitespace-nowrap">Parallel NZB Candidates</span>
+              <span className="text-sm text-slate-300 whitespace-nowrap">Primary Attempt Limit</span>
               <div className="flex items-center gap-2">
                 <button
-                  {...candidateDec}
+                  {...attemptsDec}
                   className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                 >−</button>
-                <span className="text-lg font-bold text-amber-400/90 tabular-nums w-6 text-center">{ultimateResolve.candidateCount}</span>
+                <span className="text-lg font-bold text-amber-400/90 tabular-nums w-10 text-center">{ultimateResolve.maxAttempts === 0 ? 'All' : ultimateResolve.maxAttempts}</span>
                 <button
-                  {...candidateInc}
+                  {...attemptsInc}
                   className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
                 >+</button>
               </div>
             </div>
-            <div className="text-xs text-slate-500">The number of NZBs to process from the top of the results list in parallel. The first to resolve (based on Preference Mode above) becomes the primary stream; the rest hold as backup candidates.</div>
-            {maxConnections > 0 && (
-              <>
-                <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1">
-                  <span className="text-amber-400/70 font-medium tabular-nums">{maxConnections}</span>
-                  <span>max NNTP connections ({ultimateResolve.candidateCount} candidate{ultimateResolve.candidateCount !== 1 ? 's' : ''} × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
+            <div className="text-xs text-slate-500">How many NZBs UR will try before giving up. Library hits don't count.</div>
+            <div className="text-xs text-amber-400/50">Values: All, 1–20</div>
+
+            <div className="border-l-2 border-amber-500/20 pl-3 ml-1 mt-3 space-y-2">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-400 whitespace-nowrap">Parallel NZB Candidates</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    {...candidateDec}
+                    className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                  >−</button>
+                  <span className="text-lg font-bold text-amber-400/90 tabular-nums w-6 text-center">{ultimateResolve.candidateCount}</span>
+                  <button
+                    {...candidateInc}
+                    className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                  >+</button>
                 </div>
-                <div className="text-xs text-amber-400/50 mt-1">
-                  These connections are separate from NZBDav's download connections. Ensure your provider allows enough concurrent connections for both.
-                </div>
-              </>
-            )}
+              </div>
+              <div className="text-xs text-slate-500">The number of NZBs to process from the top of the results list in parallel. The first to resolve (based on Preference Mode above) becomes the primary stream; the rest hold as backup candidates.</div>
+              {maxConnections > 0 && (
+                <>
+                  <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1">
+                    <span className="text-amber-400/70 font-medium tabular-nums">{maxConnections}</span>
+                    <span>max NNTP connections ({ultimateResolve.candidateCount} candidate{ultimateResolve.candidateCount !== 1 ? 's' : ''} × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
+                  </div>
+                  <div className="text-xs text-amber-400/50 mt-1">
+                    These connections are separate from NZBDav's download connections. Ensure your provider allows enough concurrent connections for both.
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Desired Backups */}
@@ -683,6 +716,7 @@ export function UltimateResolveOverlay({
                   preferenceMode: 'priority',
                   archiveInspection: true,
                   sampleCount: 3,
+                  maxAttempts: 0,
                   desiredBackups: 2,
                   backupProcessingLimit: 3,
                   priorityMoviesTimeoutSeconds: 30,

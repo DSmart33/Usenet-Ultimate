@@ -307,7 +307,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     const timer = setTimeout(() => saveSettings({ ultimateResolve }), 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ultimateResolve.enabled, ultimateResolve.healthCheckEnabled, ultimateResolve.whenToResolve, ultimateResolve.userPickFallback, ultimateResolve.candidateCount, ultimateResolve.preferenceMode, ultimateResolve.archiveInspection, ultimateResolve.sampleCount, ultimateResolve.desiredBackups, ultimateResolve.backupProcessingLimit, ultimateResolve.priorityMoviesTimeoutSeconds, ultimateResolve.priorityTvTimeoutSeconds, ultimateResolve.prioritySeasonPackTimeoutSeconds, ultimateResolve.speedMoviesTimeoutSeconds, ultimateResolve.speedTvTimeoutSeconds, ultimateResolve.speedSeasonPackTimeoutSeconds, ultimateResolve.healthCheckIndexers, saveSettings]);
+  }, [ultimateResolve.enabled, ultimateResolve.healthCheckEnabled, ultimateResolve.whenToResolve, ultimateResolve.userPickFallback, ultimateResolve.candidateCount, ultimateResolve.preferenceMode, ultimateResolve.archiveInspection, ultimateResolve.sampleCount, ultimateResolve.maxAttempts, ultimateResolve.desiredBackups, ultimateResolve.backupProcessingLimit, ultimateResolve.priorityMoviesTimeoutSeconds, ultimateResolve.priorityTvTimeoutSeconds, ultimateResolve.prioritySeasonPackTimeoutSeconds, ultimateResolve.speedMoviesTimeoutSeconds, ultimateResolve.speedTvTimeoutSeconds, ultimateResolve.speedSeasonPackTimeoutSeconds, ultimateResolve.healthCheckIndexers, saveSettings]);
 
   // Auto-save: addon enabled/disabled
   useEffect(() => {

@@ -50,6 +50,7 @@ interface UltimateResolveOptions {
   preferenceMode: 'priority' | 'speed';
   archiveInspection: boolean;
   sampleCount: 3 | 7;
+  maxAttempts: number;
   desiredBackups: number;
   backupProcessingLimit: number;
   priorityMoviesTimeoutSeconds: number;
@@ -334,6 +335,8 @@ export async function ultimateResolveFromCandidates(
     const poolSize = Math.min(options.candidateCount, allCandidates.length);
     const activePool: CandidateState[] = [];
     let nextCandidateIdx = 0;
+    let primaryAttempts = 0;
+    let capLogged = false;
 
     const addToPool = (candidate: FallbackCandidate, idx: number): CandidateState => {
       const cs: CandidateState = {
@@ -350,9 +353,15 @@ export async function ultimateResolveFromCandidates(
     for (let i = 0; i < poolSize && nextCandidateIdx < allCandidates.length; i++) {
       const c = allCandidates[nextCandidateIdx];
       if (isDeadNzbByUrl(c.nzbUrl)) { nextCandidateIdx++; i--; continue; }
+      const isLibraryHit = hitUrls.has(c.nzbUrl);
+      // Honor maxAttempts cap on initial pool fill too. Library hits don't count
+      // (they resolve for free); library hits beyond this point will be picked up
+      // by the post-drain sweep.
+      if (!isLibraryHit && options.maxAttempts > 0 && primaryAttempts >= options.maxAttempts) break;
       const cs = addToPool(c, nextCandidateIdx);
       deferred.lastVettedUrl = c.nzbUrl;
-      if (hitUrls.has(c.nzbUrl)) promoteLibraryCandidate(cs);
+      if (isLibraryHit) promoteLibraryCandidate(cs);
+      else primaryAttempts++;
       nextCandidateIdx++;
     }
 
@@ -476,12 +485,23 @@ export async function ultimateResolveFromCandidates(
           return null;
         }
       }
+      // Pre-primary attempts cap. Library hits don't count (free). Log emits
+      // once per session; pullReplacement is called from many completion sites
+      // so an unguarded log would spam dozens of times once the cap trips.
+      if (!primaryResolved && options.maxAttempts > 0 && primaryAttempts >= options.maxAttempts) {
+        if (!capLogged) {
+          console.log(`${tag} ⚠️ Gave up after ${primaryAttempts} primary attempts (maxAttempts cap)`);
+          capLogged = true;
+        }
+        return null;
+      }
       while (nextCandidateIdx < allCandidates.length) {
         const c = allCandidates[nextCandidateIdx];
         nextCandidateIdx++;
         if (isDeadNzbByUrl(c.nzbUrl)) continue;
         const cs = addToPool(c, nextCandidateIdx - 1);
         if (primaryResolved && !hitUrls.has(c.nzbUrl)) postPrimaryGrabs++;
+        if (!primaryResolved && !hitUrls.has(c.nzbUrl)) primaryAttempts++;
         deferred.lastVettedUrl = c.nzbUrl;
         if (hitUrls.has(c.nzbUrl)) {
           promoteLibraryCandidate(cs);
@@ -757,6 +777,7 @@ export async function ultimateResolveFromCandidates(
     const settingsLine = [
       `pool: ${options.candidateCount}`,
       `mode: ${options.preferenceMode}`,
+      `maxAttempts: ${options.maxAttempts === 0 ? 'all' : `${primaryAttempts}/${options.maxAttempts}`}`,
       `desiredBackups: ${options.desiredBackups === 0 ? 'Off' : options.desiredBackups}`,
       `backupProcessingLimit: ${options.backupProcessingLimit === 0 ? 'all' : `${postPrimaryGrabs}/${options.backupProcessingLimit}`}`,
       `sampleCount: ${options.sampleCount}`,
