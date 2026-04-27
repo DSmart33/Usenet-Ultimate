@@ -618,6 +618,7 @@ export async function ultimateResolveFromCandidates(
           } else if (activeNzbdavCs.containerFallbackViaNzbdav && requiredContainerType && (!resolvedExt || resolvedExt !== requiredContainerType)) {
             // Fallback-resolved backup has wrong (or empty) container vs primary. Discard.
             activeNzbdavCs.nzbdavStatus = 'skipped';
+            if (resolvedExt) activeNzbdavCs.containerType = resolvedExt;
             skippedMismatch++;
             console.log(`${tag}   📦 #${activeNzbdavCs.poolIndex + 1} Fallback container mismatch (${resolvedExt || 'no ext'} ≠ ${requiredContainerType}) — ${activeNzbdavCs.candidate.title.substring(0, 60)} [${activeNzbdavCs.candidate.indexerName}]`);
           } else {
@@ -790,7 +791,10 @@ export async function ultimateResolveFromCandidates(
       const dupRef = cs.duplicate ? (cs.duplicateOf !== undefined ? ` (#${cs.duplicateOf + 1})` : '') : '';
       const sizeStr = cs.videoSize ? ` · ${formatBytes(cs.videoSize)}` : '';
       const ct = cs.containerType ? `[${cs.containerType}${sizeStr}] ` : '';
-      const status = isLibraryBackup ? 'backup (library)' : cs.duplicate ? `duplicate${dupRef}` : cs.nzbdavStatus === 'completed' ? 'backup' : cs.nzbdavStatus === 'skipped' ? `skipped (${cs.containerType || 'unknown'})` : cs.cancelled ? 'cancelled' : cs.nzbdavStatus === 'failed' ? 'nzbdav-failed' : cs.grabFailed ? 'grab-failed' : cs.healthStatus === 'dead' ? 'dead' : 'standby';
+      const skippedLabel = cs.containerType && requiredContainerType && cs.containerType !== requiredContainerType
+        ? `skipped (${cs.containerType} ≠ ${requiredContainerType})`
+        : `skipped (${cs.containerType || 'unknown'})`;
+      const status = isLibraryBackup ? 'backup (library)' : cs.duplicate ? `duplicate${dupRef}` : cs.nzbdavStatus === 'completed' ? 'backup' : cs.nzbdavStatus === 'skipped' ? skippedLabel : cs.cancelled ? 'cancelled' : cs.nzbdavStatus === 'failed' ? 'nzbdav-failed' : cs.grabFailed ? 'grab-failed' : cs.healthStatus === 'dead' ? 'dead' : 'standby';
       rows.push({
         poolIndex: cs.poolIndex,
         isPrimary: false,
