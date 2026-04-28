@@ -261,20 +261,7 @@ export function UltimateFallbackOverlay({
 
           {/* When to Resolve */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
-            <div className="text-sm font-medium text-slate-300">When to Resolve</div>
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="whenToResolve"
-                checked={ultimateFallback.whenToResolve === 'on-results'}
-                onChange={() => update('whenToResolve', 'on-results')}
-                className="mt-1 accent-amber-400"
-              />
-              <div>
-                <div className="text-sm text-slate-200 font-medium">On Search</div>
-                <p className="text-xs text-slate-500">Pre-resolve as soon as results arrive. Clicks are instant; some resources may be spent on titles you skip.</p>
-              </div>
-            </label>
+            <div className="text-sm font-medium text-slate-300">When to Resolve Ultimate Fallback</div>
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="radio"
@@ -285,14 +272,40 @@ export function UltimateFallbackOverlay({
               />
               <div>
                 <div className="text-sm text-slate-200 font-medium">On Click</div>
-                <p className="text-xs text-slate-500">Wait until you click a tile to resolve. Saves resources, but the first click takes longer.</p>
+                <p className="text-xs text-slate-500">Wait until you click a tile to resolve. Lobby tile for Ultimate Fallback, stream tile for individual streams.</p>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="whenToResolve"
+                checked={ultimateFallback.whenToResolve === 'on-results'}
+                onChange={() => update('whenToResolve', 'on-results')}
+                className="mt-1 accent-amber-400"
+              />
+              <div>
+                <div className="text-sm text-slate-200 font-medium">On Search</div>
+                <p className="text-xs text-slate-500">Pre-resolve Ultimate Fallback as soon as results arrive. By the time you enter the Ultimate Fallback lobby, results will have already begun processing.</p>
               </div>
             </label>
           </div>
 
-          {/* On Individual Stream Failure */}
+          {/* Fallback Behavior on Individual Stream Failure */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
-            <div className="text-sm font-medium text-slate-300">On Individual Stream Failure</div>
+            <div className="text-sm font-medium text-slate-300">Fallback Behavior on Individual Stream Failure</div>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="userPickFallback"
+                checked={ultimateFallback.userPickFallback === 'failure-video'}
+                onChange={() => update('userPickFallback', 'failure-video')}
+                className="mt-1 accent-amber-400"
+              />
+              <div>
+                <div className="text-sm text-slate-200 font-medium">Show Failure Video</div>
+                <p className="text-xs text-slate-500">Skip Fallback and show the "Stream Unavailable" video.</p>
+              </div>
+            </label>
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="radio"
@@ -302,8 +315,8 @@ export function UltimateFallbackOverlay({
                 className="mt-1 accent-amber-400"
               />
               <div>
-                <div className="text-sm text-slate-200 font-medium">Use Ultimate Fallback</div>
-                <p className="text-xs text-slate-500">Reroute to Ultimate Fallback so a backup candidate can take over.</p>
+                <div className="text-sm text-slate-200 font-medium">Use Ultimate Fallback to Resolve From Top of List</div>
+                <p className="text-xs text-slate-500">Reroute to the Ultimate Fallback lobby to resolve from the top of the results list.</p>
               </div>
             </label>
             <label className="flex items-start gap-3 cursor-pointer">
@@ -315,21 +328,8 @@ export function UltimateFallbackOverlay({
                 className="mt-1 accent-amber-400"
               />
               <div>
-                <div className="text-sm text-slate-200 font-medium">Try Next Stream</div>
-                <p className="text-xs text-slate-500">Move to the next stream in the results list, trying each one until something plays.</p>
-              </div>
-            </label>
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="userPickFallback"
-                checked={ultimateFallback.userPickFallback === 'failure-video'}
-                onChange={() => update('userPickFallback', 'failure-video')}
-                className="mt-1 accent-amber-400"
-              />
-              <div>
-                <div className="text-sm text-slate-200 font-medium">Show Failure Video</div>
-                <p className="text-xs text-slate-500">Skip the rescue and show the "Stream Unavailable" video right away.</p>
+                <div className="text-sm text-slate-200 font-medium">Fallback to Next Stream</div>
+                <p className="text-xs text-slate-500">Fallback to the next stream in the results list from where you selected, trying each one until something plays. If the end of the results list is reached without a healthy NZB found, you'll fallback to the top of the results list until a healthy NZB is found or all candidates are exhausted.</p>
               </div>
             </label>
           </div>
