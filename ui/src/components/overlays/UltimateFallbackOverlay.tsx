@@ -368,7 +368,7 @@ export function UltimateFallbackOverlay({
               />
               <div>
                 <div className="text-sm text-slate-200 font-medium">Use Ultimate Fallback to Resolve From Top of List</div>
-                <p className="text-xs text-slate-500">Reroute to the Ultimate Fallback lobby to resolve from the top of the results list.</p>
+                <p className="text-xs text-slate-500">Fallback to the Ultimate Fallback lobby to resolve from the top of the results list.</p>
               </div>
             </label>
             <label className="flex items-start gap-3 cursor-pointer">
@@ -381,7 +381,7 @@ export function UltimateFallbackOverlay({
               />
               <div>
                 <div className="text-sm text-slate-200 font-medium">Fallback to Next Stream</div>
-                <p className="text-xs text-slate-500">Fallback to the next stream in the results list from where you selected, trying each one until something plays. If the end of the results list is reached without a healthy NZB found, you'll fallback to the top of the results list until a healthy NZB is found or all candidates are exhausted.</p>
+                <p className="text-xs text-slate-500">Fallback to the next stream in the results list from where you selected, iterating down until a healthy candidate is found. If the end of the results list is reached, you'll fallback to the top of the results list continuing the search for a healthy NZB until all candidates are exhausted.</p>
               </div>
             </label>
           </div>
@@ -598,7 +598,7 @@ export function UltimateFallbackOverlay({
                 >+</button>
               </div>
             </div>
-            <div className="text-xs text-slate-500">How many NZBs UF will try before giving up. Library hits don't count.</div>
+            <div className="text-xs text-slate-500">How many NZBs Ultimate Fallback will try before giving up. Library hits don't count.</div>
             <div className="text-xs text-amber-400/50">Values: All, 1–20</div>
 
             <div className="border-l-2 border-amber-500/20 pl-3 ml-1 mt-3 space-y-2">
@@ -666,7 +666,7 @@ export function UltimateFallbackOverlay({
                     >+</button>
                   </div>
                 </div>
-                <div className="text-xs text-slate-500">Cap on extra NZB grabs after the primary resolves, in search of more backups. NZBs grabbed earlier (while still searching for the primary) flow through as free backups and don't count. Library hits don't either.</div>
+                <div className="text-xs text-slate-500">A limit on extra NZB grabs after the primary resolves, in search of more backups. NZBs grabbed earlier (while still searching for the primary) flow through as free backups and don't count. Library hits don't count against the limit as well.</div>
                 <div className="text-xs text-amber-400/50">Values: All, 1–20</div>
                 <div className="text-xs text-amber-400/50">
                   At least <span className="text-sm font-semibold tabular-nums">{ultimateFallback.candidateCount}</span> NZB{ultimateFallback.candidateCount !== 1 ? 's' : ''} grabbed during primary search (more if early candidates fail), then {ultimateFallback.backupProcessingLimit === 0 ? <span className="text-sm font-semibold">unlimited</span> : <>up to <span className="text-sm font-semibold tabular-nums">{ultimateFallback.backupProcessingLimit}</span> more</>} additional grab{ultimateFallback.backupProcessingLimit !== 1 ? 's' : ''} for backups.
@@ -729,7 +729,7 @@ export function UltimateFallbackOverlay({
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-slate-500">More samples means more accurate health checks but slightly slower.</p>
+                <p className="text-xs text-slate-500">More samples means more accurate health checks but are slightly slower to process.</p>
               </div>
 
               {/* Archive Inspection — always on for UF */}
@@ -737,7 +737,7 @@ export function UltimateFallbackOverlay({
                 <div>
                   <div className="text-sm font-medium text-slate-200">Archive Header Inspection</div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Inspects RAR and 7Z archives to detect the container format, encryption, and
+                    Inspects RAR and 7z archives to detect the container format, encryption, and
                     nested archives. Always on for Ultimate Fallback because backup matching works
                     best when detecting each candidate's format up front.
                   </p>
