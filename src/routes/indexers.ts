@@ -6,6 +6,7 @@
 
 import { Router } from 'express';
 import type { Config, UsenetIndexer } from '../types.js';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { checkZyclopsUrlConflict } from '../utils/indexerHelpers.js';
 
 /**
@@ -153,14 +154,19 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
       }
 
       // Log timeout state changes (audit trail for "why did searches start timing out?")
+      // Compare effective values so PUTs that resend default-equal values don't spam.
       if (updates.timeoutEnabled !== undefined || updates.timeout !== undefined) {
         const prev = getIndexers().find(i => i.name === name);
-        const nextEnabled = updates.timeoutEnabled ?? prev?.timeoutEnabled ?? true;
-        if (nextEnabled === false) {
-          console.log(`⏱️  Indexer "${name}" timeout disabled`);
-        } else {
-          const nextSeconds = updates.timeout ?? prev?.timeout;
-          console.log(`⏱️  Indexer "${name}" timeout updated: enabled=true, timeout=${nextSeconds ?? 'default'}s`);
+        const effPrevEnabled = prev?.timeoutEnabled ?? true;
+        const effNextEnabled = updates.timeoutEnabled ?? effPrevEnabled;
+        const effPrevSeconds = prev?.timeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
+        const effNextSeconds = updates.timeout ?? effPrevSeconds;
+        if (effPrevEnabled !== effNextEnabled || effPrevSeconds !== effNextSeconds) {
+          if (effNextEnabled === false) {
+            console.log(`⏱️  Indexer "${name}" timeout disabled`);
+          } else {
+            console.log(`⏱️  Indexer "${name}" timeout updated: enabled=true, timeout=${effNextSeconds}s`);
+          }
         }
       }
 

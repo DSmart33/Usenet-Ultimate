@@ -6,6 +6,7 @@
  */
 
 import type { UsenetProvider, SearchConfig, AutoPlayConfig, SyncedIndexer, StreamDisplayConfig } from '../types.js';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { configData, saveConfigFile } from './schema.js';
 import { enforceZyclopsEnabled } from './indexerCrud.js';
 import { validateRulesBlock } from '../rules/importers.js';
@@ -24,16 +25,16 @@ function logTimeoutChange(
   nextEnabled: boolean | undefined,
   nextSeconds: number | undefined,
 ): void {
-  const enabledChanged = nextEnabled !== undefined && nextEnabled !== prevEnabled;
-  const secondsChanged = nextSeconds !== undefined && nextSeconds !== prevSeconds;
-  if (!enabledChanged && !secondsChanged) return;
+  const effPrevEnabled = prevEnabled ?? true;
+  const effNextEnabled = nextEnabled ?? effPrevEnabled;
+  const effPrevSeconds = prevSeconds ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
+  const effNextSeconds = nextSeconds ?? effPrevSeconds;
+  if (effPrevEnabled === effNextEnabled && effPrevSeconds === effNextSeconds) return;
 
-  const effEnabled = nextEnabled ?? prevEnabled ?? true;
-  if (effEnabled === false) {
+  if (effNextEnabled === false) {
     console.log(`⏱️  ${label} timeout disabled`);
   } else {
-    const effSeconds = nextSeconds ?? prevSeconds;
-    console.log(`⏱️  ${label} timeout updated: enabled=true, timeout=${effSeconds ?? 'default'}s`);
+    console.log(`⏱️  ${label} timeout updated: enabled=true, timeout=${effNextSeconds}s`);
   }
 }
 
