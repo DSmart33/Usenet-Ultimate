@@ -586,6 +586,8 @@ function App() {
           setDisplayLibraryInResults={ac.setDisplayLibraryInResults}
           absoluteEpisodeFallback={ac.absoluteEpisodeFallback}
           setAbsoluteEpisodeFallback={ac.setAbsoluteEpisodeFallback}
+          parallelAlternateTitleSearch={ac.parallelAlternateTitleSearch}
+          setParallelAlternateTitleSearch={ac.setParallelAlternateTitleSearch}
           indexerPriorityDedup={ac.indexerPriorityDedup}
           setIndexerPriorityDedup={ac.setIndexerPriorityDedup}
           indexerPriority={ac.indexerPriority}

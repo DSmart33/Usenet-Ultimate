@@ -74,6 +74,26 @@ export class EasynewsSearcher {
     additionalTitles?: string[],
     titleYear?: string,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
+    // Parallel alt-title mode: when the toggle is on and we have alts, fire
+    // primary + each alt query concurrently and union filtered results. Skips
+    // the standard zero-result alt-title retry below since alts already ran.
+    const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
+    if (parallelAltEnabled) {
+      console.log(`🔀 EasyNews parallel alt-title search enabled — querying primary + ${additionalTitles!.length} alt(s) concurrently`);
+      const titles = [title, ...additionalTitles!];
+      const perTitle = await Promise.all(titles.map(async (t) => {
+        const q = year ? `${t} ${year}` : t;
+        console.log(`🔍 EasyNews movie search ${this.timeoutLabel()}: "${q}"`);
+        const r = await this.search(q);
+        const f = r.filter(x => isTextSearchMatch(t, x.title, year, country, undefined, titleYear));
+        if (r.length !== f.length) {
+          console.log(`   🎯 EasyNews "${t}" filter: ${r.length} → ${f.length}`);
+        }
+        return f;
+      }));
+      return perTitle.flat();
+    }
+
     const query = year ? `${title} ${year}` : title;
     console.log(`🔍 EasyNews movie search ${this.timeoutLabel()}: "${query}"`);
     const results = await this.search(query);
@@ -119,6 +139,92 @@ export class EasynewsSearcher {
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
+
+    // Parallel alt-title mode: when toggle is on AND alt titles exist, fire
+    // primary SxxExx + each alt SxxExx + (when packs enabled) primary S{nn} +
+    // each alt S{nn} all concurrently. Filters per-title-set, then unions.
+    // Pack hashes dedup against the union of all episode hashes. The standard
+    // zero-result alt-title retry block below is skipped in this mode.
+    const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
+    if (parallelAltEnabled) {
+      console.log(`🔀 EasyNews parallel alt-title search enabled — querying primary + ${additionalTitles!.length} alt(s) concurrently`);
+      const titles = [title, ...additionalTitles!];
+      const includeSeasonPacks = config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks;
+      const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
+      const spAdditionalPages = spPaginationEnabled ? config.searchConfig?.seasonPackAdditionalPages : undefined;
+      const seasonPackPattern = new RegExp(`S0?${season}(?![._\\s-]?E\\d)`, 'i');
+
+      type Job = { title: string; query: string; kind: 'episode' | 'pack' };
+      const jobs: Job[] = [];
+      for (const t of titles) jobs.push({ title: t, query: `${t} S${s}E${e}`, kind: 'episode' });
+      if (includeSeasonPacks && episodesInSeason) {
+        for (const t of titles) jobs.push({ title: t, query: `${t} S${s}`, kind: 'pack' });
+      }
+
+      const jobResults = await Promise.all(jobs.map(async (job) => {
+        console.log(`🔍 EasyNews ${job.kind === 'pack' ? 'season pack' : 'TV'} search ${this.timeoutLabel()}: "${job.query}"`);
+        const r = await this.search(job.query, job.kind === 'pack' ? spAdditionalPages : undefined);
+        return { ...job, results: r };
+      }));
+
+      const episodes = jobResults
+        .filter(j => j.kind === 'episode')
+        .flatMap(j => {
+          const f = j.results.filter(x => isTextSearchMatch(j.title, x.title, year, country, undefined, titleYear));
+          if (j.results.length !== f.length) {
+            console.log(`   🎯 EasyNews "${j.title}" episode filter: ${j.results.length} → ${f.length}`);
+          }
+          return f;
+        });
+
+      const episodeHashes = new Set(episodes.map(r => r.easynewsMeta!.hash));
+      const packs = jobResults
+        .filter(j => j.kind === 'pack')
+        .flatMap(j => {
+          const f = j.results
+            .filter(x => seasonPackPattern.test(x.title) && isTextSearchMatch(j.title, x.title, year, country, undefined, titleYear))
+            .filter(x => !episodeHashes.has(x.easynewsMeta!.hash))
+            .map(x => ({
+              ...x,
+              isSeasonPack: true,
+              estimatedEpisodeSize: episodesInSeason && episodesInSeason > 0 ? Math.round(x.size / episodesInSeason) : undefined,
+            }));
+          if (f.length > 0) {
+            console.log(`   📦 EasyNews "${j.title}" packs: ${f.length}`);
+          }
+          return f;
+        });
+
+      const filtered = [...episodes, ...packs];
+
+      // Absolute-episode fallback in parallel mode: run all titles concurrently
+      // (vs the sequential break-on-first-hit used by the non-parallel path).
+      if (filtered.length === 0 && !this.timedOut && config.searchConfig?.absoluteEpisodeFallback !== false) {
+        if (priorSeasonsEpisodeCount === undefined) {
+          console.warn(`⚠️  EasyNews absolute fallback: priorSeasonsEpisodeCount unavailable, using per-season E${episode}`);
+        }
+        const absoluteEp = (priorSeasonsEpisodeCount ?? 0) + episode;
+        const stripAbsEp = (str: string) => str.replace(/\bE\d{1,3}\b/i, ' ').replace(/\s+/g, ' ');
+        console.log(`🔢 EasyNews absolute fallback (parallel): querying ${titles.length} title(s) with E${absoluteEp}`);
+        const absPerTitle = await Promise.all(titles.map(async (t) => {
+          if (this.timedOut) return [];
+          const absQuery = `${t} E${absoluteEp.toString().padStart(2, '0')}`;
+          console.log(`🔢 EasyNews absolute fallback: "${absQuery}"`);
+          const r = await this.search(absQuery);
+          const f = r.filter(x => isTextSearchMatch(t, stripAbsEp(x.title), year, country, undefined, titleYear));
+          console.log(`   🔢 EasyNews "${t}" absolute filter: ${r.length} → ${f.length}`);
+          if (r.length > 0 && f.length === 0) {
+            const sample = r.slice(0, 10).map(x => `      • ${x.title}`).join('\n');
+            console.log(`   🔢 EasyNews "${t}" absolute rejected (showing ${Math.min(10, r.length)}/${r.length}):\n${sample}`);
+          }
+          return f;
+        }));
+        filtered.push(...absPerTitle.flat());
+      }
+
+      return filtered;
+    }
+
     const query = `${title} S${s}E${e}`;
     console.log(`🔍 EasyNews TV search ${this.timeoutLabel()}: "${query}"`);
     const results = await this.search(query);

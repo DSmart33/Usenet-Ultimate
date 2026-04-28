@@ -146,6 +146,7 @@ export const config: Config = {
     const urlDedupEnv = envBool('URL_DEDUP');
     const displayLibraryEnv = envBool('DISPLAY_LIBRARY_IN_RESULTS');
     const absoluteEpFallbackEnv = envBool('ABSOLUTE_EPISODE_FALLBACK');
+    const parallelAltTitleEnv = envBool('PARALLEL_ALTERNATE_TITLE_SEARCH');
     const junkFilterEnv = envBool('JUNK_FILTER');
     const cacheEmptyResultsEnv = envBool('CACHE_EMPTY_RESULTS');
     return {
@@ -154,6 +155,7 @@ export const config: Config = {
       // remain conditionally spread because they default to undefined.
       displayLibraryInResults: displayLibraryEnv ?? sc.displayLibraryInResults ?? true,
       absoluteEpisodeFallback: absoluteEpFallbackEnv ?? sc.absoluteEpisodeFallback ?? true,
+      parallelAlternateTitleSearch: parallelAltTitleEnv ?? sc.parallelAlternateTitleSearch ?? false,
       ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
       ...(junkFilterEnv !== undefined && { junkFilter: junkFilterEnv }),
       ...(cacheEmptyResultsEnv !== undefined && { cacheEmptyResults: cacheEmptyResultsEnv }),

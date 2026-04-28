@@ -102,6 +102,7 @@ export interface SearchConfig {
   displayLibraryInResults?: boolean;  // Mark search results that exist in the WebDAV library with the 📚 icon (default true)
   cacheEmptyResults?: boolean;  // Cache search responses that returned zero results (default true)
   absoluteEpisodeFallback?: boolean;  // Series text-search: retry with absolute episode numbering (Title E31) when the SxxExx query returns zero results. UTS only. (default true)
+  parallelAlternateTitleSearch?: boolean;  // Run primary + alt-title searches in parallel from the start instead of using alts only as a zero-result fallback. UTS only. (default false)
   // Legacy fields - migrated to per-indexer settings, kept for migration
   movieSearchMethod?: 'imdb' | 'tmdb' | 'tvdb' | 'text';
   tvSearchMethod?: 'imdb' | 'tvdb' | 'tvmaze' | 'text';

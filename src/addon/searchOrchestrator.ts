@@ -310,7 +310,43 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
         }
       });
 
-    let results = (await Promise.all(searchPromises)).flat();
+    // Parallel alt-title search: when the user toggle is on, fire each
+    // additional title as a text search concurrently with the primary pass
+    // instead of waiting for a zero-result fallback. UTS-only by intent;
+    // anime is excluded because its inner loop above already runs Kitsu +
+    // Cinemeta in parallel via the per-indexer text path.
+    const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true
+      && !!additionalTitles?.length
+      && !isAnime;
+    if (parallelAltEnabled) {
+      console.log(`🔀 Parallel alt-title search enabled — querying [${[title, ...additionalTitles!].map(t => `"${t}"`).join(', ')}] concurrently across ${effectiveIndexers.length} indexer(s)`);
+    }
+    const altSearchPromises = parallelAltEnabled
+      ? effectiveIndexers.flatMap(indexer => additionalTitles!.map(async (altTitle) => {
+          const startTime = Date.now();
+          const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
+          try {
+            let altResults: any[] = [];
+            if (type === 'movie') {
+              altResults = await searcher.searchMovie(imdbId, altTitle, year, country, undefined, 'text', undefined, titleYear);
+            } else if (type === 'series' && season !== undefined && episode !== undefined) {
+              altResults = await searcher.searchTVShow(imdbId, altTitle, season, episode, episodesInSeason, year, country, undefined, 'text', undefined, titleYear);
+            }
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+            const responseTime = Date.now() - startTime;
+            trackQuery(indexer.name, true, responseTime, altResults.length);
+            return altResults.map(result => ({ ...result, indexerName: indexer.name }));
+          } catch (error) {
+            if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+            const responseTime = Date.now() - startTime;
+            trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+            console.error(`❌ Error in parallel alt-title search for ${indexer.name} ("${altTitle}"):`, error);
+            return [];
+          }
+        }))
+      : [];
+
+    let results = (await Promise.all([...searchPromises, ...altSearchPromises])).flat();
 
     // Zero-result text fallback: if ID-based searches returned nothing, retry with text.
     // Indexers that timed out in the main pass are skipped so we don't stack another timeout.
@@ -380,14 +416,23 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
           console.warn(`⚠️  Absolute episode fallback: priorSeasonsEpisodeCount unavailable (Cinemeta gap), using per-season E${episode}`);
         }
         const absoluteEp = (priorSeasonsEpisodeCount ?? 0) + episode;
-        console.log(`🔢 Absolute episode fallback: retrying ${retryIndexers.length} indexer(s) with E${absoluteEp}`);
-        const fallbackPromises = retryIndexers.map(async (indexer) => {
+        // When parallel mode is on, fan the absolute pass over primary + alts
+        // upfront — the standard alt-title retry below is gated off in that
+        // mode, so this is the only place alts get an E{absolute} probe.
+        const titlesToRetry = (parallelAltEnabled && additionalTitles?.length)
+          ? [title, ...additionalTitles]
+          : [title];
+        console.log(`🔢 Absolute episode fallback: retrying ${retryIndexers.length} indexer(s) with E${absoluteEp}${titlesToRetry.length > 1 ? ` × ${titlesToRetry.length} title(s)` : ''}`);
+        const fallbackPromises = retryIndexers.flatMap(indexer => titlesToRetry.map(async (t) => {
           const startTime = Date.now();
           const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
           try {
+            // Pass additionalTitles only for primary pass — alt passes filter
+            // strictly against the alt to avoid loose cross-title matches.
+            const altsForFilter = t === title ? additionalTitles : undefined;
             const fbResults = await searcher.searchTVShow(
-              imdbId, title, season, episode, episodesInSeason, year, country,
-              undefined, 'text', additionalTitles, titleYear,
+              imdbId, t, season, episode, episodesInSeason, year, country,
+              undefined, 'text', altsForFilter, titleYear,
               { numberingScheme: 'absolute', absoluteEp }
             );
             if (searcher.timedOut) timedOutIndexers.add(indexer.name);
@@ -398,10 +443,10 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
             if (searcher.timedOut) timedOutIndexers.add(indexer.name);
             const responseTime = Date.now() - startTime;
             trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
-            console.error(`❌ Error in absolute episode fallback for ${indexer.name}:`, error);
+            console.error(`❌ Error in absolute episode fallback for ${indexer.name} ("${t}"):`, error);
             return [];
           }
-        });
+        }));
         const fallbackResults = await Promise.all(fallbackPromises);
         results = fallbackResults.flat();
         console.log(`   🔢 Absolute episode fallback returned ${results.length} results`);
@@ -410,7 +455,8 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
 
     // Alternative-title retry: if still 0 results and alternative titles exist, retry with each.
     // Skip indexers that have timed out at any prior point in this cycle.
-    if (results.length === 0 && additionalTitles?.length && enabledIndexers.length > 0) {
+    // Skipped entirely in parallel-alt mode — those alts already fired upfront.
+    if (results.length === 0 && additionalTitles?.length && enabledIndexers.length > 0 && !parallelAltEnabled) {
       const altIndexers = enabledIndexers.filter(i => !timedOutIndexers.has(i.name));
       const skipped = enabledIndexers.length - altIndexers.length;
       if (skipped > 0) {

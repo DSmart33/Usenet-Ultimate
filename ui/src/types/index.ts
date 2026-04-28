@@ -85,6 +85,7 @@ export interface SearchConfig {
   junkFilter?: boolean;
   displayLibraryInResults?: boolean;
   absoluteEpisodeFallback?: boolean;
+  parallelAlternateTitleSearch?: boolean;
   cacheEmptyResults?: boolean;
   movieSearchMethod?: string;
   tvSearchMethod?: string;

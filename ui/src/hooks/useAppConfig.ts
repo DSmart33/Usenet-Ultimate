@@ -103,6 +103,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [cacheEmptyResults, setCacheEmptyResults] = useState(true);
   const [displayLibraryInResults, setDisplayLibraryInResults] = useState(true);
   const [absoluteEpisodeFallback, setAbsoluteEpisodeFallback] = useState(true);
+  const [parallelAlternateTitleSearch, setParallelAlternateTitleSearch] = useState(false);
   const [indexerPriority, setIndexerPriority] = useState<string[]>([]);
   const [dedupDraggedItem, setDedupDraggedItem] = useState<string | null>(null);
   const [dedupDragOverItem, setDedupDragOverItem] = useState<string | null>(null);
@@ -365,12 +366,13 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         junkFilter,
         displayLibraryInResults,
         absoluteEpisodeFallback,
+        parallelAlternateTitleSearch,
         cacheEmptyResults,
       },
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, displayLibraryInResults, absoluteEpisodeFallback, cacheEmptyResults, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, displayLibraryInResults, absoluteEpisodeFallback, parallelAlternateTitleSearch, cacheEmptyResults, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -525,6 +527,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setJunkFilter(sc?.junkFilter !== false);
       setDisplayLibraryInResults(sc?.displayLibraryInResults !== false);
       setAbsoluteEpisodeFallback(sc?.absoluteEpisodeFallback !== false);
+      setParallelAlternateTitleSearch(sc?.parallelAlternateTitleSearch === true);
       setCacheEmptyResults(sc?.cacheEmptyResults !== false);
       setIndexerPriority(data.indexerPriority || []);
       setEasynewsEnabled(data.easynewsEnabled || false);
@@ -1223,6 +1226,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     junkFilter, setJunkFilter,
     displayLibraryInResults, setDisplayLibraryInResults,
     absoluteEpisodeFallback, setAbsoluteEpisodeFallback,
+    parallelAlternateTitleSearch, setParallelAlternateTitleSearch,
     cacheEmptyResults, setCacheEmptyResults,
     indexerPriority, setIndexerPriority,
     dedupDraggedItem, setDedupDraggedItem,
