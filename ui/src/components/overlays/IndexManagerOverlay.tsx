@@ -539,10 +539,7 @@ export function IndexManagerOverlay({
               {/* Baseline Junk Filter — own card. Keep labels in sync with src/addon/junkFilter.ts JUNK_LABELS. */}
               <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <label htmlFor="junk-filter" className="flex-1 cursor-pointer">
-                    <div className="text-sm font-medium text-slate-300">Baseline Junk Filter</div>
-                    <div className="text-xs text-slate-500 mt-0.5">Bare archive parts and NZB containers are stripped from search results before ranking. These are typically stray entries from older indexer databases and never represent valid releases.</div>
-                  </label>
+                  <div className="text-sm font-medium text-slate-300">Baseline Junk Filter</div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
@@ -554,6 +551,7 @@ export function IndexManagerOverlay({
                     <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
                   </label>
                 </div>
+                <div className="text-xs text-slate-500">Bare archive parts and NZB containers are stripped from search results before ranking. These are typically stray entries from older indexer databases and never represent valid releases.</div>
 
                 <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
                   <div className="text-xs font-medium text-slate-400 mb-1">Filtered Extensions</div>
@@ -659,12 +657,9 @@ export function IndexManagerOverlay({
               </div>
 
               {/* Display Library in Results — own card */}
-              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4">
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <label htmlFor="display-library-in-results" className="flex-1 cursor-pointer">
-                    <div className="text-sm font-medium text-slate-300">Display library in results</div>
-                    <div className="text-xs text-slate-500 mt-0.5">Mark search results that already exist in your library with the 📚 icon. Adds a quick WebDAV check to each result before sending to Stremio.</div>
-                  </label>
+                  <div className="text-sm font-medium text-slate-300">Display library in results</div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
@@ -676,6 +671,7 @@ export function IndexManagerOverlay({
                     <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
                   </label>
                 </div>
+                <div className="text-xs text-slate-500">Mark search results that already exist in your library with the 📚 icon. Adds a quick WebDAV check to each result before sending to Stremio.</div>
               </div>
 
               {/* Season Packs — own card, separate from Search Settings */}
