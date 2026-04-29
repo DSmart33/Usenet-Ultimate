@@ -12,7 +12,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import type { CacheEntry, StreamData, NZBDavConfig } from './types.js';
 import { config as globalConfig } from '../config/index.js';
-import { clearFallbackGroups, getFallbackGroupTTLMs } from './fallbackManager.js';
+import { clearFallbackGroups } from './fallbackManager.js';
 import { clearDeliveryLog, MULTI_EPISODE_BLOCKED_ERROR } from './utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -36,33 +36,6 @@ function normalizeProwlarrUrl(url: string): string {
 
 /** Pending preparations — in-flight promises that resolve into readyCache or deadNzbCache */
 const pendingCache = new Map<string, CacheEntry>();
-
-// ============================================================================
-// Broken Video Path Tracking
-// ============================================================================
-// Video paths where WebDAV returned a server error (5xx). Prevents the
-// library check from repeatedly returning a file that exists on disk
-// (PROPFIND succeeds) but can't actually be served (GET returns 500).
-// TTL matches fallback group lifetime so the path stays marked for as
-// long as the fallback system could route to it.
-
-const brokenVideoPaths = new Map<string, number>(); // videoPath → expiresAt
-
-/** Mark a video path as broken (WebDAV can't serve it). */
-export function markVideoPathBroken(videoPath: string): void {
-  brokenVideoPaths.set(videoPath, Date.now() + getFallbackGroupTTLMs());
-}
-
-/** Check if a video path is currently marked as broken. */
-export function isVideoPathBroken(videoPath: string): boolean {
-  const expiresAt = brokenVideoPaths.get(videoPath);
-  if (expiresAt === undefined) return false;
-  if (Date.now() >= expiresAt) {
-    brokenVideoPaths.delete(videoPath);
-    return false;
-  }
-  return true;
-}
 
 /** Dynamic TTL helpers — when mode is 'storage', entries never expire by time */
 export function getReadyTTLMs(): number {
@@ -254,9 +227,6 @@ export function cleanupExpiredCache(): void {
   for (const [key, entry] of deadNzbCache.entries()) {
     if (entry.expiresAt < now) { deadNzbCache.delete(key); removed = true; }
   }
-  for (const [path, expiresAt] of brokenVideoPaths) {
-    if (now >= expiresAt) brokenVideoPaths.delete(path);
-  }
   if (removed) saveCacheToDisk();
 }
 
@@ -301,21 +271,15 @@ export async function getOrCreateStream(
   size?: number,
   verbose = true,
   isSeasonPack?: boolean,
-  skipReadyCache?: boolean,
   logPrefix = '',
 ): Promise<StreamData> {
   cleanupExpiredCache();
 
   const cacheKey = getCacheKey(nzbUrl, title) + (episodePattern ? `:${episodePattern}` : '');
 
-  // Check healthy cache — return immediately if already prepared
-  if (!skipReadyCache) {
-    const ready = readyCache.get(cacheKey);
-    if (ready && ready.expiresAt > Date.now()) {
-      if (verbose) console.log(`${logPrefix}\u2705 NZB Database (healthy): ${title}`);
-      return ready.data;
-    }
-  }
+  // The readyCache is no longer read here. `prepareStream` runs `checkNzbLibrary`
+  // first on every resolution, so the live WebDAV listing is the single source
+  // of truth. The cache is still written for telemetry / UI stats.
 
   // Check dead NZB cache — known-bad NZBs are skipped instantly
   const deadKey = getDeadCacheKey(nzbUrl, episodePattern);

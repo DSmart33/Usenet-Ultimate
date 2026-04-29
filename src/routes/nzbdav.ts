@@ -17,7 +17,7 @@ import { PassThrough } from 'stream';
 import type { Config } from '../types.js';
 import type { NZBDavConfig } from '../nzbdav/index.js';
 import { encodeWebdavPath, WebDav404Error, buildNzbdavConfig } from '../nzbdav/utils.js';
-import { evictReadyByVideoPath, markVideoPathBroken } from '../nzbdav/streamCache.js';
+import { evictReadyByVideoPath } from '../nzbdav/streamCache.js';
 
 interface NzbdavDeps {
   config: Config;
@@ -746,11 +746,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
           if (newUpstream.statusCode === 404 || newUpstream.statusCode === 410) {
             const evicted = evictReadyByVideoPath(videoPath);
             if (evicted) console.warn(`  🗑️ Evicted stale stream (reconnect ${newUpstream.statusCode}): ${evicted}`);
-            markVideoPathBroken(videoPath);
             if (evicted) console.log(`  🔄 Player retry will use fallback candidate`);
-          } else if (newUpstream.statusCode >= 500) {
-            // Mark path broken so player retry skips it via library check
-            markVideoPathBroken(videoPath);
           }
           console.warn(`  \u26A0\uFE0F Reconnect returned ${newUpstream.statusCode}. Ending stream.`);
           newUpstream.destroy();
@@ -819,18 +815,15 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       await proxyVideoStream(req, res, videoPath);
     } catch (err) {
       if (!res.headersSent) {
-        // Evict ready cache so fallback advances to the next candidate.
-        // 404/410: mark NZB as dead (file permanently gone, don't retry).
-        // Other errors (5xx): evict without marking dead (transient, NZB can be retried later).
+        // Evict ready cache so fallback advances to the next candidate. The
+        // library check at /stream is now the single source of truth — it'll
+        // see the file is missing on the next request, no marker needed.
         if (err instanceof WebDav404Error) {
           const evicted = evictReadyByVideoPath(videoPath);
           if (evicted) console.warn(`🗑️ Evicted stale stream (upstream ${err.statusCode}): ${evicted}`);
-          markVideoPathBroken(videoPath);
         } else {
           const evicted = evictReadyByVideoPath(videoPath, false);
           if (evicted) console.warn(`🗑️ Evicted stream for retry (upstream error): ${evicted}`);
-          // Mark video path as broken so library check skips it (expires with fallback group TTL)
-          markVideoPathBroken(videoPath);
         }
 
         // Redirect to fallback for ANY upstream error when _fb available.
@@ -846,8 +839,8 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
           fallbackUrl.searchParams.set('_norange', '1');
           // For non-404 errors (file exists on disk but server can't serve it),
           // advance _ci so /stream doesn't re-resolve to the same broken video
-          // via library check. 404 doesn't need _ci++ because markVideoPathBroken
-          // already excludes that path from re-resolution.
+          // via library check. 404 doesn't need _ci++ because the file is
+          // genuinely gone — library check on the next request returns null.
           if (!(err instanceof WebDav404Error)) {
             const ci = Math.max(0, parseInt(fallbackUrl.searchParams.get('_ci') ?? '0', 10) || 0);
             fallbackUrl.searchParams.set('_ci', String(ci + 1));

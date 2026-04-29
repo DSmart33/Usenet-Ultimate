@@ -12,11 +12,11 @@ import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
 import { submitNzb, waitForJobCompletion } from './nzbdavApi.js';
-import { waitForVideoFile, checkNzbLibrary } from './videoDiscovery.js';
-import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache, isVideoPathBroken } from './streamCache.js';
+import { waitForVideoFile, checkNzbLibrary, videoPathExists } from './videoDiscovery.js';
+import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDeadNzb, isDeadNzbByUrl, evictReadyByVideoPath, setPrepareFn, cleanupExpiredCache } from './streamCache.js';
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildNzbdavConfig } from './utils.js';
-import { getSessionPromise, getSessionBackups, ultimateFallbackFromCandidates } from './ultimateFallback.js';
+import { getSessionPromise, getSessionBackups, ultimateFallbackFromCandidates, type UfBackupStream } from './ultimateFallback.js';
 import { formatBytes } from '../parsers/metadataParsers.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
 
@@ -43,7 +43,7 @@ const STREMIO_TIMEOUT_MS = 60_000;       // Stremio's built-in HTTP timeout
 const STREMIO_SAFETY_MARGIN_MS = 5_000;  // Safety buffer when deciding whether to self-redirect
 const MAX_SELF_REDIRECTS = Number(process.env.NZBDAV_MAX_SELF_REDIRECTS) || 500; // Safety cap on self-redirects — supports large fallback chains without infinite loops
 const EXO_PLAYER_BUDGET_MS = 8_000;      // Max blocking time per post-redirect request (keeps ExoPlayer alive on Android)
-const DEDUP_CACHE_TTL_MS = 600_000;      // 10 min — covers a typical play session's seeks/probes without library-check overhead; eviction mid-session self-heals via isVideoPathBroken
+const DEDUP_CACHE_TTL_MS = 600_000;      // 10 min — covers a typical play session's seeks/probes without library-check overhead; eviction mid-session self-heals via the live videoPathExists gate
 // Self-redirect query params (internal, appended to stream URL during 302 redirects):
 //   _rc — redirect count: how many self-redirects have occurred (prevents infinite loops)
 //   _ci — candidate index: which fallback candidate to resume at (avoids restarting from 0)
@@ -185,13 +185,8 @@ export async function prepareStream(
   // evicts content.
   const libraryResult = await checkNzbLibrary(title, config, episodePattern, contentType, episodesInSeason, logPrefix);
   if (libraryResult) {
-    // Skip if this video path was recently marked as broken (WebDAV 5xx)
-    if (isVideoPathBroken(libraryResult.videoPath)) {
-      console.log(`${logPrefix}\u{1F6AB} Library hit skipped (video path broken): ${libraryResult.videoPath}`);
-    } else {
-      console.log(`${logPrefix}\u2705 Stream ready (from library): ${title}\n`);
-      return libraryResult;
-    }
+    console.log(`${logPrefix}\u2705 Stream ready (from library): ${title}\n`);
+    return libraryResult;
   }
 
   // Step 1: Submit NZB
@@ -205,14 +200,6 @@ export async function prepareStream(
 
   // Step 3: Find the video file — remaining budget
   const video = await waitForVideoFile(nzoId, title, config, episodePattern, contentType, episodesInSeason, logPrefix);
-
-  // Skip immediately if this path is already known to be broken (WebDAV 5xx).
-  // Avoids wasting ~6s on the probe when re-submission resolves to the same unservable file.
-  // Plain Error (not nzbdavError) so the NZB isn't marked dead — the NZB is fine, only the path is broken.
-  if (isVideoPathBroken(video.path)) {
-    console.log(`${logPrefix}  \u{1F6AB} Video path already broken — skipping probe: ${video.path}`);
-    throw new Error(`Video path broken (WebDAV 5xx): ${video.path}`);
-  }
 
   // Step 4: Verify the video is actually servable via WebDAV (GET first byte).
   // HEAD isn't reliable — NZBDav returns 200 for HEAD even when content is gone.
@@ -524,11 +511,10 @@ export async function handleStream(
     {
       const dedupKey = getCacheKey(candidates[0].nzbUrl, candidates[0].title) + (episodePattern ? `:${episodePattern}` : '');
       const cached = recentDeliveries.get(dedupKey);
-      if (cached && Date.now() - cached.timestamp < DEDUP_CACHE_TTL_MS && !isVideoPathBroken(cached.streamData.videoPath)) {
+      if (cached && Date.now() - cached.timestamp < DEDUP_CACHE_TTL_MS && await videoPathExists(cached.streamData.videoPath, config)) {
         // Serve dupes / seeks / probes using the cached videoPath — no re-prep,
-        // no library check, no submission. If the path becomes broken mid-session
-        // (WebDAV eviction) we fall through to a fresh candidate loop via the
-        // isVideoPathBroken gate above.
+        // no library check, no submission. If the file is gone we fall through
+        // to a fresh candidate loop via the live videoPathExists gate above.
         if (verbose) console.log(`📦 Stream dedup hit (delivered ${Math.round((Date.now() - cached.timestamp) / 1000)}s ago)`);
         const fallbackOn = globalConfig.ultimateFallback?.enabled === true;
         const sizeSuffix = cached.streamData.videoSize ? ` (${formatBytes(cached.streamData.videoSize)})` : '';
@@ -613,8 +599,10 @@ export async function handleStream(
             }),
           ]).finally(() => clearTimeout(stremioTimer!));
 
-          // Check if the resolved videoPath was evicted (404/5xx) — fall through to fallback loop
-          if (isVideoPathBroken(streamData.videoPath)) {
+          // Library is the source of truth — verify the cached primary still
+          // exists in NZBDav before serving. Falls through to UF backups / fresh
+          // resolution if the file has been evicted.
+          if (!await videoPathExists(streamData.videoPath, config)) {
             console.log(`👑 Lobby: primary path no longer available — falling through to fallback`);
             throw new Error('Primary path no longer available');
           }
@@ -666,13 +654,16 @@ export async function handleStream(
   }
 
   // UF tile request (no nzb/title in URL). If the Lobby's primary is unavailable,
-  // iterate the session's UF-vetted backup streams and serve the first with an
-  // unbroken videoPath directly — no candidate loop, no re-submit, no TTL
+  // iterate the session's UF-vetted backup streams and serve the first whose
+  // videoPath still exists in NZBDav — no candidate loop, no re-submit, no TTL
   // coupling. /v's _fb param bounces back to this tile URL on mid-stream break,
-  // which re-enters here and picks the next backup (previous now isVideoPathBroken).
+  // which re-enters here and picks the next backup (previous now missing).
   if (isUfTileRequest) {
     const ufBackups = sessionKey ? getSessionBackups(sessionKey) : null;
-    const usable = (ufBackups?.backupStreams ?? []).find(b => !isVideoPathBroken(b.videoPath));
+    let usable: UfBackupStream | undefined;
+    for (const b of ufBackups?.backupStreams ?? []) {
+      if (await videoPathExists(b.videoPath, config)) { usable = b; break; }
+    }
     if (usable) {
       console.log(`👑 UF tile: primary path no longer available — falling back to UF backup: ${usable.title} [${usable.indexerName}]`);
       const lobbyFallbackOn = globalConfig.ultimateFallback?.enabled === true;
@@ -833,7 +824,7 @@ export async function handleStream(
         const waitMs = Math.max(1000, EXO_PLAYER_BUDGET_MS - requestElapsed);
         let exoTimerId: ReturnType<typeof setTimeout>;
         streamData = await Promise.race([
-          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, true)
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack)
             .finally(() => clearTimeout(exoTimerId)),
           new Promise<never>((_, reject) => {
             exoTimerId = setTimeout(() => reject(Object.assign(new Error('ExoPlayer safety timeout'), { isExoTimeout: true })), waitMs);
@@ -848,7 +839,7 @@ export async function handleStream(
         if (attemptBudgetMs > stremioRemainingMs && stremioRemainingMs > 0 && !req.socket.destroyed) {
           let stremioTimerId: ReturnType<typeof setTimeout>;
           streamData = await Promise.race([
-            getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, true)
+            getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack)
               .finally(() => clearTimeout(stremioTimerId)),
             new Promise<never>((_, reject) => {
               stremioTimerId = setTimeout(() => reject(Object.assign(new Error('Stremio timeout redirect'), { isExoTimeout: true })), stremioRemainingMs);
@@ -856,7 +847,7 @@ export async function handleStream(
           ]);
         } else {
           streamData = await getOrCreateStream(
-            candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, true
+            candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack
           );
         }
       }

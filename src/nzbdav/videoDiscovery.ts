@@ -13,6 +13,20 @@ import { encodeWebdavPath, nzbdavError, MULTI_EPISODE_BLOCKED_ERROR } from './ut
 import { config as globalConfig, getTvAllowMultiEpisode } from '../config/index.js';
 
 /**
+ * Cheap existence check for a single WebDAV path. Used to verify that a
+ * cached videoPath still points at a real file before serving — keeps the
+ * library as the single source of truth. A single PROPFIND/HEAD; ~10-50ms.
+ */
+export async function videoPathExists(videoPath: string, config: NZBDavConfig): Promise<boolean> {
+  try {
+    const client = getWebdavClient(config);
+    return await client.exists(videoPath);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Find video file in WebDAV directory
  */
 export async function findVideoFile(
