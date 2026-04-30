@@ -742,12 +742,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       }
 
       // Ensure seScore / regexScore sort methods are available for existing configs.
-      // seScore is placed first so that once a user enables it, SE-based ranking
-      // takes precedence over every other sort method. Both stay disabled by default —
-      // users opt in by checking them in the sort list.
-      if (filterConfig.sortOrder) {
-        const so = filterConfig.sortOrder.filter((m: string) => m !== 'seScore');
-        filterConfig.sortOrder = ['seScore', ...so];
+      // Append at end only if missing — never reposition, so the user's saved order
+      // is preserved across reloads. Both stay disabled by default; users opt in by
+      // checking them in the sort list.
+      if (filterConfig.sortOrder && !filterConfig.sortOrder.includes('seScore')) {
+        filterConfig.sortOrder = [...filterConfig.sortOrder, 'seScore'];
       }
       if (filterConfig.enabledSorts && filterConfig.enabledSorts.seScore === undefined) {
         filterConfig.enabledSorts.seScore = false;
