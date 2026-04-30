@@ -269,6 +269,19 @@ export function updateSettings(settings: {
     configData.proxyIndexers = settings.proxyIndexers;
   }
   if (settings.searchConfig !== undefined) {
+    // Clear the cached TVDB bearer token if the API key changed. The token is
+    // cached for 23h and tied to the key it was issued with; without this, a
+    // key swap keeps using the stale token until the cache expires (or until
+    // the next 401 response triggers findOnTvdb's existing retry path).
+    // Cached series episode data is keyed by tvdbId and doesn't need
+    // invalidation: the same series returns the same episodes regardless of
+    // which key fetched them.
+    const prevTvdbKey = configData.searchConfig?.tvdbApiKey;
+    const nextTvdbKey = settings.searchConfig.tvdbApiKey;
+    if (prevTvdbKey !== nextTvdbKey) {
+      console.log('🔗 TVDB API key changed, clearing cached token');
+      import('../idResolver.js').then(m => m.clearTvdbToken?.()).catch(() => {});
+    }
     configData.searchConfig = settings.searchConfig;
     configData.includeSeasonPacks = settings.searchConfig.includeSeasonPacks;
   }

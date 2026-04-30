@@ -392,6 +392,15 @@ export async function resolveTitleFromTvdb(
 }
 
 /**
+ * Clear the cached TVDB bearer token. Called when the user changes their TVDB
+ * API key so the next request re-authenticates with the new key instead of
+ * using the stale token issued for the old key.
+ */
+export function clearTvdbToken(): void {
+  idCache.del('tvdb:token');
+}
+
+/**
  * Get a TVDB bearer token, cached for 23 hours.
  */
 async function getTvdbToken(): Promise<string | null> {

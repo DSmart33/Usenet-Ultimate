@@ -531,7 +531,7 @@ export function IndexManagerOverlay({
                     TVDB API Key
                     <ExternalLink className="w-3 h-3" />
                   </a>
-                  <div className="text-[11px] text-slate-500 mb-1">Optional. Powers canonical series metadata, episode counts, episode-name lookup, and absolute episode numbering for the absolute fallback. Restart the addon after changing this key.</div>
+                  <div className="text-[11px] text-slate-500 mb-1">Optional. Powers canonical series metadata, episode counts, episode-name lookup, and absolute episode numbering for the absolute fallback.</div>
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <input
