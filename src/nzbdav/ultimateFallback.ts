@@ -882,12 +882,12 @@ export async function ultimateFallbackFromCandidates(
     }
 
     // ── Post-drain library sweep ─────────────────────────────────
-    // Library hits cost no NNTP grabs, so always sweep when primary resolved —
-    // free backups are honored even when desiredBackups=0. The cap moves
-    // inside the loop so it only fires when desiredBackups > 0.
+    // Library hits cost no NNTP grab, so the sweep is always exhaustive when
+    // primary resolved. desiredBackups is treated as a target for grabbed
+    // backups; free library hits are added on top of the target rather than
+    // counting against it. More mid-stream fallback protection at zero cost.
     if (primaryResolved) {
       for (const hit of hits) {
-        if (options.desiredBackups > 0 && backupCount >= options.desiredBackups) break;
         if (libraryResolvedUrls.has(hit.candidate.nzbUrl)) continue;
         if (hit.index === primaryPoolIndex) continue;
         if (resolvedVideoPaths.has(hit.data.videoPath)) continue;

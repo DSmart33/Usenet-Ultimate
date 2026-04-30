@@ -647,7 +647,7 @@ export function UltimateFallbackOverlay({
                 >+</button>
               </div>
             </div>
-            <div className="text-xs text-slate-500">Container-matched backups to pre-resolve after the primary. Processing stops once this number is reached (or candidates are exhausted). Backups must match the primary's container type (MKV, MP4, etc.).</div>
+            <div className="text-xs text-slate-500">Target number of grabbed backups to pre-resolve after the primary. Free library hits (NZBs already in your WebDAV library that match the primary's container) are always added on top of this target at zero NNTP cost, so the actual backup count can exceed the target when matching library hits exist. Backups must match the primary's container type (MKV, MP4, etc.).</div>
             <div className="text-xs text-amber-400/50">Values: Off, 1–10</div>
 
             {ultimateFallback.desiredBackups > 0 && (
