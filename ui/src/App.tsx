@@ -598,8 +598,6 @@ function App() {
           setSeasonPackAdditionalPages={ac.setSeasonPackAdditionalPages}
           urlDedup={ac.urlDedup}
           setUrlDedup={ac.setUrlDedup}
-          junkFilter={ac.junkFilter}
-          setJunkFilter={ac.setJunkFilter}
           displayLibraryInResults={ac.displayLibraryInResults}
           setDisplayLibraryInResults={ac.setDisplayLibraryInResults}
           absoluteEpisodeFallback={ac.absoluteEpisodeFallback}
@@ -807,6 +805,8 @@ function App() {
           setMovieFilters={ac.setMovieFilters}
           tvFilters={ac.tvFilters}
           setTvFilters={ac.setTvFilters}
+          junkFilter={ac.junkFilter}
+          setJunkFilter={ac.setJunkFilter}
           apiFetch={apiFetch}
         />
       )}

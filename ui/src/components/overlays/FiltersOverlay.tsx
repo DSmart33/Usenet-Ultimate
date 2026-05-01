@@ -178,6 +178,8 @@ interface FiltersOverlayProps {
   setMovieFilters: React.Dispatch<React.SetStateAction<FiltersState | null>>;
   tvFilters: FiltersState | null;
   setTvFilters: React.Dispatch<React.SetStateAction<FiltersState | null>>;
+  junkFilter: boolean;
+  setJunkFilter: React.Dispatch<React.SetStateAction<boolean>>;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
@@ -189,6 +191,8 @@ export default function FiltersOverlay({
   setMovieFilters,
   tvFilters,
   setTvFilters,
+  junkFilter,
+  setJunkFilter,
   apiFetch,
 }: FiltersOverlayProps) {
   // Local drag states for sort order
@@ -230,23 +234,55 @@ export default function FiltersOverlay({
               </button>
             </div>
           </div>
-          {/* Movie/TV Tab Bar */}
-          <div className="flex gap-1 px-4 md:px-6 pt-4 pb-0">
-            {([['all', 'Global'], ['movie', 'Movies'], ['tv', 'TV Shows']] as const).map(([tab, label]) => (
+        </div>
+
+        {/* Baseline Junk Filter — global setting in its own card above the per-type tab bar.
+            Compact single-row layout (extensions inlined into description) so the card reads
+            visually lighter than the tabbed content cards.
+            Keep labels in sync with src/addon/junkFilter.ts JUNK_LABELS. */}
+        <div className="px-4 md:px-6 pt-4">
+          <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-slate-300">Baseline Junk Filter</div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Strips <span className="text-slate-400">par2 · nzb · rar · r01–r99 · 001–999</span> from results before ranking. Typically stray entries from older indexer databases that never represent valid releases.
+                </div>
+              </div>
               <button
-                key={tab}
-                onClick={() => setFilterTab(tab)}
+                aria-label="Baseline Junk Filter"
+                aria-pressed={junkFilter}
+                onClick={() => setJunkFilter(!junkFilter)}
                 className={clsx(
-                  "px-4 py-2 text-sm font-medium rounded-t-lg transition-colors",
-                  filterTab === tab
-                    ? "bg-slate-800 text-purple-400 border border-slate-700/50 border-b-0"
-                    : "text-slate-400 hover:text-slate-300 hover:bg-slate-800/50"
+                  "relative w-10 h-6 rounded-full transition-colors flex-shrink-0 mt-0.5",
+                  junkFilter ? "bg-purple-500" : "bg-slate-600"
                 )}
               >
-                {label}
+                <div className={clsx(
+                  "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                  junkFilter ? "left-5" : "left-1"
+                )} />
               </button>
-            ))}
+            </div>
           </div>
+        </div>
+
+        {/* Movie/TV Tab Bar */}
+        <div className="flex gap-1 px-4 md:px-6 pt-4 pb-0">
+          {([['all', 'Global'], ['movie', 'Movies'], ['tv', 'TV Shows']] as const).map(([tab, label]) => (
+            <button
+              key={tab}
+              onClick={() => setFilterTab(tab)}
+              className={clsx(
+                "px-4 py-2 text-sm font-medium rounded-t-lg transition-colors",
+                filterTab === tab
+                  ? "bg-slate-800 text-purple-400 border border-slate-700/50 border-b-0"
+                  : "text-slate-400 hover:text-slate-300 hover:bg-slate-800/50"
+              )}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* Per-type override toggle */}
