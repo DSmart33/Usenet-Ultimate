@@ -23,6 +23,7 @@ import { hasAnyUsers, createUser, authenticateUser, generateToken, verifyToken, 
 import { createManifestRoutes } from './routes/manifests.js';
 import { requireAuth, validateManifestKey } from './auth/authMiddleware.js';
 import { requestContext } from './requestContext.js';
+import { resolveBaseUrl } from './utils/urlHelpers.js';
 import { initAnimeDatabase, startDailyRefresh, stopDailyRefresh, getDatabaseStatus } from './anime/animeDatabase.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -189,14 +190,14 @@ const nzbdavRoutes = createNzbdavStreamRoutes(nzbdavDeps);
 const stremioRouter = express.Router({ mergeParams: false });
 // Serve manifest with absolute logo URL (Stremio doesn't resolve relative paths correctly)
 stremioRouter.get('/manifest.json', (req, res) => {
-  const baseUrl = requestContext.getStore()?.baseUrl || process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const baseUrl = requestContext.getStore()?.baseUrl || resolveBaseUrl(req);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(JSON.stringify({ ...addonManifest, logo: `${baseUrl}/pwa-512x512.png` }));
 });
 stremioRouter.use(getRouter(addon));
 
 const contextMiddleware = (pathPrefix: string) => (req: express.Request, _res: express.Response, next: express.NextFunction) => {
-  requestContext.run({ manifestKey: req.params.manifestKey, baseUrl: process.env.BASE_URL || `${req.protocol}://${req.get('host')}`, pathPrefix }, () => next());
+  requestContext.run({ manifestKey: req.params.manifestKey, baseUrl: resolveBaseUrl(req), pathPrefix }, () => next());
 };
 
 // /stremio/ prefixed routes (recommended for new installations and reverse proxy setups)

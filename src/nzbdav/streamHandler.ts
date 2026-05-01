@@ -18,6 +18,7 @@ import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildNzbdavConfig } from './utils.js';
 import { getSessionPromise, getSessionBackups, ultimateFallbackFromCandidates, type UfBackupStream } from './ultimateFallback.js';
 import { formatBytes } from '../parsers/metadataParsers.js';
+import { resolveBaseUrl } from '../utils/urlHelpers.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
 
 const pipelineAsync = promisify(pipeline);
@@ -551,7 +552,7 @@ export async function handleStream(
           if (shouldLogCachedDelivery) console.log(`  ${label} streaming: ${cached.streamData.videoPath}${sizeSuffix}`);
           await proxyFn(req, res, cached.streamData.videoPath, cached.streamingMethod !== 'proxy');
         } else {
-          const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
+          const proxyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/v`);
           proxyUrl.searchParams.set('path', cached.streamData.videoPath);
           proxyUrl.searchParams.set('_fb', req.originalUrl);
           if (req.query._norange === '1') proxyUrl.searchParams.set('_norange', '1');
@@ -635,7 +636,7 @@ export async function handleStream(
             if (inline) {
               await proxyFn!(req, res, streamData.videoPath, mode !== 'proxy');
             } else {
-              const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
+              const proxyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/v`);
               proxyUrl.searchParams.set('path', streamData.videoPath);
               proxyUrl.searchParams.set('_fb', req.originalUrl);
               if (req.query._norange === '1') proxyUrl.searchParams.set('_norange', '1');
@@ -651,7 +652,7 @@ export async function handleStream(
         } catch (err) {
           if ((err as any).isLobbyTimeout) {
             // Stremio timeout approaching — self-redirect to keep ExoPlayer alive
-            const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
+            const redirectUrl = new URL(`${resolveBaseUrl(req)}${req.originalUrl}`);
             redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
             console.log(`👑 Lobby: self-redirect (${Math.round((Date.now() - streamStartTime) / 1000)}s elapsed, redirect ${redirectCount + 1})`);
             res.redirect(302, redirectUrl.href);
@@ -698,7 +699,7 @@ export async function handleStream(
       } else if (proxyFn && !lobbyFallbackOn) {
         await proxyFn(req, res, usable.videoPath, mode !== 'proxy');
       } else {
-        const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
+        const proxyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/v`);
         proxyUrl.searchParams.set('path', usable.videoPath);
         proxyUrl.searchParams.set('_fb', req.originalUrl);
         if (req.query._norange === '1') proxyUrl.searchParams.set('_norange', '1');
@@ -736,7 +737,7 @@ export async function handleStream(
           params.set('epcount', String(groupForFallthrough.episodesInSeason));
         }
       }
-      const fallthroughUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/stream/${filename}?${params.toString()}`);
+      const fallthroughUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/stream/${filename}?${params.toString()}`);
       console.log(`👑 UF tile: ${ufBackups?.backupStreams?.length ?? 0} UF backup(s) exhausted — falling through to fallback group (${remaining} candidate(s) remaining)`);
       res.redirect(302, fallthroughUrl.href);
       return;
@@ -818,7 +819,7 @@ export async function handleStream(
         if (!streamCacheMap.has(pendingKey) && !isDeadNzb(deadKey)) {
           getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack).catch(() => {});
         }
-        const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
+        const redirectUrl = new URL(`${resolveBaseUrl(req)}${req.originalUrl}`);
         redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
         redirectUrl.searchParams.set('_ci', String(i));
         if (verbose) {
@@ -929,7 +930,7 @@ export async function handleStream(
           await proxyFn!(req, res, streamData.videoPath, mode !== 'proxy');
         } else {
           // Redirect to /v endpoint which adds auth + buffering + transparent reconnect
-          const proxyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/v`);
+          const proxyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/v`);
           proxyUrl.searchParams.set('path', streamData.videoPath);
           proxyUrl.searchParams.set('_fb', req.originalUrl);
           if (req.query._norange === '1') proxyUrl.searchParams.set('_norange', '1');
@@ -954,7 +955,7 @@ export async function handleStream(
       // Stremio / ExoPlayer timeout — candidate is still processing in cache,
       // self-redirect to keep the player alive while we wait
       if ((error as any).isExoTimeout && redirectCount < MAX_SELF_REDIRECTS && !req.socket.destroyed) {
-        const redirectUrl = new URL(`${req.protocol}://${req.get('host')}${req.originalUrl}`);
+        const redirectUrl = new URL(`${resolveBaseUrl(req)}${req.originalUrl}`);
         redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
         redirectUrl.searchParams.set('_ci', String(i));
         if (verbose) {
@@ -989,7 +990,7 @@ export async function handleStream(
         && redirectCount < MAX_SELF_REDIRECTS
         && !res.headersSent
       ) {
-        const lobbyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/stream/ultimate-fallback`);
+        const lobbyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/stream/ultimate-fallback`);
         lobbyUrl.searchParams.set('sk', sessionKey);
         if (fallbackGroupId) lobbyUrl.searchParams.set('fbg', fallbackGroupId);
         lobbyUrl.searchParams.set('_rc', String(redirectCount + 1));
@@ -1020,7 +1021,7 @@ export async function handleStream(
     && redirectCount < MAX_SELF_REDIRECTS
     && !res.headersSent
   ) {
-    const lobbyUrl = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/stream/ultimate-fallback`);
+    const lobbyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/stream/ultimate-fallback`);
     lobbyUrl.searchParams.set('sk', sessionKey);
     if (fallbackGroupId) lobbyUrl.searchParams.set('fbg', fallbackGroupId);
     lobbyUrl.searchParams.set('_rc', String(redirectCount + 1));

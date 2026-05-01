@@ -18,6 +18,7 @@ import type { Config } from '../types.js';
 import type { NZBDavConfig } from '../nzbdav/index.js';
 import { encodeWebdavPath, WebDav404Error, buildNzbdavConfig } from '../nzbdav/utils.js';
 import { evictReadyByVideoPath, markVideoPathBroken } from '../nzbdav/streamCache.js';
+import { resolveBaseUrl } from '../utils/urlHelpers.js';
 
 interface NzbdavDeps {
   config: Config;
@@ -837,7 +838,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         // _fb contains the relative path — reconstruct as same-origin URL.
         const fb = req.query._fb;
         if (typeof fb === 'string' && fb.startsWith('/') && !fb.startsWith('//')) {
-          const fallbackUrl = new URL(`${req.protocol}://${req.get('host')}${fb}`);
+          const fallbackUrl = new URL(`${resolveBaseUrl(req)}${fb}`);
           const rc = Math.max(0, parseInt(fallbackUrl.searchParams.get('_rc') ?? '0', 10) || 0);
           fallbackUrl.searchParams.set('_rc', String(rc + 1));
           // Any error here means the candidate file is being abandoned — the
