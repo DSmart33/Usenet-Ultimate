@@ -184,8 +184,10 @@ function folderCouldContainSeason(basename: string, season: number): boolean {
   if (seasonsFound.length === 0) return true;        // No marker — allow
   if (seasonsFound.includes(season)) return true;    // Direct match
 
-  // Range form: S01-S04, S01-04, etc.
-  for (const m of basename.matchAll(/S(\d{1,2})[-_.\s]+S?(\d{1,2})/gi)) {
+  // Range form: S01-S04, S01-04, S01_S04. Hyphen or underscore only — anything
+  // else (dot or whitespace) accidentally matches resolution / quality markers
+  // like 'S02.1080p' (which would otherwise read as a bogus range S02 to S10).
+  for (const m of basename.matchAll(/S(\d{1,2})[-_]S?(\d{1,2})/gi)) {
     const a = parseInt(m[1], 10);
     const b = parseInt(m[2], 10);
     if (Math.min(a, b) <= season && season <= Math.max(a, b)) return true;
