@@ -236,25 +236,25 @@ export default function FiltersOverlay({
           </div>
         </div>
 
-        {/* Baseline Junk Filter — global setting in its own card above the per-type tab bar.
-            Compact single-row layout (extensions inlined into description) so the card reads
-            visually lighter than the tabbed content cards.
+        {/* Baseline Filters — global section above the per-type tab bar.
+            Card-in-card layout matches the Prefer Season Packs pattern.
             Keep labels in sync with src/addon/junkFilter.ts JUNK_LABELS. */}
         <div className="px-4 md:px-6 pt-4">
-          <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-slate-300">Baseline Junk Filter</div>
+          <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4">
+            <div className="text-xs font-medium text-slate-400 mb-3">Baseline Filters</div>
+            <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700/50 bg-slate-800/30">
+              <div>
+                <div className="text-sm font-medium text-slate-300">Junk Filter</div>
                 <div className="text-xs text-slate-500 mt-0.5">
                   Strips <span className="text-slate-400">par2 · nzb · rar · r01–r99 · 001–999</span> from results before ranking. Typically stray entries from older indexer databases that never represent valid releases.
                 </div>
               </div>
               <button
-                aria-label="Baseline Junk Filter"
+                aria-label="Junk Filter"
                 aria-pressed={junkFilter}
                 onClick={() => setJunkFilter(!junkFilter)}
                 className={clsx(
-                  "relative w-10 h-6 rounded-full transition-colors flex-shrink-0 mt-0.5",
+                  "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
                   junkFilter ? "bg-purple-500" : "bg-slate-600"
                 )}
               >
