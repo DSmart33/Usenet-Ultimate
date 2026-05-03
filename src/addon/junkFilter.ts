@@ -17,9 +17,11 @@ export const JUNK_EMOJI = '🧹';
 /**
  * Matches titles that end in a bare archive-part extension.
  * Anchored so legitimate titles containing the word "rar" or "nzb" mid-string
- * (e.g. "The.Rarest.Gem") are not caught.
+ * (e.g. "The.Rarest.Gem") are not caught. The trailing `[^a-z0-9]*$` allows
+ * non-alphanumeric punctuation after the suffix (e.g. wrapping quotes,
+ * brackets) so quoted archive-part filenames are still recognized.
  */
-const JUNK_PATTERN = /(?:^|[^a-z0-9])(par2|nzb|rar|r\d{1,3}|\d{3})\s*$/i;
+const JUNK_PATTERN = /(?:^|[^a-z0-9])(par2|nzb|rar|r\d{1,3}|\d{3})[^a-z0-9]*$/i;
 
 /**
  * H.26x video codec family — 261, 262 (MPEG-2), 263, 264 (AVC), 265 (HEVC),
