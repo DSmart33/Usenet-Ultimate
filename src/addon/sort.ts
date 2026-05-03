@@ -13,7 +13,7 @@ import type { FilterConfig } from '../types.js';
  * Sort results by configured preference using the sortOrder array.
  */
 export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?: number, runtime?: number): any[] {
-  const sortOrder = filterConfig?.sortOrder || ['regexScore', 'quality', 'seScore', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition'];
+  const sortOrder = filterConfig?.sortOrder || ['regexScore', 'quality', 'videoTag', 'seScore', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition'];
   const enabledSorts = filterConfig?.enabledSorts || {};
   const sortDirections = filterConfig?.sortDirections || {};
   const enabledPriorities = filterConfig?.enabledPriorities || {};

@@ -131,7 +131,7 @@ export const DEFAULT_HEALTH_CHECKS = {
 };
 
 export const DEFAULT_FILTERS = {
-  sortOrder: ['regexScore', 'quality', 'seScore', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition', 'age', 'bitrate'] as string[],
+  sortOrder: ['regexScore', 'quality', 'videoTag', 'seScore', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition', 'age', 'bitrate'] as string[],
   enabledSorts: {
     quality: true,
     videoTag: true,
