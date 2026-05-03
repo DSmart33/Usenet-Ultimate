@@ -191,10 +191,18 @@ function isTextSearchMatchSingle(expectedTitle: string, releaseTitle: string, ye
   }
 
   // Strip known edition terms from extracted title for comparison
-  // (editions like "Extended Edition" or "Director's Cut" are metadata, not part of the title)
-  const editionStripped = extracted.replace(
-    /\b(extended(\s*(edition|cut))?|superfan(\s*episodes?)?|directors?\s*cut|unrated|uncut|special\s*edition|theatrical|remastered(\s*(edition|cut))?|imax(\s*edition)?|collector'?s?\s*(edition|cut)?)\b/gi, ''
+  // (editions like "Extended Edition" or "Director's Cut" are metadata, not part of the title).
+  // Replace hyphens with spaces first so hyphen-separated edition tags
+  // ("Mohicans-Director's Cut") are reachable by the word-boundary regex.
+  let editionStripped = extracted.replace(/-/g, ' ').replace(
+    /\b(extended(\s+(edition|cut))?|superfan(\s+episodes?)?|director'?s?(\s+\w+)?\s+cut|unrated|uncut|special\s+edition|theatrical(\s+(edition|cut))?|remastered(\s+(edition|cut))?|imax(\s+edition)?|collector'?s?\s+(edition|cut)?)\b/gi, ''
   );
+  // Abbreviations with high false-positive risk in mid-title position. Only
+  // strip when they appear as the LAST token of the extracted title (i.e. the
+  // token immediately preceding the release year that the extractor cut at).
+  // `\bdir\s*cut\b` covers both `DirCut` (no separator) and `Dir.Cut`/`Dir Cut`
+  // (post-extraction dot-to-space).
+  editionStripped = editionStripped.replace(/\s+(dc|dir\s*cut)\s*$/i, '');
   const normStripped = normalizeTitle(editionStripped);
 
   // Exact match after normalization (with or without edition terms)
