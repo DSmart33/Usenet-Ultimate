@@ -150,6 +150,7 @@ export const config: Config = {
     const junkFilterEnv = envBool('JUNK_FILTER');
     const cacheEmptyResultsEnv = envBool('CACHE_EMPTY_RESULTS');
     const libraryThresholdEnv = envInt('LIBRARY_SEARCH_THRESHOLD');
+    const scanUncategorizedEnv = envBool('LIBRARY_SEARCH_SCAN_UNCATEGORIZED');
     return {
       ...sc,
       // Always present in the response (default true). Other 3 fields below
@@ -160,6 +161,7 @@ export const config: Config = {
       // Library short-circuit threshold (0 = disabled, 1-10 = active). Clamped on read so a
       // bad config.json or env var can't push it out of range; settings updater also clamps on writes.
       librarySearchThreshold: Math.max(0, Math.min(10, libraryThresholdEnv ?? sc.librarySearchThreshold ?? 0)),
+      librarySearchScanUncategorized: scanUncategorizedEnv ?? sc.librarySearchScanUncategorized ?? true,
       ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
       ...(junkFilterEnv !== undefined && { junkFilter: junkFilterEnv }),
       ...(cacheEmptyResultsEnv !== undefined && { cacheEmptyResults: cacheEmptyResultsEnv }),

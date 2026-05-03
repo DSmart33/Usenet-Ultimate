@@ -69,6 +69,10 @@ interface IndexManagerOverlayProps {
   librarySearchThreshold: number;
   setLibrarySearchThreshold: React.Dispatch<React.SetStateAction<number>>;
 
+  // Include /content/uncategorized as a second scan root
+  librarySearchScanUncategorized: boolean;
+  setLibrarySearchScanUncategorized: React.Dispatch<React.SetStateAction<boolean>>;
+
   // Display library in results
   displayLibraryInResults: boolean;
   setDisplayLibraryInResults: React.Dispatch<React.SetStateAction<boolean>>;
@@ -211,6 +215,8 @@ export function IndexManagerOverlay({
   setUrlDedup,
   librarySearchThreshold,
   setLibrarySearchThreshold,
+  librarySearchScanUncategorized,
+  setLibrarySearchScanUncategorized,
   displayLibraryInResults,
   setDisplayLibraryInResults,
   absoluteEpisodeFallback,
@@ -649,6 +655,20 @@ export function IndexManagerOverlay({
                         </div>
                       </div>
                       <p className="text-xs text-amber-400/60 italic">Skip indexer queries when the library returns as least this many results after filtering · NZBDav streaming mode only</p>
+
+                      <div className="flex items-center justify-between gap-3 pt-2">
+                        <span className="text-xs text-slate-300 font-medium">Scan Uncategorized</span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={librarySearchScanUncategorized}
+                            onChange={(e) => setLibrarySearchScanUncategorized(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                        </label>
+                      </div>
+                      <p className="text-xs text-amber-400/60 italic">Scan <code className="text-amber-300/80">/content/uncategorized</code>, in additon to the default categories, for content that's been manually uploaded to the default location in NZBDav.</p>
                     </div>
                   )}
                 </div>

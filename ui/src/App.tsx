@@ -600,6 +600,8 @@ function App() {
           setUrlDedup={ac.setUrlDedup}
           librarySearchThreshold={ac.librarySearchThreshold}
           setLibrarySearchThreshold={ac.setLibrarySearchThreshold}
+          librarySearchScanUncategorized={ac.librarySearchScanUncategorized}
+          setLibrarySearchScanUncategorized={ac.setLibrarySearchScanUncategorized}
           displayLibraryInResults={ac.displayLibraryInResults}
           setDisplayLibraryInResults={ac.setDisplayLibraryInResults}
           absoluteEpisodeFallback={ac.absoluteEpisodeFallback}

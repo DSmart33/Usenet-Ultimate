@@ -18,6 +18,7 @@ export interface NZBDavConfig {
   webdavPassword: string;
   moviesCategory: string;
   tvCategory: string;
+  scanUncategorized: boolean;
 }
 
 export interface StreamData {

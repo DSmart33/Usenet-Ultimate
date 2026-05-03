@@ -32,6 +32,7 @@ export function buildNzbdavConfig(): NZBDavConfig {
     webdavPassword: globalConfig.nzbdavWebdavPassword || '',
     moviesCategory: globalConfig.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies',
     tvCategory: globalConfig.nzbdavTvCategory || 'Usenet-Ultimate-TV',
+    scanUncategorized: globalConfig.searchConfig?.librarySearchScanUncategorized ?? true,
   };
 }
 

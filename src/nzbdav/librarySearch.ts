@@ -44,27 +44,36 @@ export async function searchLibrary(
 ): Promise<RawResult[]> {
   const client = getWebdavClient(config);
   const category = resolveCategory(config, ctx.type === 'movie' ? 'movie' : 'series');
-  const root = `/content/${category}`;
+  const roots = [`/content/${category}`];
+  // Picks up content the user has manually uploaded to NZBDav.
+  if (config.scanUncategorized) roots.push('/content/uncategorized');
   const start = Date.now();
   const remaining = () => Math.max(100, SCAN_BUDGET_MS - (Date.now() - start));
 
-  let dirs: FileStat[];
-  try {
-    dirs = (await client.getDirectoryContents(root, {
-      signal: AbortSignal.timeout(remaining()),
-    })) as FileStat[];
-  } catch {
-    // Library missing, server down, or auth error — silently fall through to indexers.
-    return [];
-  }
+  const dirsByRoot = await Promise.all(roots.map(async (r) => {
+    try {
+      return (await client.getDirectoryContents(r, {
+        signal: AbortSignal.timeout(remaining()),
+      })) as FileStat[];
+    } catch {
+      return [] as FileStat[];
+    }
+  }));
+  const dirs = dirsByRoot.flat();
+  if (dirs.length === 0) return [];
 
   // Reuse the indexer flow's title matcher so the library scan inherits the same
   // year disambiguation (parseYear correctly distinguishes resolution markers like
   // 1080p from years), stylized digit-letter detection, country codes, alt-titles,
-  // miniseries keyword, and normalization rules.
-  const titleMatches = dirs.filter(d =>
-    d.type === 'directory' && isTextSearchMatch(ctx.title, d.basename, ctx.year, ctx.country, ctx.additionalTitles, ctx.titleYear)
-  );
+  // miniseries keyword, and normalization rules. Title match preserves per-root
+  // grouping so the log output can break results down by source folder.
+  const matchesByRoot = roots.map((root, i) => ({
+    root,
+    matches: dirsByRoot[i].filter(d =>
+      d.type === 'directory' && isTextSearchMatch(ctx.title, d.basename, ctx.year, ctx.country, ctx.additionalTitles, ctx.titleYear)
+    ),
+  }));
+  const titleMatches = matchesByRoot.flatMap(g => g.matches);
 
   // Season pre-filter: title match alone doesn't bound the season — a Season-1
   // pack folder can match the show name but cannot contain S02E03 content.
@@ -147,16 +156,27 @@ export async function searchLibrary(
   const seasonNote = seasonRejected.size > 0 ? ` (${toScan.length} after season filter)` : '';
   console.log(`📚 Ultimate Library: title-matched ${headerEntries}${seasonNote} for ${titleList}${yearTag}${epTag}`);
   const scannedByPath = new Map(scanned.map(s => [s.entry.filename, s.video]));
-  for (const entry of titleMatches) {
-    if (seasonRejected.has(entry.filename)) {
-      console.log(`   📚 ⊘            ${entry.basename} — season mismatch`);
-      continue;
+  // When multiple roots are scanned, group entries under a per-root header so
+  // operators can see at a glance which folder contributed which hit. Falls
+  // back to a flat list when only one root is active to avoid empty hierarchy.
+  const showRootGroups = roots.length > 1;
+  const entryIndent = showRootGroups ? '      ' : '   ';
+  for (const { root, matches } of matchesByRoot) {
+    if (showRootGroups) {
+      const rootLabel = root.replace(/^\/content\//, '');
+      console.log(`   📂 ${rootLabel} (${matches.length})`);
     }
-    const video = scannedByPath.get(entry.filename);
-    if (video) {
-      console.log(`   📚 ✓  ${formatBytes(video.size ?? 0)}  ${entry.basename}`);
-    } else {
-      console.log(`   📚 ✗            ${entry.basename}`);
+    for (const entry of matches) {
+      if (seasonRejected.has(entry.filename)) {
+        console.log(`${entryIndent}📚 ⊘            ${entry.basename} — season mismatch`);
+        continue;
+      }
+      const video = scannedByPath.get(entry.filename);
+      if (video) {
+        console.log(`${entryIndent}📚 ✓  ${formatBytes(video.size ?? 0)}  ${entry.basename}`);
+      } else {
+        console.log(`${entryIndent}📚 ✗            ${entry.basename}`);
+      }
     }
   }
 

@@ -138,6 +138,7 @@ export interface SearchConfig {
   absoluteEpisodeFallback?: boolean;  // Series text-search: retry with absolute episode numbering (Title E31) when the SxxExx query returns zero results. UTS only. (default true)
   parallelAlternateTitleSearch?: boolean;  // Run primary + alt-title searches in parallel from the start instead of using alts only as a zero-result fallback. UTS only. (default false)
   librarySearchThreshold?: number;  // 0 = disabled, 1-10 = WebDAV library short-circuit: when scan returns ≥ threshold matches, skip indexer queries entirely
+  librarySearchScanUncategorized?: boolean;  // Include `/content/uncategorized` as a second scan root so manually uploaded NZBDav content is searchable (default true)
   // Legacy fields - migrated to per-indexer settings, kept for migration
   movieSearchMethod?: 'imdb' | 'tmdb' | 'tvdb' | 'text';
   tvSearchMethod?: 'imdb' | 'tvdb' | 'tvmaze' | 'text';

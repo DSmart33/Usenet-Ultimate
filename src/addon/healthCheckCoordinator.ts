@@ -186,6 +186,7 @@ export async function coordinateHealthChecks(
       webdavPassword: config.nzbdavWebdavPassword || '',
       moviesCategory: config.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies',
       tvCategory: config.nzbdavTvCategory || 'Usenet-Ultimate-TV',
+      scanUncategorized: config.searchConfig?.librarySearchScanUncategorized ?? true,
     };
     if (ctx.season !== undefined && ctx.episode !== undefined) {
       const s = ctx.season.toString().padStart(2, '0');

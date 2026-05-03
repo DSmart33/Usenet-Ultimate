@@ -134,6 +134,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [urlDedup, setUrlDedup] = useState(true);
   const [junkFilter, setJunkFilter] = useState(true);
   const [librarySearchThreshold, setLibrarySearchThreshold] = useState(0);
+  const [librarySearchScanUncategorized, setLibrarySearchScanUncategorized] = useState(true);
   const [cacheEmptyResults, setCacheEmptyResults] = useState(true);
   const [displayLibraryInResults, setDisplayLibraryInResults] = useState(true);
   const [absoluteEpisodeFallback, setAbsoluteEpisodeFallback] = useState(true);
@@ -399,6 +400,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         urlDedup,
         junkFilter,
         librarySearchThreshold,
+        librarySearchScanUncategorized,
         displayLibraryInResults,
         absoluteEpisodeFallback,
         parallelAlternateTitleSearch,
@@ -407,7 +409,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, librarySearchThreshold, displayLibraryInResults, absoluteEpisodeFallback, parallelAlternateTitleSearch, cacheEmptyResults, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, librarySearchThreshold, librarySearchScanUncategorized, displayLibraryInResults, absoluteEpisodeFallback, parallelAlternateTitleSearch, cacheEmptyResults, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -561,6 +563,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setUrlDedup(sc?.urlDedup !== false);
       setJunkFilter(sc?.junkFilter !== false);
       setLibrarySearchThreshold(Math.max(0, Math.min(10, sc?.librarySearchThreshold ?? 0)));
+      setLibrarySearchScanUncategorized(sc?.librarySearchScanUncategorized !== false);
       setDisplayLibraryInResults(sc?.displayLibraryInResults !== false);
       setAbsoluteEpisodeFallback(sc?.absoluteEpisodeFallback !== false);
       setParallelAlternateTitleSearch(sc?.parallelAlternateTitleSearch === true);
@@ -1278,6 +1281,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     urlDedup, setUrlDedup,
     junkFilter, setJunkFilter,
     librarySearchThreshold, setLibrarySearchThreshold,
+    librarySearchScanUncategorized, setLibrarySearchScanUncategorized,
     displayLibraryInResults, setDisplayLibraryInResults,
     absoluteEpisodeFallback, setAbsoluteEpisodeFallback,
     parallelAlternateTitleSearch, setParallelAlternateTitleSearch,
