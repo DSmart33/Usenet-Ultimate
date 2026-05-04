@@ -22,7 +22,7 @@ import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult, ProwlarrSearchResult } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
-import { isTextSearchMatch, stripDiacritics } from '../parsers/titleMatching.js';
+import { isTextSearchMatch, stripDiacritics, tagSeasonPack } from '../parsers/titleMatching.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 
@@ -223,14 +223,11 @@ export class ProwlarrSearcher {
               const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
               const packQuery = stripDiacritics(`${title} S${s}`);
               const packResults = await this.doAggregateSearch(indexerIds, 'search', packQuery, ['5000'], spOverride);
-              const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
-              const packs = packResults
-                .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-                .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
+              const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+              const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
               if (packResults.length !== packs.length) {
-                const removedPacks = packResults.filter(r =>
-                  !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear)
-                );
+                const keptLinks = new Set(packs.map(p => p.link));
+                const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
                 console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
                 removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
               }
@@ -293,14 +290,11 @@ export class ProwlarrSearcher {
             const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
             const packQuery = stripDiacritics(`${title} S${s}`);
             const packResults = await this.doAggregateSearch(textFallbackIds, 'search', packQuery, ['5000'], spOverride);
-            const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
-            const packs = packResults
-              .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-              .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
+            const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+            const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
             if (packResults.length !== packs.length) {
-              const removedPacks = packResults.filter(r =>
-                !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear)
-              );
+              const keptLinks = new Set(packs.map(p => p.link));
+              const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
               console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
               removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
             }
@@ -323,14 +317,11 @@ export class ProwlarrSearcher {
       const packQuery = stripDiacritics(`${title} S${s}`);
       console.log(`📦 Prowlarr season pack search for ${idSearchedIndexerIds.length} ID-based indexer(s): "${packQuery}"`);
       const packResults = await this.doAggregateSearch(idSearchedIndexerIds, 'search', packQuery, ['5000'], spOverride);
-      const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
-      const packs = packResults
-        .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-        .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
+      const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+      const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
       if (packResults.length !== packs.length) {
-        const removedPacks = packResults.filter(r =>
-          !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear)
-        );
+        const keptLinks = new Set(packs.map(p => p.link));
+        const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
         console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
         removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
       }
@@ -362,14 +353,11 @@ export class ProwlarrSearcher {
         const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
         const packQuery = stripDiacritics(`${title} S${s}`);
         const packResults = await this.doAggregateSearch(idSearchedIndexerIds, 'search', packQuery, ['5000'], spOverride);
-        const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
-        const packs = packResults
-          .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-          .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
+        const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+        const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
         if (packResults.length !== packs.length) {
-          const removedPacks = packResults.filter(r =>
-            !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear)
-          );
+          const keptLinks = new Set(packs.map(p => p.link));
+          const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
           console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
           removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
         }
@@ -407,10 +395,8 @@ export class ProwlarrSearcher {
               const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
               const packQuery = stripDiacritics(`${altTitle} S${s}`);
               const packResults = await this.doAggregateSearch(allIndexerIds, 'search', packQuery, ['5000'], spOverride);
-              const seasonPackPattern = new RegExp(`S${s}(?![._\\s-]?E\\d)`, 'i');
-              const packs = packResults
-                .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
-                .map(r => ({ ...r, isSeasonPack: true, estimatedEpisodeSize: Math.round(r.size / episodesInSeason!) }));
+              const titleMatched = packResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
+              const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
               if (packs.length > 0) {
                 console.log(`   📦 Found ${packs.length} season packs (alt-title)`);
               }

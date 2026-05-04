@@ -15,7 +15,7 @@ import type { NZBSearchResult } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { isTextSearchMatch, stripDiacritics } from '../parsers/titleMatching.js';
+import { isTextSearchMatch, stripDiacritics, tagSeasonPack } from '../parsers/titleMatching.js';
 
 const EASYNEWS_SEARCH_URL = 'https://members.easynews.com/2.0/search/solr-search/';
 
@@ -154,7 +154,6 @@ export class EasynewsSearcher {
       const includeSeasonPacks = config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks;
       const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
       const spAdditionalPages = spPaginationEnabled ? config.searchConfig?.seasonPackAdditionalPages : undefined;
-      const seasonPackPattern = new RegExp(`S0?${season}(?![._\\s-]?E\\d)`, 'i');
 
       type Job = { title: string; query: string; kind: 'episode' | 'pack' };
       const jobs: Job[] = [];
@@ -183,14 +182,10 @@ export class EasynewsSearcher {
       const packs = jobResults
         .filter(j => j.kind === 'pack')
         .flatMap(j => {
-          const f = j.results
-            .filter(x => seasonPackPattern.test(x.title) && isTextSearchMatch(j.title, x.title, year, country, undefined, titleYear))
-            .filter(x => !episodeHashes.has(x.easynewsMeta!.hash))
-            .map(x => ({
-              ...x,
-              isSeasonPack: true,
-              estimatedEpisodeSize: episodesInSeason && episodesInSeason > 0 ? Math.round(x.size / episodesInSeason) : undefined,
-            }));
+          const titleMatched = j.results
+            .filter(x => isTextSearchMatch(j.title, x.title, year, country, undefined, titleYear))
+            .filter(x => !episodeHashes.has(x.easynewsMeta!.hash));
+          const f = tagSeasonPack(titleMatched, season, episodesInSeason);
           if (f.length > 0) {
             console.log(`   📦 EasyNews "${j.title}" packs: ${f.length}`);
           }
@@ -256,23 +251,17 @@ export class EasynewsSearcher {
       const packQuery = `${title} S${s}`;
       console.log(`🔍 EasyNews season pack search: "${packQuery}"`);
       const packResults = await this.search(packQuery, spAdditionalPages);
-      const seasonPackPattern = new RegExp(`S0?${season}(?![._\\s-]?E\\d)`, 'i');
       const existingHashes = new Set(filtered.map(r => r.easynewsMeta!.hash));
-      const packs = packResults
-        .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-        .filter(r => !existingHashes.has(r.easynewsMeta!.hash))
-        .map(r => ({
-          ...r,
-          isSeasonPack: true,
-          estimatedEpisodeSize: episodesInSeason > 0 ? Math.round(r.size / episodesInSeason) : undefined,
-        }));
+      const titleMatched = packResults
+        .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
+        .filter(r => !existingHashes.has(r.easynewsMeta!.hash));
+      const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
       if (packResults.length !== packs.length) {
-        const removed = packResults.filter(r =>
-          !seasonPackPattern.test(r.title) || !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear)
-        );
+        const keptHashes = new Set(packs.map(p => p.easynewsMeta!.hash));
+        const removed = packResults.filter(r => !keptHashes.has(r.easynewsMeta!.hash));
         if (removed.length > 0) {
           console.log(`   📦 EasyNews season pack filter: ${packResults.length} → ${packs.length}`);
-          removed.forEach(r => console.log(`      ✂️  ${r.title}${!seasonPackPattern.test(r.title) ? ' (no season match)' : ' (title mismatch)'}`));
+          removed.forEach(r => console.log(`      ✂️  ${r.title}`));
         }
       }
       if (packs.length > 0) {
@@ -300,23 +289,17 @@ export class EasynewsSearcher {
             const altPackQuery = `${altTitle} S${s}`;
             console.log(`🔍 EasyNews alt-title season pack search: "${altPackQuery}"`);
             const altPackResults = await this.search(altPackQuery, spAdditionalPages);
-            const seasonPackPattern = new RegExp(`S0?${season}(?![._\\s-]?E\\d)`, 'i');
             const existingHashes = new Set(altFiltered.map(r => r.easynewsMeta!.hash));
-            const altPacks = altPackResults
-              .filter(r => seasonPackPattern.test(r.title) && isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
-              .filter(r => !existingHashes.has(r.easynewsMeta!.hash))
-              .map(r => ({
-                ...r,
-                isSeasonPack: true,
-                estimatedEpisodeSize: episodesInSeason > 0 ? Math.round(r.size / episodesInSeason) : undefined,
-              }));
+            const titleMatched = altPackResults
+              .filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
+              .filter(r => !existingHashes.has(r.easynewsMeta!.hash));
+            const altPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
             if (altPackResults.length !== altPacks.length) {
-              const removed = altPackResults.filter(r =>
-                !seasonPackPattern.test(r.title) || !isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear)
-              );
+              const keptHashes = new Set(altPacks.map(p => p.easynewsMeta!.hash));
+              const removed = altPackResults.filter(r => !keptHashes.has(r.easynewsMeta!.hash));
               if (removed.length > 0) {
                 console.log(`   📦 EasyNews alt-title season pack filter: ${altPackResults.length} → ${altPacks.length}`);
-                removed.forEach(r => console.log(`      ✂️  ${r.title}${!seasonPackPattern.test(r.title) ? ' (no season match)' : ' (title mismatch)'}`));
+                removed.forEach(r => console.log(`      ✂️  ${r.title}`));
               }
             }
             if (altPacks.length > 0) {

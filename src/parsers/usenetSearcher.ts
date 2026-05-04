@@ -12,7 +12,7 @@ import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { getAxiosProxyConfig, logProxyExitIp } from '../proxy.js';
 import { parseNewznabXmlWithMeta } from './newznabClient.js';
-import { stripDiacritics, isTextSearchMatch } from './titleMatching.js';
+import { stripDiacritics, isTextSearchMatch, tagSeasonPack } from './titleMatching.js';
 
 export class UsenetSearcher {
   public timedOut = false;
@@ -375,26 +375,15 @@ export class UsenetSearcher {
           console.log(`📦 Season pack search for: ${packQuery}`);
           const packResults = await this.search(packQuery, '5000', seasonPackPagination);
           const packBefore = packResults.length;
-          // Must match title AND be a season pack (S## without E##)
-          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
-          const filteredPacks = packResults
-            .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-            .filter(r => seasonPackPattern.test(r.title));
+          // Must match title AND be a season pack (S## direct, or Sxx-Syy / Sxx.Syy range covering it)
+          const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          const filteredPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
           if (packBefore !== filteredPacks.length) {
-            const removedPacks = packResults.filter(r =>
-              !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear) ||
-              !seasonPackPattern.test(r.title)
-            );
+            const keptLinks = new Set(filteredPacks.map(p => p.link));
+            const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
             console.log(`   📦 Season pack filter: ${packBefore} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
             removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
           }
-          // Mark as season pack and estimate per-episode size
-          filteredPacks.forEach(r => {
-            r.isSeasonPack = true;
-            if (episodesInSeason) {
-              r.estimatedEpisodeSize = Math.round(r.size / episodesInSeason);
-            }
-          });
           if (filteredPacks.length > 0) {
             console.log(`   📦 Found ${filteredPacks.length} season packs${episodesInSeason ? ` (${episodesInSeason} eps/season, est. size per ep)` : ' (full pack size, episode count unknown)'}`);
           }
@@ -429,22 +418,14 @@ export class UsenetSearcher {
           const seasonPackPagination2 = spPaginationEnabled2 && spAdditionalPages2 ? { enabled: true, maxPages: spAdditionalPages2 } : undefined;
           const packQuery = stripDiacritics(`${title} S${s2}`);
           const packResults = await this.search(packQuery, '5000', seasonPackPagination2);
-          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
-          const filteredPacks = packResults
-            .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-            .filter(r => seasonPackPattern.test(r.title));
+          const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          const filteredPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
           if (packResults.length !== filteredPacks.length) {
-            const removedPacks = packResults.filter(r =>
-              !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear) ||
-              !seasonPackPattern.test(r.title)
-            );
+            const keptLinks = new Set(filteredPacks.map(p => p.link));
+            const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
             console.log(`   📦 Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
             removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
           }
-          filteredPacks.forEach(r => {
-            r.isSeasonPack = true;
-            if (episodesInSeason) r.estimatedEpisodeSize = Math.round(r.size / episodesInSeason);
-          });
           if (filteredPacks.length > 0) console.log(`   📦 Found ${filteredPacks.length} season packs (text fallback)`);
           filtered.push(...filteredPacks);
         }
@@ -566,22 +547,14 @@ export class UsenetSearcher {
         const packQuery = stripDiacritics(`${title} S${sp}`);
         console.log(`📦 Season pack search for: ${packQuery}`);
         const packResults = await this.search(packQuery, '5000', seasonPackPagination3);
-        const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
-        const filteredPacks = packResults
-          .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-          .filter(r => seasonPackPattern.test(r.title));
+        const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+        const filteredPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
         if (packResults.length !== filteredPacks.length) {
-          const removedPacks = packResults.filter(r =>
-            !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear) ||
-            !seasonPackPattern.test(r.title)
-          );
+          const keptLinks = new Set(filteredPacks.map(p => p.link));
+          const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
           console.log(`   📦 Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
           removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
         }
-        filteredPacks.forEach(r => {
-          r.isSeasonPack = true;
-          if (episodesInSeason) r.estimatedEpisodeSize = Math.round(r.size / episodesInSeason);
-        });
         if (filteredPacks.length > 0) console.log(`   📦 Found ${filteredPacks.length} season packs`);
         results.push(...filteredPacks);
       }

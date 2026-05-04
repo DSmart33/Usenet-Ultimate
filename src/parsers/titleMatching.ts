@@ -6,6 +6,7 @@
  */
 
 import { parseYear } from './metadataParsers.js';
+import type { NZBSearchResult } from '../types.js';
 
 // --- Title normalization ---
 
@@ -249,4 +250,76 @@ function isTextSearchMatchSingle(expectedTitle: string, releaseTitle: string, ye
   }
 
   return false;
+}
+
+// --- Season-pack title matching ---
+
+// Range patterns are season-independent so we pre-compile once at module load.
+// Hyphen/underscore form keeps the optional second S (covers S01-08 too); the
+// dot/space form REQUIRES both endpoints to start with S so quality markers
+// like "S02.1080p" cannot misread as a range (commit b40cfd9 closed that hole).
+const HYPHEN_RANGE_REGEX = /S(\d{1,2})[-_]S?(\d{1,2})/gi;
+const DOT_RANGE_REGEX = /S(\d{1,2})[._\s]+S(\d{1,2})/gi;
+
+/**
+ * Returns whether `title` represents a pack that contains `season`, plus the
+ * season-span of the matched range (1 for direct Sxx, larger for ranges).
+ * Callers scale per-episode size estimates by seasonSpan so multi-season
+ * packs produce a proportional bytes-per-episode number.
+ *
+ * Range detection runs two passes:
+ *   1. Hyphen or underscore (S01-S08, S01_S08, S01-08). Second S optional.
+ *   2. Dot or whitespace (S01.S08, S01 S08). Second S REQUIRED so quality
+ *      markers like "S02.1080p" cannot misread as a range.
+ *
+ * Logs at debug level when a result passes only via range expansion, so
+ * "why was this release kept" is diagnosable from logs alone.
+ */
+export function titleContainsSeasonPack(title: string, season: number): { matched: boolean; seasonSpan: number } {
+  const direct = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
+  if (direct.test(title)) return { matched: true, seasonSpan: 1 };
+
+  for (const m of title.matchAll(HYPHEN_RANGE_REGEX)) {
+    const a = parseInt(m[1], 10);
+    const b = parseInt(m[2], 10);
+    if (Math.min(a, b) <= season && season <= Math.max(a, b)) {
+      const seasonSpan = Math.abs(b - a) + 1;
+      console.debug(`📦 Range match: S${m[1]}-S${m[2]} covers S${season} in ${title}`);
+      return { matched: true, seasonSpan };
+    }
+  }
+  for (const m of title.matchAll(DOT_RANGE_REGEX)) {
+    const a = parseInt(m[1], 10);
+    const b = parseInt(m[2], 10);
+    if (Math.min(a, b) <= season && season <= Math.max(a, b)) {
+      const seasonSpan = Math.abs(b - a) + 1;
+      console.debug(`📦 Range match: S${m[1]}.S${m[2]} covers S${season} in ${title}`);
+      return { matched: true, seasonSpan };
+    }
+  }
+  return { matched: false, seasonSpan: 0 };
+}
+
+/**
+ * Filter `results` to those whose title contains `season` (direct or range),
+ * tag matched results with isSeasonPack=true, and scale estimatedEpisodeSize
+ * by the matched season-span. Always produces NEW result objects via spread,
+ * so callers never see input arrays mutated.
+ */
+export function tagSeasonPack<T extends NZBSearchResult>(
+  results: T[],
+  season: number,
+  episodesInSeason: number | undefined,
+): T[] {
+  return results
+    .map(r => ({ r, span: titleContainsSeasonPack(r.title, season) }))
+    .filter(({ span }) => span.matched)
+    .map(({ r, span }) => ({
+      ...r,
+      isSeasonPack: true,
+      estimatedEpisodeSize:
+        episodesInSeason && episodesInSeason > 0
+          ? Math.round(r.size / (episodesInSeason * span.seasonSpan))
+          : undefined,
+    }));
 }
