@@ -233,6 +233,10 @@ export interface RankDecorations {
   totalScore: number;
   matched: MatchedRule[];
   tags: string[];
+  /** Names of SEL expressions that matched this candidate, populated as the
+   *  SEL pass iterates rules in declared order. Exposed to subsequent rules
+   *  via the rseMatched() built-in for cross-rule composition. */
+  rseTags: string[];
   /** When excluded, the rule name that dropped this candidate, or
    *  '(no keep match)' when the keep-gate excluded it. */
   excludedBy?: string;
@@ -282,9 +286,9 @@ export function rankPool(opts: PoolRankOptions): PoolRankResult {
   const deco = new Map<unknown, RankDecorations>();
   const streamRefs: StreamRef[] = [];
   for (const c of candidates) {
-    const dec: RankDecorations = { regexScore: 0, seScore: 0, totalScore: 0, matched: [], tags: [] };
+    const dec: RankDecorations = { regexScore: 0, seScore: 0, totalScore: 0, matched: [], tags: [], rseTags: [] };
     deco.set(c.ref, dec);
-    streamRefs.push({ ref: c.ref, attrs: c.attrs, tags: dec.tags });
+    streamRefs.push({ ref: c.ref, attrs: c.attrs, tags: dec.tags, rseTags: dec.rseTags });
   }
 
   // ── Pass 1: regex → tags + score / keep / drop ──────────────────────
@@ -386,6 +390,12 @@ export function rankPool(opts: PoolRankOptions): PoolRankResult {
       for (const sr of refs) {
         const dec = deco.get(sr.ref);
         if (!dec) continue;
+        // Tag the candidate with the rule name regardless of score so the
+        // rseMatched() built-in can reference this rule from later rules.
+        // dec.rseTags and sr.rseTags share the same array (set up at init),
+        // so the StreamRef view reflects the new tag immediately for
+        // subsequent rules in this pass.
+        if (rule.name) dec.rseTags.push(rule.name);
         if (rule.score !== 0) {
           dec.seScore = applyDelta(dec.seScore, rule.score);
           dec.matched.push({ ruleId: rule.id, ruleName: rule.name, kind: 'sel', score: rule.score });

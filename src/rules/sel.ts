@@ -425,6 +425,11 @@ export interface StreamRef {
   attrs: StreamContext;
   /** Regex rule names that matched this stream (template-style tag list). */
   tags: string[];
+  /** Names of Ranked Stream Expression (SEL) rules that matched this stream
+   *  in earlier passes of the same evaluation. Templates use rseMatched() to
+   *  compose rules off of each other. Order-dependent: a rule can only see
+   *  match names from rules evaluated before it in the rule list. */
+  rseTags?: string[];
 }
 
 /** Evaluation context. */

@@ -177,6 +177,25 @@ const regexMatched: SelFunction = (args) => {
 };
 
 /**
+ * rseMatched(streams, ...names) — filter streams whose Ranked Stream
+ * Expression match list contains ANY of the named SEL rules. Names are
+ * case-insensitive. Distinct from regexMatched: regexMatched looks at
+ * REGEX rule tags, rseMatched looks at SEL expression match names.
+ * Order-dependent: only sees match names from rules evaluated earlier
+ * in the same pass, so referenced rules must be defined above the
+ * referencing rule in the rule list.
+ */
+const rseMatched: SelFunction = (args) => {
+  const streams = asArray(args[0]);
+  const names = asStringArgs(args, 1);
+  if (names.length === 0) {
+    return streams.filter(s => (s.rseTags?.length ?? 0) > 0);
+  }
+  const wanted = new Set(names.map(n => n.toLowerCase()));
+  return streams.filter(s => (s.rseTags ?? []).some(t => wanted.has(t.toLowerCase())));
+};
+
+/**
  * resolution(streams, ...values) — filter by resolution attribute
  * (e.g. '2160p', '1080p', '4k', '720p'). 2160p ≈ 4k is normalized to 4k
  * during parsing, so templates that ask for '2160p' also accept '4k'.
@@ -363,6 +382,7 @@ const count: SelFunction = (args) => {
 
 export const BUILTIN_FUNCTIONS: Record<string, SelFunction> = {
   regexMatched,
+  rseMatched,
   resolution,
   quality,
   encode,
