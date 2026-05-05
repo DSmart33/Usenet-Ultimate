@@ -984,7 +984,10 @@ export async function handleStream(
         const episodeStr = parts[parts.length - 1];
         const title = getCachedTitleByImdb(imdbId);
         const isSupportedType = skType === 'movie' || skType === 'series';
-        if (title && isSupportedType) {
+        const libraryTypeAllowed = skType === 'movie'
+          ? globalConfig.searchConfig?.libraryApplyToMovies !== false
+          : globalConfig.searchConfig?.libraryApplyToSeries !== false;
+        if (title && isSupportedType && libraryTypeAllowed) {
           const season = seasonStr && !Number.isNaN(+seasonStr) ? +seasonStr : undefined;
           const episode = episodeStr && !Number.isNaN(+episodeStr) ? +episodeStr : undefined;
           try {

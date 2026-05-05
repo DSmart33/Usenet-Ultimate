@@ -135,6 +135,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [urlDedup, setUrlDedup] = useState(true);
   const [junkFilter, setJunkFilter] = useState(true);
   const [librarySearchThreshold, setLibrarySearchThreshold] = useState(0);
+  const [libraryApplyToMovies, setLibraryApplyToMovies] = useState(true);
+  const [libraryApplyToSeries, setLibraryApplyToSeries] = useState(true);
   const [librarySearchScanUncategorized, setLibrarySearchScanUncategorized] = useState(true);
   const [cacheEmptyResults, setCacheEmptyResults] = useState(true);
   const [displayLibraryInResults, setDisplayLibraryInResults] = useState(true);
@@ -407,6 +409,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         urlDedup,
         junkFilter,
         librarySearchThreshold,
+        libraryApplyToMovies,
+        libraryApplyToSeries,
         librarySearchScanUncategorized,
         displayLibraryInResults,
         libraryDeleteAllTile,
@@ -422,7 +426,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, librarySearchThreshold, librarySearchScanUncategorized, displayLibraryInResults, libraryDeleteAllTile, libraryDeletePerStreamTile, librarySkipTilePosition, libraryDeleteAllPackScope, absoluteEpisodeFallback, parallelAlternateTitleSearch, aliasTitleFallback, tvdbPreferEnglishTitle, cacheEmptyResults, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, librarySearchThreshold, libraryApplyToMovies, libraryApplyToSeries, librarySearchScanUncategorized, displayLibraryInResults, libraryDeleteAllTile, libraryDeletePerStreamTile, librarySkipTilePosition, libraryDeleteAllPackScope, absoluteEpisodeFallback, parallelAlternateTitleSearch, aliasTitleFallback, tvdbPreferEnglishTitle, cacheEmptyResults, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -576,6 +580,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setUrlDedup(sc?.urlDedup !== false);
       setJunkFilter(sc?.junkFilter !== false);
       setLibrarySearchThreshold(Math.max(0, Math.min(10, sc?.librarySearchThreshold ?? 0)));
+      setLibraryApplyToMovies(sc?.libraryApplyToMovies !== false);
+      setLibraryApplyToSeries(sc?.libraryApplyToSeries !== false);
       setLibrarySearchScanUncategorized(sc?.librarySearchScanUncategorized !== false);
       setDisplayLibraryInResults(sc?.displayLibraryInResults !== false);
       setLibraryDeleteAllTile(sc?.libraryDeleteAllTile === true);
@@ -1302,6 +1308,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     urlDedup, setUrlDedup,
     junkFilter, setJunkFilter,
     librarySearchThreshold, setLibrarySearchThreshold,
+    libraryApplyToMovies, setLibraryApplyToMovies,
+    libraryApplyToSeries, setLibraryApplyToSeries,
     librarySearchScanUncategorized, setLibrarySearchScanUncategorized,
     displayLibraryInResults, setDisplayLibraryInResults,
     libraryDeleteAllTile, setLibraryDeleteAllTile,

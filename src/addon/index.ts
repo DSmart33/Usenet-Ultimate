@@ -384,7 +384,10 @@ builder.defineStreamHandler(async ({ type, id }) => {
     let libraryResults: any[] = [];
     let shortCircuited = false;
     const libraryThreshold = config.searchConfig?.librarySearchThreshold ?? 0;
-    if (libraryThreshold > 0 && config.streamingMode === 'nzbdav' && config.nzbdavUrl && !libraryBypassed) {
+    const libraryTypeAllowed = type === 'movie'
+      ? config.searchConfig?.libraryApplyToMovies !== false
+      : config.searchConfig?.libraryApplyToSeries !== false;
+    if (libraryThreshold > 0 && libraryTypeAllowed && config.streamingMode === 'nzbdav' && config.nzbdavUrl && !libraryBypassed) {
       libraryResults = await searchLibrary(searchCtx, buildNzbdavConfig());
       if (libraryResults.length > 0) {
         // Pre-check: dedup + user-filters on library-only set. No fallback group,

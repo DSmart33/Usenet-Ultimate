@@ -69,6 +69,12 @@ interface IndexManagerOverlayProps {
   librarySearchThreshold: number;
   setLibrarySearchThreshold: React.Dispatch<React.SetStateAction<number>>;
 
+  // Per-type apply toggles for Ultimate Library (default true each)
+  libraryApplyToMovies: boolean;
+  setLibraryApplyToMovies: React.Dispatch<React.SetStateAction<boolean>>;
+  libraryApplyToSeries: boolean;
+  setLibraryApplyToSeries: React.Dispatch<React.SetStateAction<boolean>>;
+
   // Include /content/uncategorized as a second scan root
   librarySearchScanUncategorized: boolean;
   setLibrarySearchScanUncategorized: React.Dispatch<React.SetStateAction<boolean>>;
@@ -236,6 +242,10 @@ export function IndexManagerOverlay({
   setUrlDedup,
   librarySearchThreshold,
   setLibrarySearchThreshold,
+  libraryApplyToMovies,
+  setLibraryApplyToMovies,
+  libraryApplyToSeries,
+  setLibraryApplyToSeries,
   librarySearchScanUncategorized,
   setLibrarySearchScanUncategorized,
   displayLibraryInResults,
@@ -724,7 +734,35 @@ export function IndexManagerOverlay({
                       </div>
                       <p className="text-xs text-amber-400/60 italic">Skip indexer queries when the library returns as least this many results after filtering · NZBDav streaming mode only</p>
 
-                      <div className="flex items-center justify-between gap-3 pt-2">
+                      <div className="space-y-3 pt-3 border-t border-amber-500/20">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs text-slate-300 font-medium">Apply to Movies</span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={libraryApplyToMovies}
+                              onChange={(e) => setLibraryApplyToMovies(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                          </label>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs text-slate-300 font-medium">Apply to TV</span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={libraryApplyToSeries}
+                              onChange={(e) => setLibraryApplyToSeries(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                          </label>
+                        </div>
+                        <p className="text-xs text-amber-400/60 italic">Scope which content types Ultimate Library applies to.</p>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 pt-3 border-t border-amber-500/20">
                         <span className="text-xs text-slate-300 font-medium">Scan Uncategorized</span>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input

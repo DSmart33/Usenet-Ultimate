@@ -299,6 +299,12 @@ export function updateSettings(settings: {
         Math.min(10, settings.searchConfig.librarySearchThreshold)
       );
     }
+    if (settings.searchConfig.libraryApplyToMovies !== undefined) {
+      settings.searchConfig.libraryApplyToMovies = !!settings.searchConfig.libraryApplyToMovies;
+    }
+    if (settings.searchConfig.libraryApplyToSeries !== undefined) {
+      settings.searchConfig.libraryApplyToSeries = !!settings.searchConfig.libraryApplyToSeries;
+    }
     configData.searchConfig = settings.searchConfig;
     configData.includeSeasonPacks = settings.searchConfig.includeSeasonPacks;
   }

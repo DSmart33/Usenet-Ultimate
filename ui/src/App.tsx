@@ -614,6 +614,10 @@ function App() {
           setUrlDedup={ac.setUrlDedup}
           librarySearchThreshold={ac.librarySearchThreshold}
           setLibrarySearchThreshold={ac.setLibrarySearchThreshold}
+          libraryApplyToMovies={ac.libraryApplyToMovies}
+          setLibraryApplyToMovies={ac.setLibraryApplyToMovies}
+          libraryApplyToSeries={ac.libraryApplyToSeries}
+          setLibraryApplyToSeries={ac.setLibraryApplyToSeries}
           librarySearchScanUncategorized={ac.librarySearchScanUncategorized}
           setLibrarySearchScanUncategorized={ac.setLibrarySearchScanUncategorized}
           displayLibraryInResults={ac.displayLibraryInResults}
