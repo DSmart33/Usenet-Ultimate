@@ -235,11 +235,14 @@ export async function detectRemake(title: string): Promise<boolean> {
 
     // Check if 2+ results share the same normalized title but have different years.
     // Strip parenthetical year suffixes like "(2003)" since TVDB often appends these to remakes.
+    // Compare against translations.eng when present so non-English-primary shows
+    // (e.g. anime returned under their Japanese name) match the English query title.
     const stripYearSuffix = (s: string) => s.replace(/\s*\(\d{4}\)\s*$/, '');
-    const normalizedTarget = stripYearSuffix(title).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const norm = (s: string) => stripYearSuffix(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const normalizedTarget = norm(title);
     const matchingShows = results.filter((r: any) => {
-      const name = stripYearSuffix(r.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      return name === normalizedTarget;
+      const eng = (r.translations && typeof r.translations.eng === 'string' && r.translations.eng) || r.name || '';
+      return norm(eng) === normalizedTarget;
     });
 
     if (matchingShows.length >= 2) {
@@ -349,7 +352,7 @@ async function findOnTvdb(
  */
 async function fetchTvdbTranslation(
   id: number,
-  type: 'movie' | 'series',
+  type: 'movie' | 'series' | 'episode',
   lang: string,
   token: string,
 ): Promise<string | null> {
@@ -357,9 +360,10 @@ async function fetchTvdbTranslation(
   const cached = idCache.get<string>(cacheKey);
   if (cached !== undefined) return cached || null;
 
+  const pathSegment = type === 'movie' ? 'movies' : type === 'episode' ? 'episodes' : 'series';
   try {
     const response = await axios.get(
-      `https://api4.thetvdb.com/v4/${type === 'movie' ? 'movies' : 'series'}/${id}/translations/${lang}`,
+      `https://api4.thetvdb.com/v4/${pathSegment}/${id}/translations/${lang}`,
       { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 },
     );
     const name = response.data?.data?.name;
@@ -543,7 +547,7 @@ async function resolveTvmazeId(
 // without IMDB mappings) share the same cached data.
 interface TvdbSeriesEpisodeData {
   seasonCounts: Record<number, number>;  // excludes S0 specials
-  episodes: Record<number, Record<number, { runtime?: number; name?: string; absoluteNumber?: number }>>;
+  episodes: Record<number, Record<number, { id?: number; runtime?: number; name?: string; absoluteNumber?: number; nameTranslations?: string[] }>>;
 }
 
 // In-flight fetch deduplication: concurrent callers for the same TVDB ID
@@ -626,10 +630,14 @@ async function fetchTvdbSeriesEpisodesByTvdbId(tvdbId: number, logLabel: string)
       // Per-episode entry is built for every aired season (including S0 specials)
       // so callers can still look up specials by name. seasonCounts excludes S0
       // because absolute numbering only counts aired episodes.
-      const epEntry: { runtime?: number; name?: string; absoluteNumber?: number } = {};
+      const epEntry: { id?: number; runtime?: number; name?: string; absoluteNumber?: number; nameTranslations?: string[] } = {};
+      if (typeof ep.id === 'number' && ep.id > 0) epEntry.id = ep.id;
       if (typeof ep.runtime === 'number' && ep.runtime > 0) epEntry.runtime = ep.runtime;
       if (typeof ep.name === 'string' && ep.name.length > 0) epEntry.name = ep.name;
       if (typeof ep.absoluteNumber === 'number' && ep.absoluteNumber > 0) epEntry.absoluteNumber = ep.absoluteNumber;
+      if (Array.isArray(ep.nameTranslations)) {
+        epEntry.nameTranslations = ep.nameTranslations.filter((s: any) => typeof s === 'string');
+      }
       if (!episodes[ep.seasonNumber]) episodes[ep.seasonNumber] = {};
       episodes[ep.seasonNumber][ep.number] = epEntry;
       if (ep.seasonNumber > 0) {
@@ -677,8 +685,12 @@ async function getOrFetchSeriesEpisodes(tvdbId: number, logLabel: string): Promi
 
 /**
  * Build the per-(season,episode) caller-facing result from cached series data.
+ * When the targeted episode's name is non-Latin (e.g. anime returned under its
+ * Japanese title) and an English translation is advertised, fetches the
+ * English name so downstream remake-filter substring matching works against
+ * the form release groups actually publish.
  */
-function buildSeasonResult(data: TvdbSeriesEpisodeData, season: number, episode?: number): SeriesEpisodeResult | undefined {
+async function buildSeasonResult(data: TvdbSeriesEpisodeData, season: number, episode?: number): Promise<SeriesEpisodeResult | undefined> {
   const count = data.seasonCounts[season] ?? 0;
   if (count === 0) return undefined;
 
@@ -691,6 +703,18 @@ function buildSeasonResult(data: TvdbSeriesEpisodeData, season: number, episode?
     if (targetEp?.runtime) runtime = targetEp.runtime * 60;
     if (targetEp?.name) episodeName = targetEp.name;
     if (targetEp?.absoluteNumber) absoluteNumber = targetEp.absoluteNumber;
+    if (
+      episodeName
+      && targetEp?.id
+      && targetEp.nameTranslations?.includes('eng')
+      && /[^\x00-\x7F]/.test(episodeName)
+    ) {
+      const token = await getTvdbToken();
+      if (token) {
+        const eng = await fetchTvdbTranslation(targetEp.id, 'episode', 'eng', token);
+        if (eng) episodeName = eng;
+      }
+    }
   }
   if (!runtime) {
     const runtimes = Object.values(seasonEps).map(e => e.runtime).filter((r): r is number => typeof r === 'number' && r > 0);
@@ -746,7 +770,7 @@ export async function resolveEpisodeCountFromTvdb(
   }
   if (!data) return undefined;
 
-  const result = buildSeasonResult(data, season, episode);
+  const result = await buildSeasonResult(data, season, episode);
   if (!result) return undefined;
 
   logEpisodeResult(imdbId, season, result);
@@ -781,7 +805,7 @@ export async function resolveEpisodeCountFromTvdbId(
   }
   if (!data) return undefined;
 
-  const result = buildSeasonResult(data, season, episode);
+  const result = await buildSeasonResult(data, season, episode);
   if (!result) return undefined;
 
   logEpisodeResult(logLabel, season, result);
