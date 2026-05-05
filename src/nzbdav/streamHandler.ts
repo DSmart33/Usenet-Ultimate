@@ -17,6 +17,7 @@ import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDead
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildNzbdavConfig } from './utils.js';
 import { getSessionPromise, getSessionBackups, ultimateFallbackFromCandidates, type UfBackupStream } from './ultimateFallback.js';
+import { encodeUfEnvelope, incrementRedirectCounter } from './redirectHelpers.js';
 import { formatBytes } from '../parsers/metadataParsers.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
@@ -525,6 +526,16 @@ export async function handleStream(
   trackGrabFn?: (indexerName: string, title: string) => void,
   proxyFn?: (req: Request, res: ExpressResponse, videoPath: string, usePipe: boolean) => Promise<void>
 ): Promise<void> {
+  // Express returns string[] for repeated query keys (`?t=a&t=b`). Take the
+  // most recent so the rest of the handler can treat each as a single string.
+  // Catches accidental client double-set; not expected on the happy path.
+  for (const key of ['t', '_rc', '_ci'] as const) {
+    if (Array.isArray(req.query[key])) {
+      const arr = req.query[key] as unknown[];
+      req.query[key] = arr[arr.length - 1] as any;
+    }
+  }
+
   // Library-origin fast path: search-time library scan emitted a tile pointing
   // at a pre-extracted file on WebDAV. Skip the whole NZB grab cycle (submit,
   // wait, find video) and dispatch directly via the existing /v proxy/direct/pipe
@@ -580,6 +591,8 @@ export async function handleStream(
   let tPackSp: string | undefined;
   let tPackEpcount: string | undefined;
   let tPackUserPick = false;
+  let tPackRc: number | undefined;
+  let tPackCi: number | undefined;
   const tParam = req.query.t as string | undefined;
   const isUfTilePath = req.params.filename === 'ultimate-fallback';
   if (tParam && isUfTilePath) {
@@ -592,6 +605,10 @@ export async function handleStream(
       if (parsed && typeof parsed === 'object') {
         if (typeof parsed.sk === 'string') tPackSessionKey = parsed.sk;
         if (typeof parsed.fbg === 'string') fallbackGroupId = parsed.fbg;
+        // Self-redirect counters carried inside the envelope so they survive
+        // iOS handoff truncation (which would drop standalone `&_rc=` / `&_ci=`).
+        if (typeof parsed.rc === 'number' && parsed.rc >= 0 && !Number.isNaN(parsed.rc)) tPackRc = parsed.rc;
+        if (typeof parsed.ci === 'number' && parsed.ci >= 0 && !Number.isNaN(parsed.ci)) tPackCi = parsed.ci;
       }
     } catch { /* fall through to legacy below */ }
     nzbUrl = '';
@@ -602,7 +619,7 @@ export async function handleStream(
     // Trailing url/title/indexer (b64url) are a survival fallback for when the
     // in-memory fallback group has been evicted (TTL elapsed) — keeps a
     // single-shot attempt possible instead of returning HTTP 400.
-    const [fbgPart, idxPart, skPart, seasonPart, episodePart, spPart, epcountPart, urlB64, titleB64, indexerB64] = parts;
+    const [fbgPart, idxPart, skPart, seasonPart, episodePart, spPart, epcountPart, urlB64, titleB64, indexerB64, rcPart, ciPart] = parts;
     fallbackGroupId = fbgPart || undefined;
     const idx = idxPart ? parseInt(idxPart, 10) : NaN;
     const group = fallbackGroupId ? getFallbackGroup(fallbackGroupId) : undefined;
@@ -621,6 +638,16 @@ export async function handleStream(
     tPackSp = spPart || undefined;
     tPackEpcount = epcountPart || undefined;
     tPackUserPick = true;
+    // Self-redirect counters live in trailing slots 11/12 so they survive
+    // iOS handoff truncation. Empty on first-click URLs (decode as undefined).
+    if (rcPart) {
+      const r = parseInt(rcPart, 10);
+      if (Number.isFinite(r) && r >= 0) tPackRc = r;
+    }
+    if (ciPart) {
+      const c = parseInt(ciPart, 10);
+      if (Number.isFinite(c) && c >= 0) tPackCi = c;
+    }
   } else {
     fallbackGroupId = req.query.fbg as string | undefined;
     nzbUrl = (req.query.nzb as string | undefined) ?? '';
@@ -720,10 +747,20 @@ export async function handleStream(
     : maxFallbacksSetting === 0 ? candidates.length
     : Math.min(candidates.length, 1 + maxFallbacksSetting);
   const streamCacheMap = getStreamCache();
-  const redirectCount = Math.max(0, parseInt(req.query._rc as string || '0', 10) || 0);
+  // rc/ci are read first from the in-`t` envelope (so they survive iOS handoff
+  // truncation), falling back to legacy standalone query params for any
+  // in-flight URL cached from before this change. safeNum guards against
+  // NaN leaking from a malformed in-`t` value.
+  const safeNum = (n: number | undefined): number | undefined =>
+    typeof n === 'number' && !Number.isNaN(n) && n >= 0 ? n : undefined;
+  const redirectCount = safeNum(tPackRc)
+    ?? Math.max(0, parseInt(req.query._rc as string || '0', 10) || 0);
   const candidateStart = maxCandidates > 0
-    ? Math.min(Math.max(0, parseInt(req.query._ci as string || '0', 10) || 0), maxCandidates - 1)
+    ? Math.min(Math.max(0, safeNum(tPackCi) ?? (parseInt(req.query._ci as string || '0', 10) || 0)), maxCandidates - 1)
     : 0;
+  if (redirectCount > 0 || candidateStart > 0) {
+    console.log(`📦 Decoded rc=${redirectCount} ci=${candidateStart} from t-envelope`);
+  }
   // Evict expired entries once before the loop so isDeadNzb() trusts existence
   cleanupExpiredCache();
   cleanupRecentDeliveries();
@@ -881,9 +918,9 @@ export async function handleStream(
           return;
         } catch (err) {
           if ((err as any).isLobbyTimeout) {
-            // Stremio timeout approaching — self-redirect to keep ExoPlayer alive
-            const redirectUrl = new URL(`${resolveBaseUrl(req)}${req.originalUrl}`);
-            redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
+            // Stremio timeout approaching — self-redirect to keep ExoPlayer alive.
+            // Site 1 of 6: rc carried inside the `t` envelope so it survives iOS handoff.
+            const redirectUrl = incrementRedirectCounter(req);
             console.log(`👑 Lobby: self-redirect (${Math.round((Date.now() - streamStartTime) / 1000)}s elapsed, redirect ${redirectCount + 1})`);
             res.redirect(302, redirectUrl.href);
             return;
@@ -1049,9 +1086,10 @@ export async function handleStream(
         if (!streamCacheMap.has(pendingKey) && !isDeadNzb(deadKey)) {
           getOrCreateStream(candidate.nzbUrl, candidate.title, config, episodePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack).catch(() => {});
         }
-        const redirectUrl = new URL(`${resolveBaseUrl(req)}${req.originalUrl}`);
-        redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
-        redirectUrl.searchParams.set('_ci', String(i));
+        // Site 2 of 6: rc and ci carried inside `t` so iOS handoff doesn't
+        // truncate them. Without ci, the next request would restart at
+        // candidate 0 instead of resuming at i.
+        const redirectUrl = incrementRedirectCounter(req, i);
         if (verbose) {
           console.log(`⏰ Self-redirect to reset Stremio timer (${Math.round(elapsed / 1000)}s elapsed, redirect ${redirectCount + 1}/${MAX_SELF_REDIRECTS}, resuming at candidate ${i + 1}/${maxCandidates})`);
         }
@@ -1185,9 +1223,8 @@ export async function handleStream(
       // Stremio / ExoPlayer timeout — candidate is still processing in cache,
       // self-redirect to keep the player alive while we wait
       if ((error as any).isExoTimeout && redirectCount < MAX_SELF_REDIRECTS && !req.socket.destroyed) {
-        const redirectUrl = new URL(`${resolveBaseUrl(req)}${req.originalUrl}`);
-        redirectUrl.searchParams.set('_rc', String(redirectCount + 1));
-        redirectUrl.searchParams.set('_ci', String(i));
+        // Site 3 of 6: rc and ci carried inside `t` for iOS-safe redirect.
+        const redirectUrl = incrementRedirectCounter(req, i);
         if (verbose) {
           console.log(`\u23F1\uFE0F Timeout redirect (candidate still processing, rc=${redirectCount + 1}/${MAX_SELF_REDIRECTS}, resuming at ${i + 1}/${maxCandidates})`);
         }
@@ -1220,10 +1257,14 @@ export async function handleStream(
         && redirectCount < MAX_SELF_REDIRECTS
         && !res.headersSent
       ) {
-        const lobbyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/stream/ultimate-fallback`);
-        lobbyUrl.searchParams.set('sk', sessionKey);
-        if (fallbackGroupId) lobbyUrl.searchParams.set('fbg', fallbackGroupId);
-        lobbyUrl.searchParams.set('_rc', String(redirectCount + 1));
+        // Site 4 of 6: build a fresh UF envelope so sk + fbg + rc all survive
+        // iOS handoff (single `t` query param, no `&` after the path).
+        const lobbyT = encodeUfEnvelope({
+          sk: sessionKey,
+          ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
+          rc: redirectCount + 1,
+        });
+        const lobbyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/stream/ultimate-fallback?t=${lobbyT}`);
         console.log(`👑 User-pick failed — redirecting to UF lobby (rc=${redirectCount + 1})`);
         res.redirect(302, lobbyUrl.href);
         return;
@@ -1251,10 +1292,13 @@ export async function handleStream(
     && redirectCount < MAX_SELF_REDIRECTS
     && !res.headersSent
   ) {
-    const lobbyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/stream/ultimate-fallback`);
-    lobbyUrl.searchParams.set('sk', sessionKey);
-    if (fallbackGroupId) lobbyUrl.searchParams.set('fbg', fallbackGroupId);
-    lobbyUrl.searchParams.set('_rc', String(redirectCount + 1));
+    // Site 5 of 6: same fresh-envelope pattern as site 4.
+    const lobbyT = encodeUfEnvelope({
+      sk: sessionKey,
+      ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
+      rc: redirectCount + 1,
+    });
+    const lobbyUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/stream/ultimate-fallback?t=${lobbyT}`);
     console.log(`👑 User-pick exhausted — redirecting to UF lobby (rc=${redirectCount + 1})`);
     res.redirect(302, lobbyUrl.href);
     return;

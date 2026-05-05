@@ -18,6 +18,7 @@ import type { Stream, AutoPlayConfig } from '../types.js';
 import type { HealthCheckResult } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
 import { createFallbackGroup, type FallbackCandidate } from '../nzbdav/index.js';
+import { encodeUfEnvelope } from '../nzbdav/redirectHelpers.js';
 import { buildStreamDisplay } from './streamDisplay.js';
 
 // Ultimate Fallback tile + query param identifiers
@@ -341,7 +342,10 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         const urlB64 = Buffer.from(result.link, 'utf8').toString('base64url');
         const titleB64 = Buffer.from(result.title, 'utf8').toString('base64url');
         const indexerB64 = Buffer.from(result.indexerName || '', 'utf8').toString('base64url');
-        const packed = `${fallbackGroupId}.${candidateIdx}.${sessionKeyEnc}.${seasonStr}.${episodeStr}.${spStr}.${epcountStr}.${urlB64}.${titleB64}.${indexerB64}`;
+        // Trailing `..` reserves slots 11 (rc) and 12 (ci) for self-redirect
+        // counters carried inside `t` to survive iOS handoff truncation.
+        // Both empty on first-click; the handler treats empty as 0.
+        const packed = `${fallbackGroupId}.${candidateIdx}.${sessionKeyEnc}.${seasonStr}.${episodeStr}.${spStr}.${epcountStr}.${urlB64}.${titleB64}.${indexerB64}..`;
         streams.push({
           name: streamName,
           title: streamTitle,
@@ -390,9 +394,10 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     // is pre-populated for the sk and the lobby cannot fall back to a cached
     // resolution; the truncated fbg leaves UF unable to look up the group at
     // all. Same envelope shape as the library-delete tiles.
-    const ufPayload: { sk: string; fbg?: string } = { sk: sessionKey };
-    if (fallbackGroupId) ufPayload.fbg = fallbackGroupId;
-    const ufT = Buffer.from(JSON.stringify(ufPayload), 'utf8').toString('base64url');
+    const ufT = encodeUfEnvelope({
+      sk: sessionKey,
+      ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
+    });
     const ufUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${UF_STREAM_PATH}?t=${ufT}`;
     // bingeGroup matches regular tiles so cross-episode auto-play can continue via UF.
     const ufBingeGroup = autoPlay.enabled && autoPlay.method === 'firstFile' ? 'usenetultimate' : undefined;

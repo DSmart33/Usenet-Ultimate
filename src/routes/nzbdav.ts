@@ -1089,22 +1089,41 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         const fb = req.query._fb;
         if (typeof fb === 'string' && fb.startsWith('/') && !fb.startsWith('//')) {
           const fallbackUrl = new URL(`${resolveBaseUrl(req)}${fb}`);
-          const rc = Math.max(0, parseInt(fallbackUrl.searchParams.get('_rc') ?? '0', 10) || 0);
-          fallbackUrl.searchParams.set('_rc', String(rc + 1));
+          // Site 6 of 6 redirect sites. Inline rather than via redirectHelpers
+          // because the URL we mutate is the reconstructed `fallbackUrl` (built
+          // from _fb), not the original request URL. Site 6's URL is always
+          // dot-positional shape because the proxy-error path only fires for
+          // regular tiles; the UF lobby path doesn't go through /v proxy.
+          // rc and ci move INTO `t`'s trailing slots so iOS handoff can't drop them.
+          const tRaw = fallbackUrl.searchParams.get('t') ?? '';
+          let nextRc = 1;
+          if (tRaw) {
+            const parts = tRaw.split('.');
+            while (parts.length < 12) parts.push('');
+            const rcSlot = 10;
+            const ciSlot = 11;
+            const currentRc = parts[rcSlot] ? parseInt(parts[rcSlot], 10) : 0;
+            nextRc = Number.isFinite(currentRc) ? currentRc + 1 : 1;
+            parts[rcSlot] = String(nextRc);
+            // For non-404 errors (file exists on disk but server can't serve it),
+            // advance ci so /stream doesn't re-resolve to the same broken video
+            // via library check. 404 doesn't need ci++ because the file is
+            // genuinely gone — library check on the next request returns null.
+            if (!(err instanceof WebDav404Error)) {
+              const currentCi = parts[ciSlot] ? parseInt(parts[ciSlot], 10) : 0;
+              parts[ciSlot] = String(Number.isFinite(currentCi) ? currentCi + 1 : 1);
+            }
+            fallbackUrl.searchParams.set('t', parts.join('.'));
+          }
+          // Drop legacy standalone counters so iOS doesn't see truncation-bait.
+          fallbackUrl.searchParams.delete('_rc');
+          fallbackUrl.searchParams.delete('_ci');
           // Any error here means the candidate file is being abandoned — the
           // next /v hop will serve a different file, so the player's Range is
           // invalid. Signal _norange=1 unconditionally; the next /v drops it.
           fallbackUrl.searchParams.set('_norange', '1');
-          // For non-404 errors (file exists on disk but server can't serve it),
-          // advance _ci so /stream doesn't re-resolve to the same broken video
-          // via library check. 404 doesn't need _ci++ because the file is
-          // genuinely gone — library check on the next request returns null.
-          if (!(err instanceof WebDav404Error)) {
-            const ci = Math.max(0, parseInt(fallbackUrl.searchParams.get('_ci') ?? '0', 10) || 0);
-            fallbackUrl.searchParams.set('_ci', String(ci + 1));
-          }
           const label = err instanceof WebDav404Error ? `${err.statusCode}` : 'error';
-          console.log(`🔄 Upstream ${label} → fallback redirect to /stream (rc=${rc + 1})`);
+          console.log(`🔄 Upstream ${label} → fallback redirect to /stream (rc=${nextRc})`);
           res.redirect(302, fallbackUrl.href);
         } else if (err instanceof WebDav404Error) {
           res.status(404).send('Video file not found');
