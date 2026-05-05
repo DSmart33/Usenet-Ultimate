@@ -17,7 +17,7 @@ import { getOrCreateStream, getCacheKey, getDeadCacheKey, getStreamCache, isDead
 import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildNzbdavConfig } from './utils.js';
 import { getSessionPromise, getSessionBackups, ultimateFallbackFromCandidates, type UfBackupStream } from './ultimateFallback.js';
-import { encodeUfEnvelope, incrementRedirectCounter } from './redirectHelpers.js';
+import { encodeTileEnvelope, incrementRedirectCounter, parseTilePayload } from './redirectHelpers.js';
 import { formatBytes } from '../parsers/metadataParsers.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
 import type { NZBDavConfig, StreamData, FallbackCandidate } from './types.js';
@@ -527,13 +527,11 @@ export async function handleStream(
   proxyFn?: (req: Request, res: ExpressResponse, videoPath: string, usePipe: boolean) => Promise<void>
 ): Promise<void> {
   // Express returns string[] for repeated query keys (`?t=a&t=b`). Take the
-  // most recent so the rest of the handler can treat each as a single string.
-  // Catches accidental client double-set; not expected on the happy path.
-  for (const key of ['t', '_rc', '_ci'] as const) {
-    if (Array.isArray(req.query[key])) {
-      const arr = req.query[key] as unknown[];
-      req.query[key] = arr[arr.length - 1] as any;
-    }
+  // most recent so the decoder treats it as a single string. Catches
+  // accidental client double-set; not expected on the happy path.
+  if (Array.isArray(req.query.t)) {
+    const arr = req.query.t as unknown[];
+    req.query.t = arr[arr.length - 1] as any;
   }
 
   // Library-origin fast path: search-time library scan emitted a tile pointing
@@ -570,16 +568,12 @@ export async function handleStream(
     return;
   }
 
-  // Tile URL comes in one of three shapes:
-  //   (a) packed regular tile: ?t=<fbg>.<idx>.<encodedSessionKey>.<season>.<episode>.<sp>.<epcount>
-  //       Presence of `t` implies user_pick=1. Used for external-player
-  //       compatibility (Infuse truncates after the first `&`).
-  //   (b) packed UF tile envelope: ?t=<base64url(JSON{sk,fbg?})>
-  //       Same single-param iOS-safe shape, base64url-encoded JSON. Detected
-  //       via filename === 'ultimate-fallback' to disambiguate from (a).
-  //       Falls through to (c) legacy params when the envelope can't decode.
-  //   (c) legacy long form: ?nzb=&title=&type=&indexer=&fbg=&sk=&user_pick=...
-  //       Still accepted for in-flight cached URLs.
+  // Tile URL is a single base64url-JSON envelope under `?t=`. iOS / Infuse
+  // handoff truncates URLs at the first `&`, so all tile state is packed
+  // into one query param. The envelope schema differs per tile type
+  // (regular result tile vs UF lobby tile) but the encoding mechanism is
+  // uniform; `parseTilePayload` runs all per-field type guards in one place
+  // and returns a typed object the handler destructures cleanly.
   let nzbUrl: string;
   let title: string;
   let indexerName: string;
@@ -593,74 +587,36 @@ export async function handleStream(
   let tPackUserPick = false;
   let tPackRc: number | undefined;
   let tPackCi: number | undefined;
-  const tParam = req.query.t as string | undefined;
   const isUfTilePath = req.params.filename === 'ultimate-fallback';
-  if (tParam && isUfTilePath) {
-    // Shape (b). UF tile clicks carry only sk and (optionally) fbg in a
-    // base64url-encoded JSON envelope. They never invoke user_pick or the
-    // regular tile fields. Falls through to the legacy `req.query.sk` /
-    // `req.query.fbg` reads at line ~605 if the envelope fails to decode.
-    try {
-      const parsed = JSON.parse(Buffer.from(tParam, 'base64url').toString('utf8'));
-      if (parsed && typeof parsed === 'object') {
-        if (typeof parsed.sk === 'string') tPackSessionKey = parsed.sk;
-        if (typeof parsed.fbg === 'string') fallbackGroupId = parsed.fbg;
-        // Self-redirect counters carried inside the envelope so they survive
-        // iOS handoff truncation (which would drop standalone `&_rc=` / `&_ci=`).
-        if (typeof parsed.rc === 'number' && parsed.rc >= 0 && !Number.isNaN(parsed.rc)) tPackRc = parsed.rc;
-        if (typeof parsed.ci === 'number' && parsed.ci >= 0 && !Number.isNaN(parsed.ci)) tPackCi = parsed.ci;
-      }
-    } catch { /* fall through to legacy below */ }
+  const payload = parseTilePayload(typeof req.query.t === 'string' ? req.query.t : undefined);
+  fallbackGroupId = payload.fbg;
+  tPackSessionKey = payload.sk;
+  tPackRc = payload.rc;
+  tPackCi = payload.ci;
+  if (isUfTilePath) {
+    // UF tile carries only sk + fbg (+ rc/ci on redirect). The lobby block
+    // below uses sessionKey to find an existing UF session promise.
     nzbUrl = '';
     title = '';
     indexerName = '';
-  } else if (tParam) {
-    const parts = tParam.split('.');
-    // Trailing url/title/indexer (b64url) are a survival fallback for when the
-    // in-memory fallback group has been evicted (TTL elapsed) — keeps a
-    // single-shot attempt possible instead of returning HTTP 400.
-    const [fbgPart, idxPart, skPart, seasonPart, episodePart, spPart, epcountPart, urlB64, titleB64, indexerB64, rcPart, ciPart] = parts;
-    fallbackGroupId = fbgPart || undefined;
-    const idx = idxPart ? parseInt(idxPart, 10) : NaN;
-    const group = fallbackGroupId ? getFallbackGroup(fallbackGroupId) : undefined;
-    const cand = Number.isFinite(idx) && group ? group.candidates[idx] : undefined;
-    const decodeB64 = (s: string | undefined): string => {
-      if (!s) return '';
-      try { return Buffer.from(s, 'base64url').toString('utf8'); } catch { return ''; }
-    };
-    nzbUrl = cand?.nzbUrl ?? decodeB64(urlB64);
-    title = cand?.title ?? decodeB64(titleB64);
-    indexerName = cand?.indexerName ?? decodeB64(indexerB64);
-    contentType = group?.type;
-    tPackSessionKey = skPart ? decodeURIComponent(skPart) : undefined;
-    seasonParam = seasonPart || undefined;
-    episodeParam = episodePart || undefined;
-    tPackSp = spPart || undefined;
-    tPackEpcount = epcountPart || undefined;
-    tPackUserPick = true;
-    // Self-redirect counters live in trailing slots 11/12 so they survive
-    // iOS handoff truncation. Empty on first-click URLs (decode as undefined).
-    if (rcPart) {
-      const r = parseInt(rcPart, 10);
-      if (Number.isFinite(r) && r >= 0) tPackRc = r;
-    }
-    if (ciPart) {
-      const c = parseInt(ciPart, 10);
-      if (Number.isFinite(c) && c >= 0) tPackCi = c;
-    }
   } else {
-    fallbackGroupId = req.query.fbg as string | undefined;
-    nzbUrl = (req.query.nzb as string | undefined) ?? '';
-    title = (req.query.title as string | undefined) ?? '';
-    indexerName = (req.query.indexer as string | undefined) ?? '';
-    contentType = req.query.type as string | undefined;
-    seasonParam = req.query.season as string | undefined;
-    episodeParam = req.query.episode as string | undefined;
+    // Regular result tile. fbg+idx points into the in-memory fallback group;
+    // url/title/indexer ride along as fallbacks for when the group has been
+    // evicted (TTL elapsed) so a single-shot resolution is still possible.
+    const group = fallbackGroupId ? getFallbackGroup(fallbackGroupId) : undefined;
+    const cand = payload.idx !== undefined && group ? group.candidates[payload.idx] : undefined;
+    nzbUrl = cand?.nzbUrl ?? payload.url ?? '';
+    title = cand?.title ?? payload.title ?? '';
+    indexerName = cand?.indexerName ?? payload.indexer ?? '';
+    contentType = group?.type;
+    seasonParam = payload.season !== undefined ? String(payload.season) : undefined;
+    episodeParam = payload.episode !== undefined ? String(payload.episode) : undefined;
+    tPackSp = payload.seasonpack === 1 ? '1' : undefined;
+    tPackEpcount = payload.epcount !== undefined ? String(payload.epcount) : undefined;
+    tPackUserPick = true;
   }
-  // Strict string equality on query params — Express can yield string[] for repeated keys.
-  const userPickRaw = req.query.user_pick;
-  const userPick = tPackUserPick || (typeof userPickRaw === 'string' && userPickRaw === '1');
-  const sessionKey = tPackSessionKey ?? (typeof req.query.sk === 'string' ? req.query.sk : undefined);
+  const userPick = tPackUserPick;
+  const sessionKey = tPackSessionKey;
 
   // UF tile clicks send only `sk` (no nzb/title) and rely on the lobby block below.
   // Regular requests must still provide nzb+title.
@@ -748,15 +704,13 @@ export async function handleStream(
     : Math.min(candidates.length, 1 + maxFallbacksSetting);
   const streamCacheMap = getStreamCache();
   // rc/ci are read first from the in-`t` envelope (so they survive iOS handoff
-  // truncation), falling back to legacy standalone query params for any
-  // in-flight URL cached from before this change. safeNum guards against
-  // NaN leaking from a malformed in-`t` value.
+  // truncation). safeNum guards against NaN leaking from a malformed in-`t`
+  // value (parseTilePayload drops non-numbers, but defense-in-depth here).
   const safeNum = (n: number | undefined): number | undefined =>
     typeof n === 'number' && !Number.isNaN(n) && n >= 0 ? n : undefined;
-  const redirectCount = safeNum(tPackRc)
-    ?? Math.max(0, parseInt(req.query._rc as string || '0', 10) || 0);
+  const redirectCount = safeNum(tPackRc) ?? 0;
   const candidateStart = maxCandidates > 0
-    ? Math.min(Math.max(0, safeNum(tPackCi) ?? (parseInt(req.query._ci as string || '0', 10) || 0)), maxCandidates - 1)
+    ? Math.min(Math.max(0, safeNum(tPackCi) ?? 0), maxCandidates - 1)
     : 0;
   if (redirectCount > 0 || candidateStart > 0) {
     console.log(`📦 Decoded rc=${redirectCount} ci=${candidateStart} from t-envelope`);
@@ -767,11 +721,11 @@ export async function handleStream(
 
   // Stremio dedup: return cached delivery for subsequent requests on the same stream (within 10 min).
   // Catches seeks, probes, and dupes without re-running library check or re-submitting NZBs.
-  // Only for fresh initial requests — self-redirects (_ci set) bypass dedup to allow fallback retry.
+  // Only for fresh initial requests; self-redirects (ci > 0) bypass dedup to allow fallback retry.
   // Cache stores the *resolved* delivery (which may differ from the clicked NZB when fallback-chain
-  // walked past the click), so we don't gate on the clicked NZB's dead state — the cache hit is
+  // walked past the click), so we don't gate on the clicked NZB's dead state; the cache hit is
   // already a known-good resolution.
-  const isFreshRequest = candidateStart === 0 && !req.query._ci;
+  const isFreshRequest = candidateStart === 0;
   if (isFreshRequest && candidates.length > 0 && !isUfTileRequest) {
     {
       const dedupKey = getCacheKey(candidates[0].nzbUrl, candidates[0].title) + (episodePattern ? `:${episodePattern}` : '');
@@ -975,10 +929,10 @@ export async function handleStream(
       return;
     }
     // Fall-through: after UF-vetted backups exhausted, redirect to the first
-    // untried fallback-group candidate via the LEGACY long-form URL. The
-    // legacy form does NOT set user_pick=1 (only the t-param does, implicitly),
-    // so the handler's candidateOrder routes through sequential iteration —
-    // the for-loop walks the entire chain in one handleStream invocation,
+    // untried fallback-group candidate. Encoded as the canonical tile
+    // envelope so the handler's user-pick path takes over (presence of
+    // url/title/indexer in the payload implies user-pick); sequential
+    // iteration walks the rest of the chain in one handleStream invocation,
     // skipping broken candidates via prepareStream's library-pre-check + dedup.
     const groupForFallthrough = fallbackGroupId ? getFallbackGroup(fallbackGroupId) : undefined;
     const triedUrls = ufBackups?.backupUrls ?? new Set<string>();
@@ -986,25 +940,23 @@ export async function handleStream(
     if (nextCandidate && groupForFallthrough) {
       const remaining = groupForFallthrough.candidates.filter(c => !triedUrls.has(c.nzbUrl)).length;
       const filename = encodeURIComponent(nextCandidate.title || 'stream');
-      const params = new URLSearchParams();
-      params.set('nzb', nextCandidate.nzbUrl);
-      params.set('title', nextCandidate.title);
-      params.set('type', groupForFallthrough.type);
-      params.set('indexer', nextCandidate.indexerName);
-      params.set('fbg', fallbackGroupId!);
-      if (sessionKey) params.set('sk', sessionKey);
-      // Season pack file-selection context (group stores season/episode/
-      // episodesInSeason at the group level). epcount keeps BDMV playlist
-      // calibration parity with the original tile click.
-      if (nextCandidate.isSeasonPack && groupForFallthrough.season && groupForFallthrough.episode) {
-        params.set('season', groupForFallthrough.season);
-        params.set('episode', groupForFallthrough.episode);
-        params.set('sp', '1');
-        if (groupForFallthrough.episodesInSeason != null) {
-          params.set('epcount', String(groupForFallthrough.episodesInSeason));
-        }
-      }
-      const fallthroughUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/stream/${filename}?${params.toString()}`);
+      const seasonNum = groupForFallthrough.season ? parseInt(groupForFallthrough.season, 10) : undefined;
+      const episodeNum = groupForFallthrough.episode ? parseInt(groupForFallthrough.episode, 10) : undefined;
+      const includeSeasonPack = nextCandidate.isSeasonPack && seasonNum != null && episodeNum != null && !Number.isNaN(seasonNum) && !Number.isNaN(episodeNum);
+      const fallthroughT = encodeTileEnvelope({
+        url: nextCandidate.nzbUrl,
+        title: nextCandidate.title,
+        indexer: nextCandidate.indexerName,
+        ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
+        ...(sessionKey ? { sk: sessionKey } : {}),
+        ...(includeSeasonPack ? {
+          season: seasonNum,
+          episode: episodeNum,
+          seasonpack: 1 as const,
+          ...(groupForFallthrough.episodesInSeason != null ? { epcount: groupForFallthrough.episodesInSeason } : {}),
+        } : {}),
+      });
+      const fallthroughUrl = new URL(`${resolveBaseUrl(req)}${req.baseUrl}/stream/${filename}?t=${fallthroughT}`);
       console.log(`👑 UF tile: ${ufBackups?.backupStreams?.length ?? 0} UF backup(s) exhausted — falling through to fallback group (${remaining} candidate(s) remaining)`);
       res.redirect(302, fallthroughUrl.href);
       return;
@@ -1259,7 +1211,7 @@ export async function handleStream(
       ) {
         // Site 4 of 6: build a fresh UF envelope so sk + fbg + rc all survive
         // iOS handoff (single `t` query param, no `&` after the path).
-        const lobbyT = encodeUfEnvelope({
+        const lobbyT = encodeTileEnvelope({
           sk: sessionKey,
           ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
           rc: redirectCount + 1,
@@ -1293,7 +1245,7 @@ export async function handleStream(
     && !res.headersSent
   ) {
     // Site 5 of 6: same fresh-envelope pattern as site 4.
-    const lobbyT = encodeUfEnvelope({
+    const lobbyT = encodeTileEnvelope({
       sk: sessionKey,
       ...(fallbackGroupId ? { fbg: fallbackGroupId } : {}),
       rc: redirectCount + 1,

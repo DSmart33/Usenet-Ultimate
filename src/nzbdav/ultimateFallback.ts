@@ -98,9 +98,10 @@ const sessionPromises = new Map<string, DeferredStream>();
 const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // Resolved sessions outlive the addon process via disk persistence so that
-// a player reconnecting to /stream/ultimate-fallback?sk=… after an addon
-// restart still finds its session and gets a 302 to /v?path=…. Mirrors the
-// pattern in streamCache.ts (loadCacheFromDisk / saveCacheToDisk).
+// a player reconnecting to /stream/ultimate-fallback?t=<envelope-with-sk>
+// after an addon restart still finds its session and gets a 302 to
+// /v?path=…. Mirrors the pattern in streamCache.ts (loadCacheFromDisk /
+// saveCacheToDisk).
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000 + 30_000;
 const UF_SESSIONS_FILE = path.join(__dirname, '..', '..', 'config', 'uf-sessions.json');
 const UF_SESSIONS_SCHEMA_VERSION = 1;

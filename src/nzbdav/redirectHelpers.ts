@@ -1,79 +1,121 @@
 /**
- * Redirect URL helpers for self-redirect chains.
+ * Tile URL envelope helpers + self-redirect counter mutation.
  *
- * The addon uses self-redirects to keep Stremio's HTTP client alive while
- * background work proceeds (UF resolution, candidate iteration, ExoPlayer
- * timer reset). Each redirect target carries two counters:
- *   - rc: how many self-redirects have happened (capped by MAX_SELF_REDIRECTS)
- *   - ci: candidate index to resume at (user-pick fallback iteration)
+ * Every tile URL in the addon (regular indexer-result tiles, the UF lobby
+ * tile, and the library-delete tiles) is encoded as a single base64url-JSON
+ * envelope under the `t` query param. iOS / Infuse handoff truncates URLs
+ * at the first `&`, so a single-param URL is the only iOS-safe shape.
  *
- * iOS / Infuse handoff truncates URLs at the first `&`, which would drop
- * counters appended as standalone query params. To stay single-param, the
- * counters live INSIDE the existing `?t=<...>` value:
+ * The schema differs per tile type but the encoding/decoding mechanism is
+ * uniform. `parseTilePayload` runs all the per-field type guards in one
+ * place; call sites destructure the result without repeating typeof checks.
  *
- *   - UF tile envelope (base64url-JSON): `{ sk, fbg?, rc?, ci? }`
- *   - Regular tile (dot-positional): `<fbg>.<idx>.<sk>...<indexerB64>.<rc>.<ci>`
- *     Slots 11/12 (0-indexed 10/11) hold rc/ci; empty when unset.
- *
- * `incrementRedirectCounter` decodes the incoming `t`, mutates rc (and ci
- * when provided), re-encodes, and returns a URL pointing at the same path
- * with ONLY `?t=<new>` as the query. Used by sites 1-3 in streamHandler.ts.
- *
- * Sites 4-5 (user-pick → UF lobby) build a fresh UF envelope rather than
- * mutating an existing one; they call `encodeUfEnvelope` directly.
- *
- * Site 6 (routes/nzbdav.ts WebDAV proxy-error fallback) inlines the
- * dot-positional mutation against a reconstructed URL because its source
- * URL is built from the `_fb` query param, not `req.originalUrl`.
+ * Self-redirect counters (rc, ci) live INSIDE the envelope so they survive
+ * iOS truncation along with the rest of the tile state. Sites 1-3 in the
+ * stream handler call `incrementRedirectCounter` to bump them on each
+ * redirect; site 6 in the WebDAV proxy-error fallback uses
+ * `incrementRedirectCounterOnUrl` against a reconstructed URL.
  */
 
 import type { Request } from 'express';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
 
-export type UfEnvelope = { sk: string; fbg?: string; rc?: number; ci?: number };
-
-export function encodeUfEnvelope(p: UfEnvelope): string {
+/** Base64url-encode a JSON-serializable payload. All payload fields must be
+ *  JSON-serializable (number, string, boolean, plain object, plain array).
+ *  BigInt, Date, Map, Set, and similar non-serializable values throw at
+ *  JSON.stringify; the encoder does NOT guard for them. Input type is
+ *  Record<string, unknown> rather than the looser `object` so a typo like
+ *  `encodeTileEnvelope([...])` fails at compile time. */
+export function encodeTileEnvelope(p: Record<string, unknown>): string {
   return Buffer.from(JSON.stringify(p), 'utf8').toString('base64url');
+}
+
+/** Decode a `t=` value back to the parsed envelope object. Returns null on
+ *  malformed input (missing, not base64url, not JSON, JSON but not a plain
+ *  object). The array-rejection check prevents `[1,2,3]` decoding to a
+ *  truthy object whose downstream field reads silently return undefined. */
+export function decodeTileEnvelope(t: string): Record<string, unknown> | null {
+  if (!t) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(t, 'base64url').toString('utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+/** Typed payload shape for stream-handler tile URLs. Unifies the regular
+ *  result-tile fields and the UF tile fields under one schema; per-route
+ *  call sites read only the subset they expect. */
+export type TilePayload = {
+  sk?: string;
+  fbg?: string;
+  rc?: number;
+  ci?: number;
+  idx?: number;
+  url?: string;
+  title?: string;
+  indexer?: string;
+  season?: number;
+  episode?: number;
+  seasonpack?: 1;
+  epcount?: number;
+};
+
+/** Single trust-boundary validator. `req.query.t` is user-controllable;
+ *  anyone can craft a URL with arbitrary JSON inside the envelope. This
+ *  function decodes once and runs all per-field type checks in one place,
+ *  returning a typed object the handler destructures cleanly. Each field
+ *  that fails validation comes back as undefined. */
+export function parseTilePayload(t: string | undefined): TilePayload {
+  const raw = typeof t === 'string' ? decodeTileEnvelope(t) : null;
+  if (!raw) return {};
+  const isNum = (v: unknown): v is number => typeof v === 'number' && !Number.isNaN(v);
+  return {
+    sk: typeof raw.sk === 'string' ? raw.sk : undefined,
+    fbg: typeof raw.fbg === 'string' ? raw.fbg : undefined,
+    rc: isNum(raw.rc) && raw.rc >= 0 ? raw.rc : undefined,
+    ci: isNum(raw.ci) && raw.ci >= 0 ? raw.ci : undefined,
+    idx: isNum(raw.idx) ? raw.idx : undefined,
+    url: typeof raw.url === 'string' ? raw.url : undefined,
+    title: typeof raw.title === 'string' ? raw.title : undefined,
+    indexer: typeof raw.indexer === 'string' ? raw.indexer : undefined,
+    season: isNum(raw.season) ? raw.season : undefined,
+    episode: isNum(raw.episode) ? raw.episode : undefined,
+    seasonpack: raw.seasonpack === 1 ? 1 : undefined,
+    epcount: isNum(raw.epcount) ? raw.epcount : undefined,
+  };
 }
 
 /** Mutate the incoming `?t=<...>` to bump rc by 1 (and set ci when provided),
  *  return a URL pointing at the same path with ONLY `?t=<new>` as the query.
- *  Other incoming query params are intentionally dropped on the redirect; only
- *  `auto=true` ever rides along on a stream-handler request, and even today
- *  it is read once at request entry and not propagated across redirects. */
+ *  Other incoming query params are intentionally dropped on the redirect. */
 export function incrementRedirectCounter(req: Request, ciOverride?: number): URL {
   const tRaw = typeof req.query.t === 'string' ? req.query.t : '';
-  const isUfTilePath = req.params?.filename === 'ultimate-fallback';
-
-  let newT = tRaw;
-  if (isUfTilePath) {
-    // UF envelope: base64url-JSON
-    let payload: UfEnvelope = { sk: '' };
-    try {
-      const parsed = JSON.parse(Buffer.from(tRaw, 'base64url').toString('utf8'));
-      if (parsed && typeof parsed === 'object') {
-        if (typeof parsed.sk === 'string') payload.sk = parsed.sk;
-        if (typeof parsed.fbg === 'string') payload.fbg = parsed.fbg;
-        if (typeof parsed.rc === 'number' && parsed.rc >= 0 && !Number.isNaN(parsed.rc)) payload.rc = parsed.rc;
-        if (typeof parsed.ci === 'number' && parsed.ci >= 0 && !Number.isNaN(parsed.ci)) payload.ci = parsed.ci;
-      }
-    } catch { /* fall through with empty payload, safe */ }
-    payload.rc = (payload.rc ?? 0) + 1;
-    if (ciOverride !== undefined) payload.ci = ciOverride;
-    newT = encodeUfEnvelope(payload);
-  } else {
-    // Dot-positional regular tile: 12 slots, last two are rc/ci.
-    const parts = tRaw.split('.');
-    while (parts.length < 12) parts.push('');
-    const rcSlot = 10;
-    const ciSlot = 11;
-    const currentRc = parts[rcSlot] ? parseInt(parts[rcSlot], 10) : 0;
-    parts[rcSlot] = String(Number.isFinite(currentRc) ? currentRc + 1 : 1);
-    if (ciOverride !== undefined) parts[ciSlot] = String(ciOverride);
-    newT = parts.join('.');
-  }
-
-  // Strip the query string from req.originalUrl and re-attach only ?t=<new>.
+  const parsed = decodeTileEnvelope(tRaw) ?? {};
+  const next: Record<string, unknown> = { ...parsed };
+  const currentRc = typeof next.rc === 'number' && next.rc >= 0 && !Number.isNaN(next.rc) ? next.rc : 0;
+  next.rc = currentRc + 1;
+  if (ciOverride !== undefined) next.ci = ciOverride;
   const path = (req.originalUrl || '').split('?')[0];
-  return new URL(`${resolveBaseUrl(req)}${path}?t=${newT}`);
+  return new URL(`${resolveBaseUrl(req)}${path}?t=${encodeTileEnvelope(next)}`);
+}
+
+/** Variant of incrementRedirectCounter that mutates an arbitrary URL in place.
+ *  Used by site 6 (WebDAV proxy-error fallback) where the URL is reconstructed
+ *  from the `_fb` query param rather than being the original request URL.
+ *  When advanceCi is true, ci is incremented (used for non-404 errors that
+ *  should skip the same broken candidate); when false, ci is left as-is. */
+export function incrementRedirectCounterOnUrl(url: URL, advanceCi: boolean): void {
+  const tRaw = url.searchParams.get('t') ?? '';
+  const parsed = decodeTileEnvelope(tRaw) ?? {};
+  const next: Record<string, unknown> = { ...parsed };
+  const currentRc = typeof next.rc === 'number' && next.rc >= 0 && !Number.isNaN(next.rc) ? next.rc : 0;
+  next.rc = currentRc + 1;
+  if (advanceCi) {
+    const currentCi = typeof next.ci === 'number' && next.ci >= 0 && !Number.isNaN(next.ci) ? next.ci : 0;
+    next.ci = currentCi + 1;
+  }
+  url.searchParams.set('t', encodeTileEnvelope(next));
 }

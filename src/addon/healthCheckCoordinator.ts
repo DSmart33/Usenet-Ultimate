@@ -16,6 +16,7 @@ import { requestContext } from '../requestContext.js';
 import { buildStreamFilename } from '../parsers/metadataParsers.js';
 import { checkNzbLibrary } from '../nzbdav/videoDiscovery.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
+import { encodeTileEnvelope } from '../nzbdav/redirectHelpers.js';
 import type { NZBDavConfig } from '../nzbdav/types.js';
 
 // Internal self-requests (auto-queue) hit localhost directly to avoid
@@ -491,9 +492,6 @@ export function autoQueueToNzbdav(
   const sendToNzbdav = (result: any, reason: string) => {
     try {
       console.log(`🚀 Auto-queueing (${reason}): ${result.title}`);
-      const autoEpParams = result.isSeasonPack && season !== undefined && episode !== undefined
-        ? `&season=${season}&episode=${episode}${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
-        : '';
       const autoManifestKey = requestContext.getStore()?.manifestKey || '';
 
       // For EasyNews NZB mode, construct the NZB proxy URL instead of using easynews:// link
@@ -510,7 +508,19 @@ export function autoQueueToNzbdav(
       }
 
       const streamFilename = buildStreamFilename(result.title, type, season, episode);
-      const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(nzbUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}&auto=true${autoEpParams}`;
+      const includeSeasonPack = result.isSeasonPack && season !== undefined && episode !== undefined;
+      const tileT = encodeTileEnvelope({
+        url: nzbUrl,
+        title: result.title,
+        indexer: result.indexerName,
+        ...(includeSeasonPack ? {
+          season,
+          episode,
+          seasonpack: 1 as const,
+          ...(episodesInSeason ? { epcount: episodesInSeason } : {}),
+        } : {}),
+      });
+      const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?t=${tileT}&auto=true`;
       fetch(proxyUrl).catch(err => console.error('❌ Auto-queue failed:', err));
     } catch (error) {
       console.error('❌ Auto-queue to NZBDav failed:', error);

@@ -20,6 +20,7 @@ import { encodeWebdavPath, WebDav404Error, buildNzbdavConfig } from '../nzbdav/u
 import { posix as pathPosix } from 'path';
 import { evictReadyByVideoPath, evictReadyByVideoPathPrefix, clearVideoPathState, markVideoPathBroken, markLibraryBypass } from '../nzbdav/streamCache.js';
 import { sendLibraryBypassArmedVideo, sendDeleteAllSuccessVideo, sendDeleteFileSuccessVideo, sendDeletePackSuccessVideo, sendDeleteFailedVideo } from '../nzbdav/streamHandler.js';
+import { incrementRedirectCounterOnUrl } from '../nzbdav/redirectHelpers.js';
 import { getWebdavClient } from '../nzbdav/webdavClient.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
 import { buildSearchCacheKey, deleteSearchCacheEntry } from '../addon/index.js';
@@ -199,7 +200,7 @@ export function createNzbdavRoutes(deps: NzbdavDeps): Router {
  */
 export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   const router = Router({ mergeParams: true });
-  const { config, handleStream, isStreamCached, trackGrab, getLatestVersions } = deps;
+  const { config, handleStream, trackGrab, getLatestVersions } = deps;
 
   // Dedup set for grab tracking — prevents concurrent requests from tracking the same grab
   // before the stream cache is populated. Entries are cleaned up after 60s.
@@ -508,7 +509,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     // One-liner for external-player regression diagnosis. Throttled so Range
     // probes from an active player don't flood the log.
     const kind = req.params.filename === 'ultimate-fallback' ? 'UF'
-      : (req.query.user_pick === '1' || req.query.t) ? 'user_pick'
+      : req.query.t ? 'user_pick'
       : 'other';
     const hitKey = `${kind}::${req.params.filename ?? '-'}`;
     if (!loggedStreamHits.has(hitKey)) {
@@ -518,20 +519,10 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       console.log(`\u{1F39F}\uFE0F /stream hit: kind=${kind} filename=${req.params.filename ?? '-'} q=[${qKeys}] ua=${(req.headers['user-agent'] ?? '').slice(0, 80)}`);
     }
 
-    const nzbUrl = req.query.nzb as string;
-    const title = req.query.title as string || 'Unknown';
-    const indexerName = req.query.indexer as string;
-    const isAuto = req.query.auto === 'true';
-
-    // Track grab only for genuinely new streams (not cache hits, range requests, retries)
-    // Key format: indexer::title (tracks unique grabs per indexer, matching fallback dedup)
-    const grabKey = `${indexerName}::${title}`;
-    if (indexerName && nzbUrl && title !== 'Unknown' && !isStreamCached(nzbUrl, title) && !trackedGrabKeys.has(grabKey)) {
-      trackedGrabKeys.add(grabKey);
-      setTimeout(() => trackedGrabKeys.delete(grabKey), GRAB_DEDUP_TTL_MS);
-      trackGrab(indexerName, title);
-      console.log(`\u{1F4CA} Tracked grab from ${indexerName}: ${title}${isAuto ? ' (auto)' : ''}`);
-    }
+    // Grab tracking happens inside the stream handler once the `t` envelope
+    // is decoded (route-level tracking would need to decode here too just to
+    // extract nzb/title/indexer for the dedup key, so route-level was duplicated
+    // work). The handler calls `dedupedTrackGrab` below for first-time grabs.
 
     const nzbdavConfig = buildNzbdavConfig();
 
@@ -1089,41 +1080,21 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         const fb = req.query._fb;
         if (typeof fb === 'string' && fb.startsWith('/') && !fb.startsWith('//')) {
           const fallbackUrl = new URL(`${resolveBaseUrl(req)}${fb}`);
-          // Site 6 of 6 redirect sites. Inline rather than via redirectHelpers
-          // because the URL we mutate is the reconstructed `fallbackUrl` (built
-          // from _fb), not the original request URL. Site 6's URL is always
-          // dot-positional shape because the proxy-error path only fires for
-          // regular tiles; the UF lobby path doesn't go through /v proxy.
-          // rc and ci move INTO `t`'s trailing slots so iOS handoff can't drop them.
-          const tRaw = fallbackUrl.searchParams.get('t') ?? '';
-          let nextRc = 1;
-          if (tRaw) {
-            const parts = tRaw.split('.');
-            while (parts.length < 12) parts.push('');
-            const rcSlot = 10;
-            const ciSlot = 11;
-            const currentRc = parts[rcSlot] ? parseInt(parts[rcSlot], 10) : 0;
-            nextRc = Number.isFinite(currentRc) ? currentRc + 1 : 1;
-            parts[rcSlot] = String(nextRc);
-            // For non-404 errors (file exists on disk but server can't serve it),
-            // advance ci so /stream doesn't re-resolve to the same broken video
-            // via library check. 404 doesn't need ci++ because the file is
-            // genuinely gone — library check on the next request returns null.
-            if (!(err instanceof WebDav404Error)) {
-              const currentCi = parts[ciSlot] ? parseInt(parts[ciSlot], 10) : 0;
-              parts[ciSlot] = String(Number.isFinite(currentCi) ? currentCi + 1 : 1);
-            }
-            fallbackUrl.searchParams.set('t', parts.join('.'));
-          }
-          // Drop legacy standalone counters so iOS doesn't see truncation-bait.
-          fallbackUrl.searchParams.delete('_rc');
-          fallbackUrl.searchParams.delete('_ci');
-          // Any error here means the candidate file is being abandoned — the
-          // next /v hop will serve a different file, so the player's Range is
-          // invalid. Signal _norange=1 unconditionally; the next /v drops it.
+          // Site 6 of 6 redirect sites. Operates on the reconstructed
+          // `fallbackUrl` (built from `_fb`) rather than the original request
+          // URL, so it uses `incrementRedirectCounterOnUrl` instead of the
+          // request-based variant. For non-404 errors (file exists on disk
+          // but server can't serve it), advance ci so /stream doesn't
+          // re-resolve to the same broken video via library check. 404
+          // doesn't need ci++ because the file is genuinely gone; library
+          // check on the next request returns null.
+          incrementRedirectCounterOnUrl(fallbackUrl, !(err instanceof WebDav404Error));
+          // Any error here means the candidate file is being abandoned: the
+          // next /v hop will serve a different file, so the player's Range
+          // is invalid. Signal _norange=1 unconditionally; the next /v drops it.
           fallbackUrl.searchParams.set('_norange', '1');
           const label = err instanceof WebDav404Error ? `${err.statusCode}` : 'error';
-          console.log(`🔄 Upstream ${label} → fallback redirect to /stream (rc=${nextRc})`);
+          console.log(`🔄 Upstream ${label} → fallback redirect to /stream`);
           res.redirect(302, fallbackUrl.href);
         } else if (err instanceof WebDav404Error) {
           res.status(404).send('Video file not found');

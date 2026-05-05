@@ -22,9 +22,10 @@ export function getFallbackGroupTTLMs(): number {
   return (globalConfig.cacheTTL || 7200) * 1000;
 }
 
-// Disk persistence so the _fb redirect chain survives an addon restart —
-// otherwise a post-restart /v 404 redirects to /stream?fbg=… and finds no
-// group, breaking the alternative-candidate fallback. Mirrors streamCache.ts.
+// Disk persistence so the _fb redirect chain survives an addon restart;
+// otherwise a post-restart /v 404 redirects to /stream?t=<envelope> with
+// the original fbg inside, finds no in-memory group, and breaks the
+// alternative-candidate fallback. Mirrors streamCache.ts.
 const FALLBACK_GROUPS_FILE = path.join(__dirname, '..', '..', 'config', 'fallback-groups.json');
 const FALLBACK_GROUPS_SCHEMA_VERSION = 1;
 
