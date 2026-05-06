@@ -790,7 +790,7 @@ export function IndexManagerOverlay({
                                   ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
                                   : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
                               )}
-                            >Top</button>
+                            >First</button>
                             <button
                               onClick={() => setLibrarySkipTilePosition('last')}
                               className={clsx(
