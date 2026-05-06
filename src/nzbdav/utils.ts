@@ -4,6 +4,7 @@
  */
 
 import { config as globalConfig } from '../config/index.js';
+import { hasSeriesPackKeyword } from '../parsers/titleMatching.js';
 import type { NZBDavConfig } from './types.js';
 
 /**
@@ -32,7 +33,8 @@ export function buildEpisodePattern(season: number, episode: number, allowMultiE
  */
 export function folderCouldContainSeason(basename: string, season: number): boolean {
   // Multi-season indicators — assume the folder could span the target.
-  if (/\b(complete|all\s*seasons|full\s*series|the\s*complete)\b/i.test(basename)) return true;
+  // Shared with the indexer-result filter via hasSeriesPackKeyword.
+  if (hasSeriesPackKeyword(basename)) return true;
 
   // Collect every Sxx (with or without an Exx suffix) marker in the name.
   const seasonsFound: number[] = [];

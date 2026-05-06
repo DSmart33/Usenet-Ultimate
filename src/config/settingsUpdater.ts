@@ -6,7 +6,7 @@
  */
 
 import type { UsenetProvider, SearchConfig, AutoPlayConfig, SyncedIndexer, StreamDisplayConfig } from '../types.js';
-import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS, SERIES_PACK_KEYWORDS } from '../types.js';
 import { configData, saveConfigFile } from './schema.js';
 import { enforceZyclopsEnabled } from './indexerCrud.js';
 import { validateRulesBlock } from '../rules/importers.js';
@@ -304,6 +304,24 @@ export function updateSettings(settings: {
     }
     if (settings.searchConfig.libraryApplyToSeries !== undefined) {
       settings.searchConfig.libraryApplyToSeries = !!settings.searchConfig.libraryApplyToSeries;
+    }
+    if (settings.searchConfig.includeMultiSeasonPacks !== undefined) {
+      settings.searchConfig.includeMultiSeasonPacks = !!settings.searchConfig.includeMultiSeasonPacks;
+    }
+    if (settings.searchConfig.seriesPackKeywords !== undefined) {
+      // Whitelist canonical keywords on write so a malformed payload can't poison the field.
+      const KNOWN = new Set<string>(SERIES_PACK_KEYWORDS);
+      const raw = Array.isArray(settings.searchConfig.seriesPackKeywords) ? settings.searchConfig.seriesPackKeywords : [];
+      const seen = new Set<string>();
+      const cleaned: string[] = [];
+      for (const k of raw) {
+        if (typeof k !== 'string') continue;
+        if (!KNOWN.has(k)) continue;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        cleaned.push(k);
+      }
+      settings.searchConfig.seriesPackKeywords = cleaned;
     }
     configData.searchConfig = settings.searchConfig;
     configData.includeSeasonPacks = settings.searchConfig.includeSeasonPacks;

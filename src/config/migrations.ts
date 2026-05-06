@@ -91,13 +91,33 @@ if ((configData as any).gluetunUrl !== undefined || configData.proxyMode === 'gl
   console.log(`✅ Migrated legacy Gluetun proxy config to generic proxy naming`);
 }
 
-// Migrate legacy useTextSearch / includeSeasonPacks to searchConfig
+// Migrate: users upgrading from before Series Packs existed default to OFF.
+// Fresh installs hit this BEFORE line-95 creates their searchConfig, so they
+// have searchConfig === undefined and skip. Upgrading users have an existing
+// searchConfig (carried over from v1.3.0 or earlier) but no
+// includeMultiSeasonPacks field; set it false so behavior doesn't change
+// silently. Fresh installs pick up the UI useState default (true) on first run.
+if (configData.searchConfig !== undefined && configData.searchConfig.includeMultiSeasonPacks === undefined) {
+  configData.searchConfig.includeMultiSeasonPacks = false;
+  saveConfigFile(configData);
+  console.log('✅ Series Packs default OFF for users upgrading from before Series Packs existed');
+}
+
+// Migrate legacy useTextSearch / includeSeasonPacks to searchConfig.
+// Fresh installs land here (no prior searchConfig); seed Series Packs defaults
+// (master ON, Complete keyword) so headless users get the same behavior as
+// users who open the UI. Upgrading users (with existing searchConfig) hit the
+// migration above instead and get Series Packs OFF.
 if (configData.searchConfig === undefined) {
   const method = configData.useTextSearch ? 'text' as const : 'imdb' as const;
   configData.searchConfig = {
     movieSearchMethod: method,
     tvSearchMethod: method,
     includeSeasonPacks: configData.includeSeasonPacks ?? true,
+    includeMultiSeasonPacks: true,
+    seriesPackKeywords: [],
+    seriesPackPagination: true,
+    seriesPackAdditionalPages: 1,
   };
   saveConfigFile(configData);
   console.log(`✅ Migrated search settings to searchConfig (method=${method})`);

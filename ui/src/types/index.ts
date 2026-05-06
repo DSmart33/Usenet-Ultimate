@@ -76,6 +76,7 @@ export interface SearchConfig {
   tmdbApiKey?: string;
   tvdbApiKey?: string;
   includeSeasonPacks?: boolean;
+  includeMultiSeasonPacks?: boolean;
   seasonPackPagination?: boolean;
   seasonPackAdditionalPages?: number;
   useTextSearchForAnime?: boolean;
@@ -83,6 +84,9 @@ export interface SearchConfig {
   indexerPriorityDedup?: boolean;
   urlDedup?: boolean;
   junkFilter?: boolean;
+  seriesPackKeywords?: string[];
+  seriesPackPagination?: boolean;
+  seriesPackAdditionalPages?: number;
   librarySearchThreshold?: number;
   libraryApplyToMovies?: boolean;
   libraryApplyToSeries?: boolean;
@@ -96,6 +100,9 @@ export interface SearchConfig {
   movieSearchMethod?: string;
   tvSearchMethod?: string;
 }
+
+// Mirrors backend SERIES_PACK_KEYWORDS. Keep alphabetical so chip order is stable.
+export const SERIES_PACK_KEYWORDS = ['All Seasons', 'Anthology', 'Boxset', 'Collection', 'Complete', 'Saga'] as const;
 
 export interface StreamDisplayElement {
   id: string;

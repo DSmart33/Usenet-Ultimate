@@ -139,6 +139,10 @@ export interface SearchConfig {
   parallelAlternateTitleSearch?: boolean;  // Run primary + alt-title searches in parallel from the start instead of using alts only as a zero-result fallback. UTS only. (default false)
   tvdbPreferEnglishTitle?: boolean;  // When TVDB's canonical title is non-English, substitute the English translation for indexer text search (default true)
   aliasTitleFallback?: boolean;  // When a UTS search returns zero results, retry once per English alias from TVDB whose normalized form is a strict substring of the canonical title and substantially shorter. UTS only. (default true)
+  includeMultiSeasonPacks?: boolean;  // Series Packs master toggle. When true (default for fresh installs, false for users upgrading from before this field existed), gates the multi-season fanout query and keyword queries.
+  seriesPackKeywords?: string[];  // Each enabled keyword fires a '<Title> <Keyword>' indexer query to catch keyword-only releases without Sxx tokens. Empty array means no keyword queries fire. Allowed values come from SERIES_PACK_KEYWORDS.
+  seriesPackPagination?: boolean;  // Enable pagination for series-pack queries (multi-season fanout + keyword queries). Independent of seasonPackPagination. (default true)
+  seriesPackAdditionalPages?: number;  // Additional pages for series-pack queries (1-10).
   librarySearchThreshold?: number;  // 0 = disabled, 1-10 = WebDAV library short-circuit: when scan returns ≥ threshold matches, skip indexer queries entirely
   libraryApplyToMovies?: boolean;  // When false, Ultimate Library is skipped for movie requests (default true)
   libraryApplyToSeries?: boolean;  // When false, Ultimate Library is skipped for series requests (default true)
@@ -151,6 +155,12 @@ export interface SearchConfig {
   movieSearchMethod?: 'imdb' | 'tmdb' | 'tvdb' | 'text';
   tvSearchMethod?: 'imdb' | 'tvdb' | 'tvmaze' | 'text';
 }
+
+// Canonical chip values for seriesPackKeywords. Single source of truth shared
+// by the UI chip selector, the settings whitelist, and the fresh-install
+// migration default. Order is alphabetical (matches UI chip order).
+export const SERIES_PACK_KEYWORDS = ['All Seasons', 'Anthology', 'Boxset', 'Collection', 'Complete', 'Saga'] as const;
+export type SeriesPackKeyword = typeof SERIES_PACK_KEYWORDS[number];
 
 // Our app configuration
 export interface Config {

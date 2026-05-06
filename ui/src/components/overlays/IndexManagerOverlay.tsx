@@ -25,6 +25,7 @@ import {
 import { useCallback, useState } from 'react';
 import clsx from 'clsx';
 import type { Config, Indexer, SyncedIndexer, IndexerCaps } from '../../types';
+import { SERIES_PACK_KEYWORDS } from '../../types';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
 import { TimeoutStepper } from '../shared/TimeoutStepper';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../../constants';
@@ -56,10 +57,21 @@ interface IndexManagerOverlayProps {
   // Season packs
   includeSeasonPacks: boolean;
   setIncludeSeasonPacks: React.Dispatch<React.SetStateAction<boolean>>;
+  includeMultiSeasonPacks: boolean;
+  setIncludeMultiSeasonPacks: React.Dispatch<React.SetStateAction<boolean>>;
+
+  // Series-pack indexer search (advanced; keyword-only releases without Sxx tokens).
+  // Empty array means feature is off; selecting a chip enables that keyword's query.
+  seriesPackKeywords: string[];
+  setSeriesPackKeywords: React.Dispatch<React.SetStateAction<string[]>>;
   seasonPackPagination: boolean;
   setSeasonPackPagination: React.Dispatch<React.SetStateAction<boolean>>;
   seasonPackAdditionalPages: number;
   setSeasonPackAdditionalPages: React.Dispatch<React.SetStateAction<number>>;
+  seriesPackPagination: boolean;
+  setSeriesPackPagination: React.Dispatch<React.SetStateAction<boolean>>;
+  seriesPackAdditionalPages: number;
+  setSeriesPackAdditionalPages: React.Dispatch<React.SetStateAction<number>>;
 
   // URL dedup
   urlDedup: boolean;
@@ -234,10 +246,18 @@ export function IndexManagerOverlay({
   testTvdbKey,
   includeSeasonPacks,
   setIncludeSeasonPacks,
+  includeMultiSeasonPacks,
+  setIncludeMultiSeasonPacks,
+  seriesPackKeywords,
+  setSeriesPackKeywords,
   seasonPackPagination,
   setSeasonPackPagination,
   seasonPackAdditionalPages,
   setSeasonPackAdditionalPages,
+  seriesPackPagination,
+  setSeriesPackPagination,
+  seriesPackAdditionalPages,
+  setSeriesPackAdditionalPages,
   urlDedup,
   setUrlDedup,
   librarySearchThreshold,
@@ -712,7 +732,7 @@ export function IndexManagerOverlay({
                     <p>When Ultimate Library returns at least the configured number of results after filtering, indexer searches are skipped entirely.</p>
                     <p>Supports <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent font-semibold">Ultimate Fallback</span> and is powered by <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent font-semibold">Ultimate Text Search</span>.</p>
                   </div>
-                  <p className="text-xs text-amber-400/60 italic">Pairs best with Season Packs enabled.</p>
+                  <p className="text-xs text-amber-400/60 italic">Pairs best with Season and Series Packs enabled.</p>
 
                   {librarySearchThreshold > 0 && (
                     <div className="space-y-3 pt-2 border-t border-amber-500/20">
@@ -945,6 +965,94 @@ export function IndexManagerOverlay({
                       </div>
                     )}
                   </div>
+                )}
+
+              </div>
+
+              {/* Series Packs (own card) */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium text-slate-300">Series Packs</div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeMultiSeasonPacks}
+                      onChange={(e) => setIncludeMultiSeasonPacks(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Requests an extra <code className="text-slate-400">Show Title S01</code> query for non-S01 searches to catch starts-at-S01 multi-season packs (S01-S06, etc.). Adds one query per indexer per search when season &gt; 1.
+                </p>
+                {includeMultiSeasonPacks && (
+                  <>
+                    <div className="pt-3 border-t border-slate-700/30 space-y-2">
+                      <div className="text-xs font-medium text-slate-300">Keyword queries</div>
+                      <p className="text-xs text-slate-500">
+                        Each selected keyword requests a <code className="text-slate-400">Show Title &lt;keyword&gt;</code> query. Adds value for keyword-only releases without Sxx tokens. Click a chip to enable; deselect all to disable the feature.
+                      </p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {SERIES_PACK_KEYWORDS.map((kw) => {
+                          const checked = seriesPackKeywords.includes(kw);
+                          return (
+                            <button
+                              key={kw}
+                              type="button"
+                              onClick={() => {
+                                if (checked) {
+                                  setSeriesPackKeywords(seriesPackKeywords.filter(k => k !== kw));
+                                } else {
+                                  setSeriesPackKeywords([...seriesPackKeywords, kw]);
+                                }
+                              }}
+                              className={clsx(
+                                "px-3 py-1 rounded-md text-xs font-medium border transition-colors",
+                                checked
+                                  ? "bg-primary-500/20 border-primary-500/50 text-primary-300"
+                                  : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                              )}
+                            >{kw}</button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-slate-500">Each enabled keyword adds one query per indexer per search.</p>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-700/30 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <label htmlFor="series-pack-pagination" className="flex-1 cursor-pointer text-xs text-slate-400">
+                          Enable pagination for series pack searches
+                        </label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            id="series-pack-pagination"
+                            checked={seriesPackPagination}
+                            onChange={(e) => setSeriesPackPagination(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                        </label>
+                      </div>
+                      {seriesPackPagination && (
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs text-slate-400">Additional pages</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={seriesPackAdditionalPages}
+                            onChange={(e) => setSeriesPackAdditionalPages(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                            onFocus={(e) => e.target.select()}
+                            className="input w-20 text-sm"
+                          />
+                          <span className="text-xs text-slate-500">Extra pages for series pack searches</span>
+                        </div>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
 

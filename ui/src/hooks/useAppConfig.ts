@@ -129,8 +129,12 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [tmdbApiKey, setTmdbApiKey] = useState('');
   const [tvdbApiKey, setTvdbApiKey] = useState('');
   const [includeSeasonPacks, setIncludeSeasonPacks] = useState(true);
+  const [includeMultiSeasonPacks, setIncludeMultiSeasonPacks] = useState(true);
   const [seasonPackPagination, setSeasonPackPagination] = useState(true);
   const [seasonPackAdditionalPages, setSeasonPackAdditionalPages] = useState(1);
+  const [seriesPackKeywords, setSeriesPackKeywords] = useState<string[]>([]);
+  const [seriesPackPagination, setSeriesPackPagination] = useState(true);
+  const [seriesPackAdditionalPages, setSeriesPackAdditionalPages] = useState(1);
   const [indexerPriorityDedup, setIndexerPriorityDedup] = useState(false);
   const [urlDedup, setUrlDedup] = useState(true);
   const [junkFilter, setJunkFilter] = useState(true);
@@ -403,8 +407,15 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         tmdbApiKey: tmdbApiKey || undefined,
         tvdbApiKey: tvdbApiKey || undefined,
         includeSeasonPacks,
+        includeMultiSeasonPacks,
         seasonPackPagination: includeSeasonPacks ? seasonPackPagination : undefined,
         seasonPackAdditionalPages: includeSeasonPacks && seasonPackPagination ? seasonPackAdditionalPages : undefined,
+        // Persist the array as-is when master is on, even if empty, so the user's
+        // intent to disable keyword queries (deselect every chip) survives reload.
+        // Drop the field entirely only when the master toggle is off.
+        seriesPackKeywords: includeMultiSeasonPacks ? seriesPackKeywords : undefined,
+        seriesPackPagination: includeMultiSeasonPacks ? seriesPackPagination : undefined,
+        seriesPackAdditionalPages: includeMultiSeasonPacks && seriesPackPagination ? seriesPackAdditionalPages : undefined,
         indexerPriorityDedup,
         urlDedup,
         junkFilter,
@@ -426,7 +437,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, librarySearchThreshold, libraryApplyToMovies, libraryApplyToSeries, librarySearchScanUncategorized, displayLibraryInResults, libraryDeleteAllTile, libraryDeletePerStreamTile, librarySkipTilePosition, libraryDeleteAllPackScope, absoluteEpisodeFallback, parallelAlternateTitleSearch, aliasTitleFallback, tvdbPreferEnglishTitle, cacheEmptyResults, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, includeMultiSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, seriesPackKeywords, seriesPackPagination, seriesPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, librarySearchThreshold, libraryApplyToMovies, libraryApplyToSeries, librarySearchScanUncategorized, displayLibraryInResults, libraryDeleteAllTile, libraryDeletePerStreamTile, librarySkipTilePosition, libraryDeleteAllPackScope, absoluteEpisodeFallback, parallelAlternateTitleSearch, aliasTitleFallback, tvdbPreferEnglishTitle, cacheEmptyResults, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -574,6 +585,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setTmdbApiKey(sc?.tmdbApiKey || '');
       setTvdbApiKey(sc?.tvdbApiKey || '');
       setIncludeSeasonPacks(sc?.includeSeasonPacks ?? data.includeSeasonPacks ?? true);
+      setIncludeMultiSeasonPacks(sc?.includeMultiSeasonPacks ?? true);
+      setSeriesPackKeywords(Array.isArray(sc?.seriesPackKeywords) ? sc.seriesPackKeywords : []);
+      setSeriesPackPagination(sc?.seriesPackPagination ?? true);
+      setSeriesPackAdditionalPages(sc?.seriesPackAdditionalPages ?? 1);
       setSeasonPackPagination(sc?.seasonPackPagination ?? true);
       setSeasonPackAdditionalPages(sc?.seasonPackAdditionalPages || 1);
       setIndexerPriorityDedup(sc?.indexerPriorityDedup ?? false);
@@ -1302,6 +1317,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     tmdbApiKey, setTmdbApiKey,
     tvdbApiKey, setTvdbApiKey,
     includeSeasonPacks, setIncludeSeasonPacks,
+    includeMultiSeasonPacks, setIncludeMultiSeasonPacks,
+    seriesPackKeywords, setSeriesPackKeywords,
+    seriesPackPagination, setSeriesPackPagination,
+    seriesPackAdditionalPages, setSeriesPackAdditionalPages,
     seasonPackPagination, setSeasonPackPagination,
     seasonPackAdditionalPages, setSeasonPackAdditionalPages,
     indexerPriorityDedup, setIndexerPriorityDedup,

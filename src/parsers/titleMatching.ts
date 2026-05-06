@@ -6,7 +6,8 @@
  */
 
 import { parseYear } from './metadataParsers.js';
-import type { NZBSearchResult } from '../types.js';
+import type { NZBSearchResult, SearchConfig } from '../types.js';
+import { slog } from './searchLogger.js';
 
 // --- Title normalization ---
 
@@ -297,7 +298,40 @@ export function titleContainsSeasonPack(title: string, season: number): { matche
       return { matched: true, seasonSpan };
     }
   }
+  // Keyword fallthrough: 'Show.Complete.Series', 'Show.Anthology', etc.
+  // seasonSpan=0 signals "covers but span unknown" so size estimation
+  // gracefully degrades in tagSeasonPack. Guards:
+  //   1) Reject titles with a single-episode token (`SxxExx`); a release like
+  //      `Show.S01E01.Complete` is one episode, not a series pack.
+  //   2) If the title has explicit season tokens, only accept when one of
+  //      them is the requested season. This prevents `Show.S06.Complete`
+  //      from matching an S01 query just because it has the keyword.
+  if (hasSeriesPackKeyword(title)) {
+    if (/\bS\d{1,2}[._\s-]?E\d{1,3}\b/i.test(title)) return { matched: false, seasonSpan: 0 };
+    const seasonTokens: number[] = [];
+    for (const m of title.matchAll(/(?<![A-Za-z0-9])S(\d{1,2})(?:E\d{1,3})?(?![A-Za-z0-9])/gi)) {
+      seasonTokens.push(parseInt(m[1], 10));
+    }
+    if (seasonTokens.length === 0) return { matched: true, seasonSpan: 0 };
+    if (seasonTokens.includes(season)) return { matched: true, seasonSpan: 0 };
+  }
   return { matched: false, seasonSpan: 0 };
+}
+
+/**
+ * Keyword detector for series-pack release titles. Single source of truth
+ * shared by the indexer-result filter (titleContainsSeasonPack) and the
+ * WebDAV scanner's folder check (folderCouldContainSeason). Catches the
+ * canonical pack keywords that don't include explicit Sxx tokens:
+ * Complete, All Seasons, Full Series, Anthology, Boxset, Collection, Saga.
+ *
+ * Used as a fallthrough only after direct/range checks fail, so a single-
+ * episode release like 'Show.Saga.S01E01.1080p' won't keyword-match before
+ * the upstream parser excludes it via parseTorrentTitle's episode detection.
+ */
+const SERIES_PACK_KEYWORD_RE = /\b(complete|all\s*seasons|full\s*series|the\s*complete|anthology|box[\s.-]?set|collection|saga)\b/i;
+export function hasSeriesPackKeyword(text: string): boolean {
+  return SERIES_PACK_KEYWORD_RE.test(text);
 }
 
 /**
@@ -318,8 +352,95 @@ export function tagSeasonPack<T extends NZBSearchResult>(
       ...r,
       isSeasonPack: true,
       estimatedEpisodeSize:
-        episodesInSeason && episodesInSeason > 0
+        episodesInSeason && episodesInSeason > 0 && span.seasonSpan > 0
           ? Math.round(r.size / (episodesInSeason * span.seasonSpan))
           : undefined,
     }));
+}
+
+/**
+ * Build a pagination override for series-pack queries (multi-season fanout +
+ * keyword queries) using the Newznab `maxPages` shape. Used by usenetSearcher.
+ * Returns undefined when pagination is disabled or no extra pages are
+ * configured, so callers can pass it through directly.
+ */
+export function buildSeriesPackPaginationMaxPages(cfg: SearchConfig | undefined): { enabled: true; maxPages: number } | undefined {
+  const enabled = cfg?.seriesPackPagination !== false;
+  const pages = cfg?.seriesPackAdditionalPages;
+  return enabled && pages ? { enabled: true, maxPages: pages } : undefined;
+}
+
+/**
+ * Variant of {@link buildSeriesPackPaginationMaxPages} that returns the
+ * Prowlarr/NZBHydra `additionalPages` shape.
+ */
+export function buildSeriesPackPaginationAdditionalPages(cfg: SearchConfig | undefined): { enabled: true; additionalPages: number } | undefined {
+  const enabled = cfg?.seriesPackPagination !== false;
+  const pages = cfg?.seriesPackAdditionalPages;
+  return enabled && pages ? { enabled: true, additionalPages: pages } : undefined;
+}
+
+/**
+ * Variant for callers (EasyNews) whose pagination override is just a number
+ * of additional pages, not an object.
+ */
+export function getSeriesPackAdditionalPages(cfg: SearchConfig | undefined): number | undefined {
+  return cfg?.seriesPackPagination === false ? undefined : cfg?.seriesPackAdditionalPages;
+}
+
+/**
+ * Run series-pack keyword queries (e.g. '<Title> Complete'). Each query is run
+ * via the caller-supplied searchFn so each indexer client can bind its own
+ * pagination/category options. Results are title-matched and tagged via
+ * tagSeasonPack so the same filter the per-season pack search uses applies here.
+ *
+ * Returns an empty array when the Series Packs master toggle is off OR no
+ * keywords are selected, so callers can append-and-forget. Note: this function
+ * gates only the keyword half of Series Packs; the multi-season fanout has its
+ * own gate inside each searcher.
+ */
+export async function runSeriesPackQueries<T extends NZBSearchResult>(opts: {
+  searchFn: (query: string) => Promise<T[]>,
+  title: string,
+  season: number,
+  episodesInSeason: number | undefined,
+  isTitleMatch: (resultTitle: string) => boolean,
+  searchConfig: SearchConfig | undefined,
+  logPrefix?: string,  // e.g. indexer name; tags log lines for parallel-search disambiguation
+}): Promise<T[]> {
+  const cfg = opts.searchConfig;
+  // Gated on the Series Packs master toggle (includeMultiSeasonPacks). When the
+  // user disables Series Packs, all card features (fanout + keyword queries) go silent.
+  const seriesPacksEnabled = cfg?.includeMultiSeasonPacks ?? true;
+  if (!seriesPacksEnabled) return [];
+  const keywords = cfg?.seriesPackKeywords ?? [];
+  if (keywords.length === 0) {
+    const tag = opts.logPrefix ? `[${opts.logPrefix}] ` : '';
+    slog(`📦 ${tag}Series-pack: skipped (no keywords selected)`);
+    return [];
+  }
+
+  const baseTitle = stripDiacritics(opts.title);
+  const tag = opts.logPrefix ? `[${opts.logPrefix}] ` : '';
+
+  const runQuery = async (q: string, label: string): Promise<T[]> => {
+    slog(`🔍 ${tag}Series-pack search for: ${q}`);
+    const results = await opts.searchFn(q);
+    const before = results.length;
+    const matched = results.filter(r => opts.isTitleMatch(r.title));
+    const tagged = tagSeasonPack(matched, opts.season, opts.episodesInSeason);
+    if (before !== tagged.length) {
+      const keptLinks = new Set(tagged.map(p => p.link));
+      const removed = results.filter(r => !keptLinks.has(r.link));
+      slog(`   📦 ${tag}Series-pack filter [${label}]: ${before} → ${tagged.length} (removed ${removed.length} mismatches)`);
+      removed.forEach(r => slog(`      ✂️  ${r.title}`));
+    }
+    if (tagged.length > 0) {
+      slog(`   📦 ${tag}Found ${tagged.length} series-pack candidate(s) for "${label}"`);
+    }
+    return tagged;
+  };
+
+  const arrays = await Promise.all(keywords.map(kw => runQuery(`${baseTitle} ${kw}`, kw)));
+  return arrays.flat();
 }
