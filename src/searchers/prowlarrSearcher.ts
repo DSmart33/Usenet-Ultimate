@@ -22,7 +22,8 @@ import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult, ProwlarrSearchResult } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
-import { isTextSearchMatch, stripDiacritics, tagSeasonPack } from '../parsers/titleMatching.js';
+import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, buildSeriesPackPaginationAdditionalPages } from '../parsers/titleMatching.js';
+import { slog, withSubBuffer } from '../parsers/searchLogger.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 
@@ -70,27 +71,23 @@ export class ProwlarrSearcher {
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const groups = this.groupByMethod('movie');
     const searches: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
-    const textFallbackIds: string[] = [];
     const idSearchedIndexerIds: string[] = [];
 
     for (const [method, indexerIds] of groups) {
       if (method === 'text') {
-        // Aggregate text search — one request for all text-method indexers
         const query = stripDiacritics(year ? `${title} ${year}` : title);
-        console.log(`🔍 Prowlarr movie text search for ${indexerIds.length} indexer(s) ${this.timeoutLabel()}: "${query}"`);
-        searches.push(
-          this.doAggregateSearch(indexerIds, 'search', query, ['2000']).then(results => {
-            const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-            console.log(`   🎯 Title filter: ${results.length} → ${filtered.length}`);
-            if (results.length !== filtered.length) {
-              results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-                .forEach(r => console.log(`      ✂️  ${r.title}`));
-            }
-            return filtered;
-          }),
-        );
+        searches.push(withSubBuffer(`movie text search × ${indexerIds.length} indexer(s)`, async () => {
+          slog(`🔍 Query: "${query}"`);
+          const results = await this.doAggregateSearch(indexerIds, 'search', query, ['2000']);
+          const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          slog(`   🎯 Title filter: ${results.length} → ${filtered.length}`);
+          if (results.length !== filtered.length) {
+            results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
+              .forEach(r => slog(`      ✂️  ${r.title}`));
+          }
+          return filtered;
+        }));
       } else {
-        // ID-based search — per-indexer Newznab endpoint
         for (const indexerId of indexerIds) {
           const indexer = this.indexers.find(i => i.id === indexerId);
           const indexerName = indexer?.name || 'Unknown';
@@ -103,72 +100,35 @@ export class ProwlarrSearcher {
           } else if (method === 'tvdb' && resolvedIds?.get('tvdb')) {
             params.tvdbid = parseInt(resolvedIds.get('tvdb')!.idValue, 10);
           } else {
-            // ID resolution failed — defer to text fallback
-            console.log(`⚠️  ${method} ID unavailable for "${indexerName}" (id=${indexerId}), deferring to text fallback`);
-            textFallbackIds.push(indexerId);
+            slog(`⚠️  ${method} ID unavailable for "${indexerName}" (id=${indexerId}) — skipping`);
             continue;
           }
 
-          console.log(`🔍 Prowlarr movie ${method} search for "${indexerName}" (id=${indexerId}) ${this.timeoutLabel()}`);
-          searches.push(this.doNewznabSearch(indexerId, indexerName, params));
+          searches.push(withSubBuffer(`movie ${method} search "${indexerName}"`, () => this.doNewznabSearch(indexerId, indexerName, params, undefined, method)));
           idSearchedIndexerIds.push(indexerId);
         }
       }
     }
 
-    // Text fallback for indexers whose external ID could not be resolved
-    if (textFallbackIds.length > 0 && title) {
-      const query = stripDiacritics(year ? `${title} ${year}` : title);
-      console.log(`🔄 ID resolution failed — text fallback for ${textFallbackIds.length} indexer(s): "${query}"`);
-      searches.push(
-        this.doAggregateSearch(textFallbackIds, 'search', query, ['2000']).then(results => {
-          const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-          console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
-          if (results.length !== filtered.length) {
-            results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-              .forEach(r => console.log(`      ✂️  ${r.title}`));
-          }
-          return filtered;
-        }),
-      );
-    }
-
     const resultSets = await Promise.all(searches);
     let allResults = resultSets.flat();
 
-    // Zero-result text fallback: if ID-based searches returned nothing, retry with text
-    if (allResults.length === 0 && idSearchedIndexerIds.length > 0 && title && this.timedOut) {
-      console.log(`   ⏱️  Prowlarr: skipping text fallback (prior timeout)`);
-    }
-    if (allResults.length === 0 && idSearchedIndexerIds.length > 0 && title && !this.timedOut) {
-      const query = stripDiacritics(year ? `${title} ${year}` : title);
-      console.log(`🔄 ID search returned 0 — falling back to text for ${idSearchedIndexerIds.length} indexer(s): "${query}"`);
-      const fallbackResults = await this.doAggregateSearch(idSearchedIndexerIds, 'search', query, ['2000']);
-      const filtered = fallbackResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-      console.log(`   🎯 Text fallback filter: ${fallbackResults.length} → ${filtered.length}`);
-      if (fallbackResults.length !== filtered.length) {
-        fallbackResults.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-          .forEach(r => console.log(`      ✂️  ${r.title}`));
-      }
-      allResults = filtered;
-    }
-
     // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
     if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
-      console.log(`   ⏱️  Prowlarr: skipping alt-title retry (prior timeout)`);
+      slog(`   ⏱️  Prowlarr: skipping alt-title retry (prior timeout)`);
     }
     if (allResults.length === 0 && additionalTitles?.length && !this.timedOut) {
-      const allIndexerIds = [...new Set([...idSearchedIndexerIds, ...textFallbackIds])];
+      const allIndexerIds = [...new Set(idSearchedIndexerIds)];
       if (allIndexerIds.length > 0) {
         for (const altTitle of additionalTitles) {
           const altQuery = stripDiacritics(year ? `${altTitle} ${year}` : altTitle);
-          console.log(`🔄 Retrying with alternative title for ${allIndexerIds.length} indexer(s): "${altQuery}"`);
+          slog(`🔄 Retrying with alternative title for ${allIndexerIds.length} indexer(s): "${altQuery}"`);
           const altResults = await this.doAggregateSearch(allIndexerIds, 'search', altQuery, ['2000']);
           const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
-          console.log(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+          slog(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
           if (altResults.length !== altFiltered.length) {
             altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
-              .forEach(r => console.log(`      ✂️  ${r.title}`));
+              .forEach(r => slog(`      ✂️  ${r.title}`));
           }
           if (altFiltered.length > 0) {
             allResults = altFiltered;
@@ -198,50 +158,25 @@ export class ProwlarrSearcher {
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
 
-    // Track which indexer IDs used ID-based search (for zero-result text fallback)
     const idSearchedIndexerIds: string[] = [];
-    const textFallbackIds: string[] = [];
+    const textMethodIds: string[] = [];
 
     for (const [method, indexerIds] of groups) {
       if (method === 'text') {
-        // Aggregate text search with SxxExx format
+        textMethodIds.push(...indexerIds);
         const query = stripDiacritics(`${title} S${s}E${e}`);
-        console.log(`🔍 Prowlarr TV text search for ${indexerIds.length} indexer(s) ${this.timeoutLabel()}: "${query}"`);
-        searches.push(
-          this.doAggregateSearch(indexerIds, 'search', query, ['5000']).then(async results => {
-            const episodeFiltered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-            console.log(`   🎯 Title filter: ${results.length} → ${episodeFiltered.length}`);
-            if (results.length !== episodeFiltered.length) {
-              results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-                .forEach(r => console.log(`      ✂️  ${r.title}`));
-            }
-
-            // Check for season packs if configured
-            if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
-              const spPagination = config.searchConfig?.seasonPackPagination !== false;
-              const spPages = config.searchConfig?.seasonPackAdditionalPages;
-              const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
-              const packQuery = stripDiacritics(`${title} S${s}`);
-              const packResults = await this.doAggregateSearch(indexerIds, 'search', packQuery, ['5000'], spOverride);
-              const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-              const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
-              if (packResults.length !== packs.length) {
-                const keptLinks = new Set(packs.map(p => p.link));
-                const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-                console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
-                removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
-              }
-              if (packs.length > 0) {
-                console.log(`   📦 Found ${packs.length} season packs`);
-              }
-              episodeFiltered.push(...packs);
-            }
-
-            return episodeFiltered;
-          }),
-        );
+        searches.push(withSubBuffer(`TV text search × ${indexerIds.length} indexer(s)`, async () => {
+          slog(`🔍 Query: "${query}"`);
+          const results = await this.doAggregateSearch(indexerIds, 'search', query, ['5000']);
+          const episodeFiltered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          slog(`   🎯 Title filter: ${results.length} → ${episodeFiltered.length}`);
+          if (results.length !== episodeFiltered.length) {
+            results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
+              .forEach(r => slog(`      ✂️  ${r.title}`));
+          }
+          return episodeFiltered;
+        }));
       } else {
-        // ID-based search — per-indexer Newznab endpoint
         for (const indexerId of indexerIds) {
           const indexer = this.indexers.find(i => i.id === indexerId);
           const indexerName = indexer?.name || 'Unknown';
@@ -259,133 +194,83 @@ export class ProwlarrSearcher {
           } else if (method === 'tvmaze' && resolvedIds?.get('tvmaze')) {
             params.tvmazeid = parseInt(resolvedIds.get('tvmaze')!.idValue, 10);
           } else {
-            // ID resolution failed — defer to text fallback
-            console.log(`⚠️  ${method} ID unavailable for "${indexerName}" (id=${indexerId}), deferring to text fallback`);
-            textFallbackIds.push(indexerId);
+            slog(`⚠️  ${method} ID unavailable for "${indexerName}" (id=${indexerId}) — skipping`);
             continue;
           }
 
-          console.log(`🔍 Prowlarr TV ${method} search S${season}E${episode} for "${indexerName}" (id=${indexerId}) ${this.timeoutLabel()}`);
-          searches.push(this.doNewznabSearch(indexerId, indexerName, params));
+          searches.push(withSubBuffer(`TV ${method} search S${season}E${episode} "${indexerName}"`, () => this.doNewznabSearch(indexerId, indexerName, params, undefined, method)));
           idSearchedIndexerIds.push(indexerId);
         }
       }
     }
 
-    // Text fallback for indexers whose external ID could not be resolved
-    if (textFallbackIds.length > 0 && title) {
-      const query = stripDiacritics(`${title} S${s}E${e}`);
-      console.log(`🔄 ID resolution failed — text fallback for ${textFallbackIds.length} indexer(s): "${query}"`);
-      searches.push(
-        this.doAggregateSearch(textFallbackIds, 'search', query, ['5000']).then(async results => {
-          const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-          console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
-          if (results.length !== filtered.length) {
-            results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-              .forEach(r => console.log(`      ✂️  ${r.title}`));
-          }
-          if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
-            const spPagination = config.searchConfig?.seasonPackPagination !== false;
-            const spPages = config.searchConfig?.seasonPackAdditionalPages;
-            const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
-            const packQuery = stripDiacritics(`${title} S${s}`);
-            const packResults = await this.doAggregateSearch(textFallbackIds, 'search', packQuery, ['5000'], spOverride);
-            const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-            const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
-            if (packResults.length !== packs.length) {
-              const keptLinks = new Set(packs.map(p => p.link));
-              const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-              console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
-              removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
-            }
-            if (packs.length > 0) console.log(`   📦 Found ${packs.length} season packs (text fallback)`);
-            filtered.push(...packs);
-          }
-          return filtered;
-        }),
-      );
-    }
-
-    const resultSets = await Promise.all(searches);
-    let allResults = resultSets.flat();
-
-    // Season packs for ID-based indexers (text-search indexers already include packs inline)
-    if (config.searchConfig?.includeSeasonPacks && episodesInSeason && idSearchedIndexerIds.length > 0 && title) {
-      const spPagination = config.searchConfig?.seasonPackPagination !== false;
-      const spPages = config.searchConfig?.seasonPackAdditionalPages;
-      const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
-      const packQuery = stripDiacritics(`${title} S${s}`);
-      console.log(`📦 Prowlarr season pack search for ${idSearchedIndexerIds.length} ID-based indexer(s): "${packQuery}"`);
-      const packResults = await this.doAggregateSearch(idSearchedIndexerIds, 'search', packQuery, ['5000'], spOverride);
-      const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-      const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
-      if (packResults.length !== packs.length) {
-        const keptLinks = new Set(packs.map(p => p.link));
-        const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-        console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
-        removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
-      }
-      if (packs.length > 0) {
-        console.log(`   📦 Found ${packs.length} season packs (ID-based indexers)`);
-      }
-      allResults.push(...packs);
-    }
-
-    // Text fallback: if ID-based searches returned 0 results, retry those indexers with text
-    if (allResults.length === 0 && idSearchedIndexerIds.length > 0 && title && this.timedOut) {
-      console.log(`   ⏱️  Prowlarr: skipping text fallback (prior timeout)`);
-    }
-    if (allResults.length === 0 && idSearchedIndexerIds.length > 0 && title && !this.timedOut) {
-      const query = stripDiacritics(`${title} S${s}E${e}`);
-      console.log(`🔄 ID search returned 0 — falling back to text for ${idSearchedIndexerIds.length} indexer(s): "${query}"`);
-      const fallbackResults = await this.doAggregateSearch(idSearchedIndexerIds, 'search', query, ['5000']);
-      const filtered = fallbackResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-      console.log(`   🎯 Text fallback filter: ${fallbackResults.length} → ${filtered.length}`);
-      if (fallbackResults.length !== filtered.length) {
-        fallbackResults.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-          .forEach(r => console.log(`      ✂️  ${r.title}`));
-      }
-
-      // Also check for season packs on text fallback
+    const packIndexerIds = [...new Set([...textMethodIds, ...idSearchedIndexerIds])];
+    if (packIndexerIds.length > 0 && title) {
       if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
         const spPagination = config.searchConfig?.seasonPackPagination !== false;
         const spPages = config.searchConfig?.seasonPackAdditionalPages;
         const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
         const packQuery = stripDiacritics(`${title} S${s}`);
-        const packResults = await this.doAggregateSearch(idSearchedIndexerIds, 'search', packQuery, ['5000'], spOverride);
-        const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-        const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
-        if (packResults.length !== packs.length) {
-          const keptLinks = new Set(packs.map(p => p.link));
-          const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-          console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
-          removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
-        }
-        if (packs.length > 0) {
-          console.log(`   📦 Found ${packs.length} season packs (fallback)`);
-        }
-        filtered.push(...packs);
+        searches.push(withSubBuffer(`Season pack: ${packQuery}`, async () => {
+          const packResults = await this.doAggregateSearch(packIndexerIds, 'search', packQuery, ['5000'], spOverride);
+          const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
+          if (packResults.length !== packs.length) {
+            const keptLinks = new Set(packs.map(p => p.link));
+            const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
+            slog(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
+            removedPacks.forEach(r => slog(`      ✂️  ${r.title}`));
+          }
+          if (packs.length > 0) slog(`   📦 Found ${packs.length} season packs`);
+          return packs;
+        }));
       }
 
-      allResults = filtered;
+      const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
+      if (season > 1 && includeMultiSeasonPacks) {
+        const fanoutOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
+        const fanoutQuery = stripDiacritics(`${title} S01`);
+        searches.push(withSubBuffer(`Multi-season fanout: ${fanoutQuery}`, async () => {
+          const fanoutResults = await this.doAggregateSearch(packIndexerIds, 'search', fanoutQuery, ['5000'], fanoutOverride);
+          const fanoutMatched = fanoutResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
+          if (fanoutResults.length !== fanoutPacks.length) {
+            slog(`   📦 Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
+          }
+          if (fanoutPacks.length > 0) slog(`   📦 Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
+          return fanoutPacks;
+        }));
+      }
+
+      const seriesOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
+      searches.push(withSubBuffer(`Series-pack keyword queries`, () => runSeriesPackQueries({
+        searchFn: (q) => this.doAggregateSearch(packIndexerIds, 'search', q, ['5000'], seriesOverride),
+        title, season, episodesInSeason,
+        isTitleMatch: (rt) => isTextSearchMatch(title, rt, year, country, additionalTitles, titleYear),
+        searchConfig: config.searchConfig,
+        logPrefix: 'Prowlarr',
+      })));
     }
+
+    const resultSets = await Promise.all(searches);
+    let allResults = resultSets.flat();
 
     // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
     if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
-      console.log(`   ⏱️  Prowlarr: skipping alt-title retry (prior timeout)`);
+      slog(`   ⏱️  Prowlarr: skipping alt-title retry (prior timeout)`);
     }
     if (allResults.length === 0 && additionalTitles?.length && !this.timedOut) {
-      const allIndexerIds = [...new Set([...idSearchedIndexerIds, ...textFallbackIds])];
+      const allIndexerIds = [...new Set(idSearchedIndexerIds)];
       if (allIndexerIds.length > 0) {
         for (const altTitle of additionalTitles) {
           const altQuery = stripDiacritics(`${altTitle} S${s}E${e}`);
-          console.log(`🔄 Retrying with alternative title for ${allIndexerIds.length} indexer(s): "${altQuery}"`);
+          slog(`🔄 Retrying with alternative title for ${allIndexerIds.length} indexer(s): "${altQuery}"`);
           const altResults = await this.doAggregateSearch(allIndexerIds, 'search', altQuery, ['5000']);
           const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
-          console.log(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+          slog(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
           if (altResults.length !== altFiltered.length) {
             altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
-              .forEach(r => console.log(`      ✂️  ${r.title}`));
+              .forEach(r => slog(`      ✂️  ${r.title}`));
           }
           if (altFiltered.length > 0) {
             // Also check for season packs with the alternative title
@@ -398,7 +283,7 @@ export class ProwlarrSearcher {
               const titleMatched = packResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
               const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
               if (packs.length > 0) {
-                console.log(`   📦 Found ${packs.length} season packs (alt-title)`);
+                slog(`   📦 Found ${packs.length} season packs (alt-title)`);
               }
               altFiltered.push(...packs);
             }
@@ -429,14 +314,14 @@ export class ProwlarrSearcher {
       for (const cat of categories) params.append('categories', cat);
       params.set('type', type);
       params.set('query', query);
-      params.set('limit', '1000');
+      params.set('limit', '100');
       params.set('offset', '0');
 
       const searchUrl = `${this.url}/api/v1/search?${params.toString()}`;
       const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
 
-      console.log(`📤 Prowlarr aggregate: /api/v1/search`);
-      console.log(`   type=${type} query="${query}" indexerIds=[${indexerIds.join(',')}] categories=[${categories.join(',')}]`);
+      slog(`📤 Prowlarr aggregate: /api/v1/search`);
+      slog(`   type=${type} query="${query}" indexerIds=[${indexerIds.join(',')}] categories=[${categories.join(',')}]`);
 
       const response = await axios.get(searchUrl, {
         headers: { 'X-Api-Key': this.apiKey, 'User-Agent': userAgent },
@@ -444,7 +329,7 @@ export class ProwlarrSearcher {
       });
 
       if (!Array.isArray(response.data)) {
-        console.log(`   ⚠️  Non-array response:`, typeof response.data === 'string' ? response.data.substring(0, 200) : typeof response.data);
+        slog(`   ⚠️  Non-array response: ${typeof response.data === 'string' ? response.data.substring(0, 200) : typeof response.data}`);
         return [];
       }
 
@@ -458,18 +343,15 @@ export class ProwlarrSearcher {
         indexerName: item.indexer || 'Unknown',
       }));
 
-      console.log(`   📦 Returned ${results.length} results`);
-      if (results.length > 0) {
-        console.log(`   📋 First: "${results[0].title}" from ${results[0].indexerName}`);
-      }
+      slog(`   📥 Returned ${results.length} results`);
 
       // Pagination: fetch additional pages if enabled
       const paginationEnabled = paginationOverride?.enabled ?? this.getGlobalPagination();
       const extraPages = paginationOverride?.additionalPages ?? this.getGlobalAdditionalPages();
-      if (paginationEnabled && results.length >= 1000) {
+      if (paginationEnabled && results.length >= 100) {
         for (let page = 2; page <= extraPages + 1; page++) {
-          const offset = (page - 1) * 1000;
-          console.log(`   📄 Fetching page ${page} (offset ${offset})...`);
+          const offset = (page - 1) * 100;
+          slog(`   📄 Fetching page ${page} (offset ${offset})...`);
           try {
             const pageParams = new URLSearchParams(params);
             pageParams.set('offset', offset.toString());
@@ -489,14 +371,14 @@ export class ProwlarrSearcher {
               indexerName: item.indexer || 'Unknown',
             }));
             results.push(...pageResults);
-            console.log(`   📄 Page ${page}: +${pageResults.length} (total so far: ${results.length})`);
-            if (pageResp.data.length < 1000) break; // Last page
+            slog(`   📄 Page ${page}: +${pageResults.length} (total so far: ${results.length})`);
+            if (pageResp.data.length < 100) break; // Last page
           } catch (pageError: any) {
             if (pageError.code === 'ECONNABORTED') {
               this.timedOut = true;
-              console.warn(`⏱️  Prowlarr pagination page ${page} timed out after ${this.timeoutSeconds}s`);
+              slog(`⏱️  Prowlarr pagination page ${page} timed out after ${this.timeoutSeconds}s`);
             } else {
-              console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+              slog(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
             }
             break;
           }
@@ -507,7 +389,7 @@ export class ProwlarrSearcher {
     } catch (error: any) {
       if (error.code === 'ECONNABORTED') {
         this.timedOut = true;
-        console.warn(`⏱️  Prowlarr request timed out after ${this.timeoutSeconds}s`);
+        slog(`⏱️  Prowlarr request timed out after ${this.timeoutSeconds}s`);
       }
       console.error(`❌ Prowlarr aggregate search error:`);
       if (error.response) {
@@ -530,13 +412,14 @@ export class ProwlarrSearcher {
     indexerName: string,
     params: NewznabParams,
     paginationOverride?: { enabled: boolean; additionalPages: number },
+    method?: string,
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     try {
       const searchUrl = `${this.url}/api/v1/indexer/${indexerId}/newznab`;
       const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
 
-      console.log(`📤 Prowlarr newznab: /api/v1/indexer/${indexerId}/newznab`);
-      console.log(`   Params:`, JSON.stringify(params));
+      slog(`📤 Prowlarr newznab: /api/v1/indexer/${indexerId}/newznab`);
+      slog(`   Params: ${JSON.stringify(params)}`);
 
       const response = await axios.get(searchUrl, {
         params,
@@ -558,13 +441,8 @@ export class ProwlarrSearcher {
       }
 
       const { results, total } = await parseNewznabXmlWithMeta(rawData);
-      console.log(`   📦 ${indexerName} returned ${results.length} results${total ? ` (total: ${total})` : ''}`);
-      if (results.length > 0) {
-        console.log(`   📋 First: "${results[0].title}" (${results[0].size} bytes)`);
-      } else {
-        // Log raw response snippet for debugging empty results
-        console.log(`   📭 Raw response (first 500 chars):`, rawData.substring(0, 500));
-      }
+      const methodLabel = method ? `[${method}] ` : '';
+      slog(`   📥 ${methodLabel}${indexerName} returned ${results.length} results${total ? ` (total: ${total})` : ''}`);
 
       // Pagination: fetch additional pages if enabled and more results available
       const indexer = this.indexers.find(i => i.id === indexerId);
@@ -573,7 +451,7 @@ export class ProwlarrSearcher {
       if (paginationEnabled && total && results.length < total) {
         let currentOffset = results.length;
         for (let page = 2; page <= extraPages + 1 && currentOffset < total; page++) {
-          console.log(`   📄 Fetching page ${page} (offset ${currentOffset})...`);
+          slog(`   📄 Fetching page ${page} (offset ${currentOffset})...`);
           try {
             const pageResp = await axios.get(searchUrl, {
               params: { ...params, offset: currentOffset },
@@ -584,13 +462,13 @@ export class ProwlarrSearcher {
             if (pageData.results.length === 0) break;
             results.push(...pageData.results);
             currentOffset += pageData.results.length;
-            console.log(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
+            slog(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
           } catch (pageError: any) {
             if (pageError.code === 'ECONNABORTED') {
               this.timedOut = true;
-              console.warn(`⏱️  Prowlarr pagination page ${page} timed out after ${this.timeoutSeconds}s (${indexerName})`);
+              slog(`⏱️  Prowlarr pagination page ${page} timed out after ${this.timeoutSeconds}s (${indexerName})`);
             } else {
-              console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+              slog(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
             }
             break;
           }
@@ -600,7 +478,7 @@ export class ProwlarrSearcher {
       return results.map(r => ({ ...r, indexerName }));
     } catch (error: any) {
       if (error.code === 'ECONNABORTED') {
-        console.warn(`⏱️  Prowlarr request for ${indexerName} timed out after ${this.timeoutSeconds}s`);
+        slog(`⏱️  Prowlarr request for ${indexerName} timed out after ${this.timeoutSeconds}s`);
       }
       console.error(`❌ Prowlarr newznab search error (${indexerName}):`);
       if (error.response) {

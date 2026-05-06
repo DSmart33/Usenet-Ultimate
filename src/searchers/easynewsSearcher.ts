@@ -15,7 +15,8 @@ import type { NZBSearchResult } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { isTextSearchMatch, stripDiacritics, tagSeasonPack } from '../parsers/titleMatching.js';
+import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, getSeriesPackAdditionalPages } from '../parsers/titleMatching.js';
+import { slog } from '../parsers/searchLogger.js';
 
 const EASYNEWS_SEARCH_URL = 'https://members.easynews.com/2.0/search/solr-search/';
 
@@ -79,15 +80,15 @@ export class EasynewsSearcher {
     // the standard zero-result alt-title retry below since alts already ran.
     const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
     if (parallelAltEnabled) {
-      console.log(`🔀 EasyNews parallel alt-title search enabled — querying primary + ${additionalTitles!.length} alt(s) concurrently`);
+      slog(`🔀 EasyNews parallel alt-title search enabled — querying primary + ${additionalTitles!.length} alt(s) concurrently`);
       const titles = [title, ...additionalTitles!];
       const perTitle = await Promise.all(titles.map(async (t) => {
         const q = year ? `${t} ${year}` : t;
-        console.log(`🔍 EasyNews movie search ${this.timeoutLabel()}: "${q}"`);
+        slog(`🔍 EasyNews movie search ${this.timeoutLabel()}: "${q}"`);
         const r = await this.search(q);
         const f = r.filter(x => isTextSearchMatch(t, x.title, year, country, undefined, titleYear));
         if (r.length !== f.length) {
-          console.log(`   🎯 EasyNews "${t}" filter: ${r.length} → ${f.length}`);
+          slog(`   🎯 EasyNews "${t}" filter: ${r.length} → ${f.length}`);
         }
         return f;
       }));
@@ -95,27 +96,27 @@ export class EasynewsSearcher {
     }
 
     const query = year ? `${title} ${year}` : title;
-    console.log(`🔍 EasyNews movie search ${this.timeoutLabel()}: "${query}"`);
+    slog(`🔍 EasyNews movie search ${this.timeoutLabel()}: "${query}"`);
     const results = await this.search(query);
     const before = results.length;
     const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
     if (before !== filtered.length) {
-      console.log(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
+      slog(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
       results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-        .forEach(r => console.log(`      ✂️  ${r.title}`));
+        .forEach(r => slog(`      ✂️  ${r.title}`));
     }
 
     // Alternative-title retry: if 0 results and alternative titles exist, retry with each
     if (filtered.length === 0 && additionalTitles?.length && this.timedOut) {
-      console.log(`   ⏱️  EasyNews: skipping alt-title retry (prior timeout)`);
+      slog(`   ⏱️  EasyNews: skipping alt-title retry (prior timeout)`);
     }
     if (filtered.length === 0 && additionalTitles?.length && !this.timedOut) {
       for (const altTitle of additionalTitles) {
         const altQuery = year ? `${altTitle} ${year}` : altTitle;
-        console.log(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
+        slog(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
         const altResults = await this.search(altQuery);
         const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
-        console.log(`   🎯 EasyNews alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+        slog(`   🎯 EasyNews alt-title filter: ${altResults.length} → ${altFiltered.length}`);
         if (altFiltered.length > 0) {
           filtered.push(...altFiltered);
           break;
@@ -149,7 +150,7 @@ export class EasynewsSearcher {
     // zero-result alt-title retry block below is skipped in this mode.
     const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
     if (parallelAltEnabled) {
-      console.log(`🔀 EasyNews parallel alt-title search enabled — querying primary + ${additionalTitles!.length} alt(s) concurrently`);
+      slog(`🔀 EasyNews parallel alt-title search enabled — querying primary + ${additionalTitles!.length} alt(s) concurrently`);
       const titles = [title, ...additionalTitles!];
       const includeSeasonPacks = config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks;
       const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
@@ -163,7 +164,7 @@ export class EasynewsSearcher {
       }
 
       const jobResults = await Promise.all(jobs.map(async (job) => {
-        console.log(`🔍 EasyNews ${job.kind === 'pack' ? 'season pack' : 'TV'} search ${this.timeoutLabel()}: "${job.query}"`);
+        slog(`🔍 EasyNews ${job.kind === 'pack' ? 'season pack' : 'TV'} search ${this.timeoutLabel()}: "${job.query}"`);
         const r = await this.search(job.query, job.kind === 'pack' ? spAdditionalPages : undefined);
         return { ...job, results: r };
       }));
@@ -173,7 +174,7 @@ export class EasynewsSearcher {
         .flatMap(j => {
           const f = j.results.filter(x => isTextSearchMatch(j.title, x.title, year, country, undefined, titleYear));
           if (j.results.length !== f.length) {
-            console.log(`   🎯 EasyNews "${j.title}" episode filter: ${j.results.length} → ${f.length}`);
+            slog(`   🎯 EasyNews "${j.title}" episode filter: ${j.results.length} → ${f.length}`);
           }
           return f;
         });
@@ -187,12 +188,14 @@ export class EasynewsSearcher {
             .filter(x => !episodeHashes.has(x.easynewsMeta!.hash));
           const f = tagSeasonPack(titleMatched, season, episodesInSeason);
           if (f.length > 0) {
-            console.log(`   📦 EasyNews "${j.title}" packs: ${f.length}`);
+            slog(`   📦 EasyNews "${j.title}" packs: ${f.length}`);
           }
           return f;
         });
 
       const filtered = [...episodes, ...packs];
+
+      await this.addEasynewsSeriesPacks(filtered, title, season, episodesInSeason, year, country, additionalTitles, titleYear);
 
       // Absolute-episode fallback in parallel mode: run all titles concurrently
       // (vs the sequential break-on-first-hit used by the non-parallel path).
@@ -206,21 +209,32 @@ export class EasynewsSearcher {
         } else if (priorSeasonsEpisodeCount !== undefined) {
           absoluteEp = priorSeasonsEpisodeCount + episode;
         } else {
-          console.warn(`⚠️  EasyNews absolute fallback: no prior-season count available, using per-season E${episode}`);
+          slog(`⚠️  EasyNews absolute fallback: no prior-season count available, using per-season E${episode}`);
           absoluteEp = episode;
         }
         const stripAbsEp = (str: string) => str.replace(/\bE\d{1,3}\b/i, ' ').replace(/\s+/g, ' ');
-        console.log(`🔢 EasyNews absolute fallback (parallel): querying ${titles.length} title(s) with E${absoluteEp}`);
+        // Reject results whose Sxx token doesn't match the requested season.
+        // Anime-style 'Show E150' releases (no Sxx token) still pass; this only
+        // catches non-absolute shows whose abs query accidentally surfaced
+        // wrong-season episodes (e.g. S02E01 returned for an S01E01 search).
+        const seasonOk = (resultTitle: string): boolean => {
+          const seasonTokens: number[] = [];
+          for (const m of resultTitle.matchAll(/(?<![A-Za-z0-9])S(\d{1,2})(?:E\d{1,3})?(?![A-Za-z0-9])/gi)) {
+            seasonTokens.push(parseInt(m[1], 10));
+          }
+          return seasonTokens.length === 0 || seasonTokens.includes(season);
+        };
+        slog(`🔢 EasyNews absolute fallback (parallel): querying ${titles.length} title(s) with E${absoluteEp}`);
         const absPerTitle = await Promise.all(titles.map(async (t) => {
           if (this.timedOut) return [];
           const absQuery = `${t} E${absoluteEp.toString().padStart(2, '0')}`;
-          console.log(`🔢 EasyNews absolute fallback: "${absQuery}"`);
+          slog(`🔢 EasyNews absolute fallback: "${absQuery}"`);
           const r = await this.search(absQuery);
-          const f = r.filter(x => isTextSearchMatch(t, stripAbsEp(x.title), year, country, undefined, titleYear));
-          console.log(`   🔢 EasyNews "${t}" absolute filter: ${r.length} → ${f.length}`);
+          const f = r.filter(x => isTextSearchMatch(t, stripAbsEp(x.title), year, country, undefined, titleYear) && seasonOk(x.title));
+          slog(`   🔢 EasyNews "${t}" absolute filter: ${r.length} → ${f.length}`);
           if (r.length > 0 && f.length === 0) {
             const sample = r.slice(0, 10).map(x => `      • ${x.title}`).join('\n');
-            console.log(`   🔢 EasyNews "${t}" absolute rejected (showing ${Math.min(10, r.length)}/${r.length}):\n${sample}`);
+            slog(`   🔢 EasyNews "${t}" absolute rejected (showing ${Math.min(10, r.length)}/${r.length}):\n${sample}`);
           }
           return f;
         }));
@@ -231,14 +245,14 @@ export class EasynewsSearcher {
     }
 
     const query = `${title} S${s}E${e}`;
-    console.log(`🔍 EasyNews TV search ${this.timeoutLabel()}: "${query}"`);
+    slog(`🔍 EasyNews TV search ${this.timeoutLabel()}: "${query}"`);
     const results = await this.search(query);
     const before = results.length;
     const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
     if (before !== filtered.length) {
-      console.log(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
+      slog(`   🎯 EasyNews title filter: ${before} → ${filtered.length}`);
       results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-        .forEach(r => console.log(`      ✂️  ${r.title}`));
+        .forEach(r => slog(`      ✂️  ${r.title}`));
     }
 
     // Season pack search if enabled. Runs independently of prior timeouts:
@@ -249,7 +263,7 @@ export class EasynewsSearcher {
       const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
       const spAdditionalPages = spPaginationEnabled ? config.searchConfig?.seasonPackAdditionalPages : undefined;
       const packQuery = `${title} S${s}`;
-      console.log(`🔍 EasyNews season pack search: "${packQuery}"`);
+      slog(`🔍 EasyNews season pack search: "${packQuery}"`);
       const packResults = await this.search(packQuery, spAdditionalPages);
       const existingHashes = new Set(filtered.map(r => r.easynewsMeta!.hash));
       const titleMatched = packResults
@@ -260,34 +274,36 @@ export class EasynewsSearcher {
         const keptHashes = new Set(packs.map(p => p.easynewsMeta!.hash));
         const removed = packResults.filter(r => !keptHashes.has(r.easynewsMeta!.hash));
         if (removed.length > 0) {
-          console.log(`   📦 EasyNews season pack filter: ${packResults.length} → ${packs.length}`);
-          removed.forEach(r => console.log(`      ✂️  ${r.title}`));
+          slog(`   📦 EasyNews season pack filter: ${packResults.length} → ${packs.length}`);
+          removed.forEach(r => slog(`      ✂️  ${r.title}`));
         }
       }
       if (packs.length > 0) {
-        console.log(`   📦 EasyNews: ${packs.length} season packs`);
+        slog(`   📦 EasyNews: ${packs.length} season packs`);
         filtered.push(...packs);
       }
     }
 
+    await this.addEasynewsSeriesPacks(filtered, title, season, episodesInSeason, year, country, additionalTitles, titleYear);
+
     // Alternative-title retry: if 0 results and alternative titles exist, retry with each
     if (filtered.length === 0 && additionalTitles?.length && this.timedOut) {
-      console.log(`   ⏱️  EasyNews: skipping alt-title retry (prior timeout)`);
+      slog(`   ⏱️  EasyNews: skipping alt-title retry (prior timeout)`);
     }
     if (filtered.length === 0 && additionalTitles?.length && !this.timedOut) {
       for (const altTitle of additionalTitles) {
         const altQuery = `${altTitle} S${s}E${e}`;
-        console.log(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
+        slog(`🔄 EasyNews retrying with alternative title: "${altQuery}"`);
         const altResults = await this.search(altQuery);
         const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
-        console.log(`   🎯 EasyNews alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+        slog(`   🎯 EasyNews alt-title filter: ${altResults.length} → ${altFiltered.length}`);
         if (altFiltered.length > 0) {
           // Also check for season packs with the alternative title
           if (includeSeasonPacks && episodesInSeason) {
             const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
             const spAdditionalPages = spPaginationEnabled ? config.searchConfig?.seasonPackAdditionalPages : undefined;
             const altPackQuery = `${altTitle} S${s}`;
-            console.log(`🔍 EasyNews alt-title season pack search: "${altPackQuery}"`);
+            slog(`🔍 EasyNews alt-title season pack search: "${altPackQuery}"`);
             const altPackResults = await this.search(altPackQuery, spAdditionalPages);
             const existingHashes = new Set(altFiltered.map(r => r.easynewsMeta!.hash));
             const titleMatched = altPackResults
@@ -298,12 +314,12 @@ export class EasynewsSearcher {
               const keptHashes = new Set(altPacks.map(p => p.easynewsMeta!.hash));
               const removed = altPackResults.filter(r => !keptHashes.has(r.easynewsMeta!.hash));
               if (removed.length > 0) {
-                console.log(`   📦 EasyNews alt-title season pack filter: ${altPackResults.length} → ${altPacks.length}`);
-                removed.forEach(r => console.log(`      ✂️  ${r.title}`));
+                slog(`   📦 EasyNews alt-title season pack filter: ${altPackResults.length} → ${altPacks.length}`);
+                removed.forEach(r => slog(`      ✂️  ${r.title}`));
               }
             }
             if (altPacks.length > 0) {
-              console.log(`   📦 EasyNews: ${altPacks.length} season packs (alt-title)`);
+              slog(`   📦 EasyNews: ${altPacks.length} season packs (alt-title)`);
               altFiltered.push(...altPacks);
             }
           }
@@ -326,25 +342,36 @@ export class EasynewsSearcher {
       } else if (priorSeasonsEpisodeCount !== undefined) {
         absoluteEp = priorSeasonsEpisodeCount + episode;
       } else {
-        console.warn(`⚠️  EasyNews absolute fallback: no prior-season count available, using per-season E${episode}`);
+        slog(`⚠️  EasyNews absolute fallback: no prior-season count available, using per-season E${episode}`);
         absoluteEp = episode;
       }
       const candidates = [title, ...(additionalTitles ?? [])];
       for (const candTitle of candidates) {
         if (this.timedOut) break;
         const absQuery = `${candTitle} E${absoluteEp.toString().padStart(2, '0')}`;
-        console.log(`🔢 EasyNews absolute fallback: "${absQuery}"`);
+        slog(`🔢 EasyNews absolute fallback: "${absQuery}"`);
         const absResults = await this.search(absQuery);
         // Strip the bare E\d token before matching: the title-extractor only
         // anchors on SxxExx, so a release like "Lady Of Law E23 1080p..." would
         // extract as "Lady Of Law E23" and fail equality. The \b boundary keeps
         // "S03E23" untouched (no boundary between digit-and-E inside SxxExx).
         const stripAbsEp = (s: string) => s.replace(/\bE\d{1,3}\b/i, ' ').replace(/\s+/g, ' ');
-        const absFiltered = absResults.filter(r => isTextSearchMatch(candTitle, stripAbsEp(r.title), year, country, undefined, titleYear));
-        console.log(`   🔢 EasyNews absolute filter: ${absResults.length} → ${absFiltered.length}`);
+        // Reject results whose Sxx token doesn't match the requested season.
+        // Anime-style 'Show E150' releases (no Sxx token) still pass; this only
+        // catches non-absolute shows whose abs query accidentally surfaced
+        // wrong-season episodes (e.g. S02E01 returned for an S01E01 search).
+        const seasonOk = (resultTitle: string): boolean => {
+          const seasonTokens: number[] = [];
+          for (const m of resultTitle.matchAll(/(?<![A-Za-z0-9])S(\d{1,2})(?:E\d{1,3})?(?![A-Za-z0-9])/gi)) {
+            seasonTokens.push(parseInt(m[1], 10));
+          }
+          return seasonTokens.length === 0 || seasonTokens.includes(season);
+        };
+        const absFiltered = absResults.filter(r => isTextSearchMatch(candTitle, stripAbsEp(r.title), year, country, undefined, titleYear) && seasonOk(r.title));
+        slog(`   🔢 EasyNews absolute filter: ${absResults.length} → ${absFiltered.length}`);
         if (absResults.length > 0 && absFiltered.length === 0) {
           const sample = absResults.slice(0, 10).map(r => `      • ${r.title}`).join('\n');
-          console.log(`   🔢 EasyNews absolute rejected (showing ${Math.min(10, absResults.length)}/${absResults.length}):\n${sample}`);
+          slog(`   🔢 EasyNews absolute rejected (showing ${Math.min(10, absResults.length)}/${absResults.length}):\n${sample}`);
         }
         if (absFiltered.length > 0) {
           filtered.push(...absFiltered);
@@ -354,6 +381,73 @@ export class EasynewsSearcher {
     }
 
     return filtered;
+  }
+
+  /**
+   * Append multi-season fanout + series-pack keyword query results to
+   * `filtered`. Used by both the parallel-alt and sequential primary paths so
+   * Easynews users get the same Series Packs coverage as indexer searches.
+   * Mutates `filtered` directly. Uses primary title only to avoid multiplying
+   * alt-title queries; tagSeasonPack's range-cover check keeps only ranges
+   * that actually cover the requested season. Hash-dedups against the latest
+   * `filtered` so re-fetched releases collapse before tagging.
+   */
+  private async addEasynewsSeriesPacks(
+    filtered: (NZBSearchResult & { indexerName: string })[],
+    title: string,
+    season: number,
+    episodesInSeason: number | undefined,
+    year: string | undefined,
+    country: string | undefined,
+    additionalTitles: string[] | undefined,
+    titleYear: string | undefined,
+  ): Promise<void> {
+    const pages = getSeriesPackAdditionalPages(config.searchConfig);
+    const baselineHashes = new Set(filtered.map(r => r.easynewsMeta!.hash));
+
+    const tasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
+
+    const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
+    if (season > 1 && includeMultiSeasonPacks) {
+      const fanoutQuery = `${title} S01`;
+      slog(`🔍 [EasyNews] Multi-season fanout query: ${fanoutQuery}`);
+      tasks.push((async () => {
+        const fanoutResults = await this.search(fanoutQuery, pages);
+        const deduped = fanoutResults.filter(r => !baselineHashes.has(r.easynewsMeta!.hash));
+        const titleMatched = deduped.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+        const fanoutPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
+        if (fanoutResults.length !== fanoutPacks.length) {
+          slog(`   📦 [EasyNews] Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
+        }
+        if (fanoutPacks.length > 0) {
+          slog(`   📦 [EasyNews] Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
+        }
+        return fanoutPacks;
+      })());
+    }
+
+    tasks.push(runSeriesPackQueries({
+      searchFn: async (q) => {
+        const r = await this.search(q, pages);
+        return r.filter(x => !baselineHashes.has(x.easynewsMeta!.hash));
+      },
+      title, season, episodesInSeason,
+      isTitleMatch: (rt) => isTextSearchMatch(title, rt, year, country, additionalTitles, titleYear),
+      searchConfig: config.searchConfig,
+      logPrefix: 'EasyNews',
+    }));
+
+    const arrays = await Promise.all(tasks);
+    const seen = new Set(baselineHashes);
+    for (const arr of arrays) {
+      for (const r of arr) {
+        const h = r.easynewsMeta!.hash;
+        if (!seen.has(h)) {
+          seen.add(h);
+          filtered.push(r);
+        }
+      }
+    }
   }
 
   private async search(query: string, maxPagesOverride?: number): Promise<(NZBSearchResult & { indexerName: string })[]> {
@@ -380,7 +474,7 @@ export class EasynewsSearcher {
       });
       params.append('fty[]', 'VIDEO');
 
-      console.log(`   📄 EasyNews page ${page}/${effectiveMaxPages}...`);
+      slog(`   📄 EasyNews page ${page}/${effectiveMaxPages}...`);
 
       try {
         const response = await axios.get(EASYNEWS_SEARCH_URL, {
@@ -416,9 +510,9 @@ export class EasynewsSearcher {
           const sample = data.data[0];
           const sampleExt = Array.isArray(sample) ? sample[11] : (sample?.extension || sample?.ext || '');
           const sampleFn = Array.isArray(sample) ? sample[10] : (sample?.fn || sample?.filename || '');
-          console.log(`   ⚠️  EasyNews page ${page}: all ${data.data.length} items rejected — ${JSON.stringify(rejectReasons)} (sample: fn="${sampleFn}" ext="${sampleExt}")`);
+          slog(`   ⚠️  EasyNews page ${page}: all ${data.data.length} items rejected — ${JSON.stringify(rejectReasons)} (sample: fn="${sampleFn}" ext="${sampleExt}")`);
         } else {
-          console.log(`   📄 EasyNews page ${page}: ${pageCount} results (${allResults.length} total)`);
+          slog(`   📄 EasyNews page ${page}: ${pageCount} results (${allResults.length} total)`);
         }
 
         // Stop if we've fetched all pages
@@ -427,7 +521,7 @@ export class EasynewsSearcher {
       } catch (error: any) {
         if (error.code === 'ECONNABORTED') {
           this.timedOut = true;
-          console.warn(`⏱️  EasyNews timed out after ${this.timeoutSeconds}s`);
+          slog(`⏱️  EasyNews timed out after ${this.timeoutSeconds}s`);
         } else if (error.response?.status === 401) {
           console.error('❌ EasyNews authentication failed');
         } else {
@@ -437,7 +531,7 @@ export class EasynewsSearcher {
       }
     }
 
-    console.log(`   📦 EasyNews total: ${allResults.length} results`);
+    slog(`   📦 EasyNews total: ${allResults.length} results`);
     return allResults;
   }
 

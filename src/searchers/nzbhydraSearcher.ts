@@ -13,7 +13,8 @@ import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
-import { isTextSearchMatch, stripDiacritics, tagSeasonPack } from '../parsers/titleMatching.js';
+import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, buildSeriesPackPaginationAdditionalPages } from '../parsers/titleMatching.js';
+import { slog, withSubBuffer } from '../parsers/searchLogger.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 
@@ -55,8 +56,9 @@ export class NzbhydraSearcher {
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const groups = this.groupByMethod('movie');
     const allResults: (NZBSearchResult & { indexerName: string })[] = [];
-    const textFallbackNames: string[] = [];
     const idSearchedNames: string[] = [];
+
+    const tasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
 
     for (const [method, indexerNames] of groups) {
       const params: Record<string, string> = {
@@ -64,8 +66,6 @@ export class NzbhydraSearcher {
         extended: '1',
       };
 
-      // Filter by specific indexers (comma-separated names)
-      // Always send to ensure NZBHydra only searches enabled synced indexers
       params.indexers = indexerNames.join(',');
 
       if (method === 'text') {
@@ -85,79 +85,35 @@ export class NzbhydraSearcher {
         params.tvdbid = resolvedIds.get('tvdb')!.idValue;
         idSearchedNames.push(...indexerNames);
       } else {
-        // ID resolution failed — defer to text fallback
-        console.log(`⚠️  ${method} ID unavailable, deferring ${indexerNames.length} indexer(s) to text fallback`);
-        textFallbackNames.push(...indexerNames);
+        slog(`⚠️  ${method} ID unavailable for ${indexerNames.length} indexer(s) — skipping`);
         continue;
       }
 
-      console.log(`🔍 NZBHydra movie search (${method}) for ${indexerNames.length} indexer(s) ${this.timeoutLabel()}`);
-      const results = await this.doSearch(params);
-
-      if (method === 'text') {
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-        console.log(`   🎯 Title filter: ${results.length} → ${filtered.length}`);
-        if (results.length !== filtered.length) {
-          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-            .forEach(r => console.log(`      ✂️  ${r.title}`));
+      const isText = method === 'text';
+      tasks.push(withSubBuffer(`movie ${method} search × ${indexerNames.length} indexer(s)`, async () => {
+        const results = await this.doSearch(params);
+        if (isText) {
+          const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          slog(`   🎯 Title filter: ${results.length} → ${filtered.length}`);
+          if (results.length !== filtered.length) {
+            results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
+              .forEach(r => slog(`      ✂️  ${r.title}`));
+          }
+          return filtered;
         }
-        allResults.push(...filtered);
-      } else {
-        allResults.push(...results);
-      }
+        return results;
+      }));
     }
 
-    // Text fallback for indexers whose external ID could not be resolved
-    if (textFallbackNames.length > 0 && title) {
-      const params: Record<string, string> = {
-        apikey: this.apiKey,
-        extended: '1',
-        t: 'search',
-        q: stripDiacritics(year ? `${title} ${year}` : title),
-        cat: '2000',
-      };
-      params.indexers = textFallbackNames.join(',');
-      console.log(`🔄 ID resolution failed — text fallback for ${textFallbackNames.length} indexer(s)`);
-      const results = await this.doSearch(params);
-      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-      console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
-      if (results.length !== filtered.length) {
-        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-          .forEach(r => console.log(`      ✂️  ${r.title}`));
-      }
-      allResults.push(...filtered);
-    }
-
-    // Zero-result text fallback: if ID-based searches returned nothing, retry with text
-    if (allResults.length === 0 && idSearchedNames.length > 0 && title && this.timedOut) {
-      console.log(`   ⏱️  NZBHydra: skipping text fallback (prior timeout)`);
-    }
-    if (allResults.length === 0 && idSearchedNames.length > 0 && title && !this.timedOut) {
-      const params: Record<string, string> = {
-        apikey: this.apiKey,
-        extended: '1',
-        t: 'search',
-        q: stripDiacritics(year ? `${title} ${year}` : title),
-        cat: '2000',
-        indexers: idSearchedNames.join(','),
-      };
-      console.log(`🔄 ID search returned 0 — text fallback for ${idSearchedNames.length} indexer(s)`);
-      const results = await this.doSearch(params);
-      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-      console.log(`   🎯 Zero-result text fallback filter: ${results.length} → ${filtered.length}`);
-      if (results.length !== filtered.length) {
-        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-          .forEach(r => console.log(`      ✂️  ${r.title}`));
-      }
-      allResults.push(...filtered);
-    }
+    const settled = await Promise.all(tasks);
+    for (const arr of settled) allResults.push(...arr);
 
     // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
     if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
-      console.log(`   ⏱️  NZBHydra: skipping alt-title retry (prior timeout)`);
+      slog(`   ⏱️  NZBHydra: skipping alt-title retry (prior timeout)`);
     }
     if (allResults.length === 0 && additionalTitles?.length && !this.timedOut) {
-      const allNames = [...new Set([...idSearchedNames, ...textFallbackNames])];
+      const allNames = [...new Set(idSearchedNames)];
       if (allNames.length > 0) {
         for (const altTitle of additionalTitles) {
           const altParams: Record<string, string> = {
@@ -168,13 +124,13 @@ export class NzbhydraSearcher {
             cat: '2000',
             indexers: allNames.join(','),
           };
-          console.log(`🔄 Retrying with alternative title for ${allNames.length} indexer(s): "${altParams.q}"`);
+          slog(`🔄 Retrying with alternative title for ${allNames.length} indexer(s): "${altParams.q}"`);
           const altResults = await this.doSearch(altParams);
           const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
-          console.log(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+          slog(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
           if (altResults.length !== altFiltered.length) {
             altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
-              .forEach(r => console.log(`      ✂️  ${r.title}`));
+              .forEach(r => slog(`      ✂️  ${r.title}`));
           }
           if (altFiltered.length > 0) {
             allResults.push(...altFiltered);
@@ -201,10 +157,12 @@ export class NzbhydraSearcher {
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
     const groups = this.groupByMethod('tv');
     const allResults: (NZBSearchResult & { indexerName: string })[] = [];
-    const textFallbackNames: string[] = [];
     const idSearchedNames: string[] = [];
+    const textMethodNames: string[] = [];
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
+
+    const tasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
 
     for (const [method, indexerNames] of groups) {
       const params: Record<string, string> = {
@@ -218,6 +176,7 @@ export class NzbhydraSearcher {
         params.t = 'search';
         params.q = stripDiacritics(`${title} S${s}E${e}`);
         params.cat = '5000';
+        textMethodNames.push(...indexerNames);
       } else if (method === 'imdb') {
         params.t = 'tvsearch';
         params.imdbid = imdbId.replace('tt', '');
@@ -237,169 +196,109 @@ export class NzbhydraSearcher {
         params.ep = episode.toString();
         idSearchedNames.push(...indexerNames);
       } else {
-        // ID resolution failed — defer to text fallback
-        console.log(`⚠️  ${method} ID unavailable, deferring ${indexerNames.length} indexer(s) to text fallback`);
-        textFallbackNames.push(...indexerNames);
+        slog(`⚠️  ${method} ID unavailable for ${indexerNames.length} indexer(s) — skipping`);
         continue;
       }
 
-      console.log(`🔍 NZBHydra TV search (${method}) S${season}E${episode} for ${indexerNames.length} indexer(s) ${this.timeoutLabel()}`);
-      const results = await this.doSearch(params);
-
-      if (method === 'text') {
-        const episodeFiltered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-        console.log(`   🎯 Title filter: ${results.length} → ${episodeFiltered.length}`);
-        if (results.length !== episodeFiltered.length) {
-          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-            .forEach(r => console.log(`      ✂️  ${r.title}`));
+      const isText = method === 'text';
+      tasks.push(withSubBuffer(`TV ${method} search S${season}E${episode} × ${indexerNames.length} indexer(s)`, async () => {
+        const results = await this.doSearch(params);
+        if (isText) {
+          const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          slog(`   🎯 Title filter: ${results.length} → ${filtered.length}`);
+          if (results.length !== filtered.length) {
+            results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
+              .forEach(r => slog(`      ✂️  ${r.title}`));
+          }
+          return filtered;
         }
+        return results;
+      }));
+    }
 
-        // Check for season packs if configured
-        if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
-          const spPagination = config.searchConfig?.seasonPackPagination !== false;
-          const spPages = config.searchConfig?.seasonPackAdditionalPages;
-          const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
-          const packParams: Record<string, string> = { ...params, q: stripDiacritics(`${title} S${s}`) };
+    const packIndexerNames = [...new Set([...textMethodNames, ...idSearchedNames])];
+    if (packIndexerNames.length > 0 && title) {
+      const packIndexersCsv = packIndexerNames.join(',');
 
+      if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
+        const spPagination = config.searchConfig?.seasonPackPagination !== false;
+        const spPages = config.searchConfig?.seasonPackAdditionalPages;
+        const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
+        const packParams: Record<string, string> = {
+          apikey: this.apiKey,
+          extended: '1',
+          t: 'search',
+          q: stripDiacritics(`${title} S${s}`),
+          cat: '5000',
+          indexers: packIndexersCsv,
+        };
+        tasks.push(withSubBuffer(`Season pack: ${packParams.q}`, async () => {
           const packResults = await this.doSearch(packParams, spOverride);
           const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
           const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
           if (packResults.length !== packs.length) {
             const keptLinks = new Set(packs.map(p => p.link));
             const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-            console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
-            removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
+            slog(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
+            removedPacks.forEach(r => slog(`      ✂️  ${r.title}`));
           }
-          if (packs.length > 0) {
-            console.log(`   📦 Found ${packs.length} season packs`);
+          if (packs.length > 0) slog(`   📦 Found ${packs.length} season packs`);
+          return packs;
+        }));
+      }
+
+      const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
+      if (season > 1 && includeMultiSeasonPacks) {
+        const fanoutOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
+        const fanoutParams: Record<string, string> = {
+          apikey: this.apiKey,
+          extended: '1',
+          t: 'search',
+          q: stripDiacritics(`${title} S01`),
+          cat: '5000',
+          indexers: packIndexersCsv,
+        };
+        tasks.push(withSubBuffer(`Multi-season fanout: ${fanoutParams.q}`, async () => {
+          const fanoutResults = await this.doSearch(fanoutParams, fanoutOverride);
+          const fanoutMatched = fanoutResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
+          if (fanoutResults.length !== fanoutPacks.length) {
+            slog(`   📦 Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
           }
-          episodeFiltered.push(...packs);
-        }
-
-        allResults.push(...episodeFiltered);
-      } else {
-        allResults.push(...results);
+          if (fanoutPacks.length > 0) slog(`   📦 Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
+          return fanoutPacks;
+        }));
       }
+
+      const seriesOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
+      tasks.push(withSubBuffer(`Series-pack keyword queries`, () => runSeriesPackQueries({
+        searchFn: async (q) => {
+          const seriesParams: Record<string, string> = {
+            apikey: this.apiKey,
+            extended: '1',
+            t: 'search',
+            q,
+            cat: '5000',
+            indexers: packIndexersCsv,
+          };
+          return this.doSearch(seriesParams, seriesOverride);
+        },
+        title, season, episodesInSeason,
+        isTitleMatch: (rt) => isTextSearchMatch(title, rt, year, country, additionalTitles, titleYear),
+        searchConfig: config.searchConfig,
+        logPrefix: 'NZBHydra',
+      })));
     }
 
-    // Season packs for ID-based indexers (text-search indexers already include packs inline)
-    if (config.searchConfig?.includeSeasonPacks && episodesInSeason && idSearchedNames.length > 0 && title) {
-      const spPagination = config.searchConfig?.seasonPackPagination !== false;
-      const spPages = config.searchConfig?.seasonPackAdditionalPages;
-      const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
-      const packParams: Record<string, string> = {
-        apikey: this.apiKey,
-        extended: '1',
-        t: 'search',
-        q: stripDiacritics(`${title} S${s}`),
-        cat: '5000',
-        indexers: idSearchedNames.join(','),
-      };
-      console.log(`📦 NZBHydra season pack search for ${idSearchedNames.length} ID-based indexer(s)`);
-      const packResults = await this.doSearch(packParams, spOverride);
-      const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-      const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
-      if (packResults.length !== packs.length) {
-        const keptLinks = new Set(packs.map(p => p.link));
-        const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-        console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
-        removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
-      }
-      if (packs.length > 0) {
-        console.log(`   📦 Found ${packs.length} season packs (ID-based indexers)`);
-      }
-      allResults.push(...packs);
-    }
-
-    // Text fallback for indexers whose external ID could not be resolved
-    if (textFallbackNames.length > 0 && title) {
-      const params: Record<string, string> = {
-        apikey: this.apiKey,
-        extended: '1',
-        t: 'search',
-        q: stripDiacritics(`${title} S${s}E${e}`),
-        cat: '5000',
-      };
-      params.indexers = textFallbackNames.join(',');
-      console.log(`🔄 ID resolution failed — text fallback for ${textFallbackNames.length} indexer(s)`);
-      const results = await this.doSearch(params);
-      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-      console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
-      if (results.length !== filtered.length) {
-        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-          .forEach(r => console.log(`      ✂️  ${r.title}`));
-      }
-
-      if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
-        const spPagination = config.searchConfig?.seasonPackPagination !== false;
-        const spPages = config.searchConfig?.seasonPackAdditionalPages;
-        const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
-        const packParams: Record<string, string> = { ...params, q: stripDiacritics(`${title} S${s}`) };
-        const packResults = await this.doSearch(packParams, spOverride);
-        const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-        const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
-        if (packResults.length !== packs.length) {
-          const keptLinks = new Set(packs.map(p => p.link));
-          const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-          console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
-          removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
-        }
-        if (packs.length > 0) console.log(`   📦 Found ${packs.length} season packs (text fallback)`);
-        filtered.push(...packs);
-      }
-
-      allResults.push(...filtered);
-    }
-
-    // Zero-result text fallback: if ID-based searches returned nothing, retry with text
-    if (allResults.length === 0 && idSearchedNames.length > 0 && title && this.timedOut) {
-      console.log(`   ⏱️  NZBHydra: skipping text fallback (prior timeout)`);
-    }
-    if (allResults.length === 0 && idSearchedNames.length > 0 && title && !this.timedOut) {
-      const params: Record<string, string> = {
-        apikey: this.apiKey,
-        extended: '1',
-        t: 'search',
-        q: stripDiacritics(`${title} S${s}E${e}`),
-        cat: '5000',
-        indexers: idSearchedNames.join(','),
-      };
-      console.log(`🔄 ID search returned 0 — text fallback for ${idSearchedNames.length} indexer(s)`);
-      const results = await this.doSearch(params);
-      const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-      console.log(`   🎯 Zero-result text fallback filter: ${results.length} → ${filtered.length}`);
-      if (results.length !== filtered.length) {
-        results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-          .forEach(r => console.log(`      ✂️  ${r.title}`));
-      }
-
-      if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
-        const spPagination = config.searchConfig?.seasonPackPagination !== false;
-        const spPages = config.searchConfig?.seasonPackAdditionalPages;
-        const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
-        const packParams: Record<string, string> = { ...params, q: stripDiacritics(`${title} S${s}`) };
-        const packResults = await this.doSearch(packParams, spOverride);
-        const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-        const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
-        if (packResults.length !== packs.length) {
-          const keptLinks = new Set(packs.map(p => p.link));
-          const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-          console.log(`   📦 Season pack filter: ${packResults.length} → ${packs.length} (removed ${removedPacks.length} mismatches)`);
-          removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
-        }
-        if (packs.length > 0) console.log(`   📦 Found ${packs.length} season packs (zero-result fallback)`);
-        filtered.push(...packs);
-      }
-
-      allResults.push(...filtered);
-    }
+    const settled = await Promise.all(tasks);
+    for (const arr of settled) allResults.push(...arr);
 
     // Alternative-title retry: if still 0 results and alternative titles exist, retry with each
     if (allResults.length === 0 && additionalTitles?.length && this.timedOut) {
-      console.log(`   ⏱️  NZBHydra: skipping alt-title retry (prior timeout)`);
+      slog(`   ⏱️  NZBHydra: skipping alt-title retry (prior timeout)`);
     }
     if (allResults.length === 0 && additionalTitles?.length && !this.timedOut) {
-      const allNames = [...new Set([...idSearchedNames, ...textFallbackNames])];
+      const allNames = [...new Set(idSearchedNames)];
       if (allNames.length > 0) {
         for (const altTitle of additionalTitles) {
           const altParams: Record<string, string> = {
@@ -410,13 +309,13 @@ export class NzbhydraSearcher {
             cat: '5000',
             indexers: allNames.join(','),
           };
-          console.log(`🔄 Retrying with alternative title for ${allNames.length} indexer(s): "${altParams.q}"`);
+          slog(`🔄 Retrying with alternative title for ${allNames.length} indexer(s): "${altParams.q}"`);
           const altResults = await this.doSearch(altParams);
           const altFiltered = altResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
-          console.log(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
+          slog(`   🎯 Alt-title filter: ${altResults.length} → ${altFiltered.length}`);
           if (altResults.length !== altFiltered.length) {
             altResults.filter(r => !isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear))
-              .forEach(r => console.log(`      ✂️  ${r.title}`));
+              .forEach(r => slog(`      ✂️  ${r.title}`));
           }
           if (altFiltered.length > 0) {
             // Also check for season packs with the alternative title
@@ -429,7 +328,7 @@ export class NzbhydraSearcher {
               const titleMatched = packResults.filter(r => isTextSearchMatch(altTitle, r.title, year, country, undefined, titleYear));
               const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
               if (packs.length > 0) {
-                console.log(`   📦 Found ${packs.length} season packs (alt-title)`);
+                slog(`   📦 Found ${packs.length} season packs (alt-title)`);
               }
               altFiltered.push(...packs);
             }
@@ -450,8 +349,8 @@ export class NzbhydraSearcher {
 
       // Log full request details (mask API key)
       const logParams = { ...params, apikey: '***' };
-      console.log(`📤 NZBHydra request: ${url}`);
-      console.log(`   Params:`, JSON.stringify(logParams));
+      slog(`📤 NZBHydra request: ${url}`);
+      slog(`   Params: ${JSON.stringify(logParams)}`);
 
       const headers: Record<string, string> = { 'User-Agent': userAgent };
       if (this.authHeader) headers['Authorization'] = this.authHeader;
@@ -463,10 +362,7 @@ export class NzbhydraSearcher {
       });
 
       const { results, total } = await parseNewznabXmlWithMeta(response.data);
-      console.log(`   📦 NZBHydra returned ${results.length} results${total ? ` (total: ${total})` : ''}`);
-      if (results.length > 0) {
-        console.log(`   📋 First result: "${results[0].title}"`);
-      }
+      slog(`   📥 NZBHydra returned ${results.length} results${total ? ` (total: ${total})` : ''}`);
 
       // Pagination: fetch additional pages if enabled and more results available
       const paginationEnabled = paginationOverride?.enabled ?? this.getGlobalPagination();
@@ -474,7 +370,7 @@ export class NzbhydraSearcher {
       if (paginationEnabled && total && results.length < total) {
         let currentOffset = results.length;
         for (let page = 2; page <= extraPages + 1 && currentOffset < total; page++) {
-          console.log(`   📄 Fetching page ${page} (offset ${currentOffset})...`);
+          slog(`   📄 Fetching page ${page} (offset ${currentOffset})...`);
           try {
             const pageResp = await axios.get(url, {
               params: { ...params, offset: currentOffset },
@@ -485,13 +381,13 @@ export class NzbhydraSearcher {
             if (pageData.results.length === 0) break;
             results.push(...pageData.results);
             currentOffset += pageData.results.length;
-            console.log(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
+            slog(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
           } catch (pageError: any) {
             if (pageError.code === 'ECONNABORTED') {
               this.timedOut = true;
-              console.warn(`⏱️  NZBHydra pagination page ${page} timed out after ${this.timeoutSeconds}s`);
+              slog(`⏱️  NZBHydra pagination page ${page} timed out after ${this.timeoutSeconds}s`);
             } else {
-              console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+              slog(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
             }
             break;
           }
@@ -507,7 +403,7 @@ export class NzbhydraSearcher {
     } catch (error: any) {
       if (error.code === 'ECONNABORTED') {
         this.timedOut = true;
-        console.warn(`⏱️  NZBHydra request timed out after ${this.timeoutSeconds ?? DEFAULT_INDEXER_TIMEOUT_SECONDS}s`);
+        slog(`⏱️  NZBHydra request timed out after ${this.timeoutSeconds ?? DEFAULT_INDEXER_TIMEOUT_SECONDS}s`);
       }
       console.error(`❌ NZBHydra search error:`);
       if (error.response) {
