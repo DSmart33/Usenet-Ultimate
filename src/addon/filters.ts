@@ -271,6 +271,8 @@ export function applyRankedRules(allResults: any[], filterConfig?: FilterConfig,
   if (scored.length > 0) {
     const top = [...scored].sort((a, b) => (b._rankTotalScore ?? 0) - (a._rankTotalScore ?? 0)).slice(0, 5);
     const medals = ['🏆', '🥈', '🥉', '  ', '  '];
+    console.log('');
+    console.log('═══ Ranked Rules ' + '═'.repeat(46));
     console.log(`📊 Ranked rules: top ${top.length} of ${scored.length} scored candidate(s)`);
     top.forEach((r, i) => {
       const scoreStr = String(r._rankTotalScore).padStart(5);

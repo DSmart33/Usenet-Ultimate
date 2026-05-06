@@ -308,7 +308,16 @@ builder.defineStreamHandler(async ({ type, id }) => {
       }
     }
 
-    console.log(`\n🔍 Searching for ${type} ${imdbId}${season !== undefined ? ` S${season}E${episode}` : ''} [${config.indexManager}]`);
+    {
+      const searchHeader = `🔍 Searching for ${type} ${imdbId}${season !== undefined ? ` S${season}E${episode}` : ''} [${config.indexManager}]`;
+      console.log('');
+      console.log('');
+      console.log('╔' + '═'.repeat(70));
+      console.log(`║  ${searchHeader}`);
+      console.log('╚' + '═'.repeat(70));
+      console.log('');
+    }
+    console.log('═══ Title Resolution ' + '═'.repeat(42));
 
     // === STEP 1: TITLE RESOLUTION ===
     let titleInfo: ResolvedTitleInfo;
@@ -388,6 +397,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
       ? config.searchConfig?.libraryApplyToMovies !== false
       : config.searchConfig?.libraryApplyToSeries !== false;
     if (libraryThreshold > 0 && libraryTypeAllowed && config.streamingMode === 'nzbdav' && config.nzbdavUrl && !libraryBypassed) {
+      console.log('');
+      console.log('═══ Ultimate Library ' + '═'.repeat(42));
       libraryResults = await searchLibrary(searchCtx, buildNzbdavConfig());
       if (libraryResults.length > 0) {
         // Pre-check: dedup + user-filters on library-only set. No fallback group,
@@ -430,6 +441,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
         ...indexManagerResults.map(r => tagOrigin(r, 'indexer')),
         ...easynewsResults.map(r => tagOrigin(r, 'easynews')),
       ];
+      console.log('');
+      console.log('═══ Results Processing ' + '═'.repeat(40));
       console.log(`📊 Found ${allRawResults.length} total results (indexer: ${indexManagerResults.length}, easynews: ${easynewsResults.length})`);
     }
 

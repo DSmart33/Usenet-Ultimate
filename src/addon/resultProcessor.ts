@@ -58,10 +58,30 @@ export function applyUserFilters(results: any[], type: string, now?: number, run
   results = applyQualityFilters(results, filterConfig);
   results = applyRankedRules(results, filterConfig, queryType, runtime);
   let filteredDeprioritized = deprioritizedPacks?.length ? applyQualityFilters(deprioritizedPacks, filterConfig) : [];
-  if (filteredDeprioritized.length) filteredDeprioritized = applyRankedRules(filteredDeprioritized, filterConfig, queryType, runtime);
+  if (filteredDeprioritized.length) {
+    filteredDeprioritized = applyRankedRules(filteredDeprioritized, filterConfig, queryType, runtime);
+    filteredDeprioritized = sortResults(filteredDeprioritized, filterConfig, now, runtime);
+  }
   results = sortResults(results, filterConfig, now, runtime);
   results = [...results, ...filteredDeprioritized];
   results = applyStreamLimits(results, filterConfig);
   console.log(`📊 Returning ${results.length} streams after filtering`);
+  if (results.length > 0) {
+    // Cap the dump so a 200-result search doesn't flood the log; truncated tail
+    // still shows the count so it's clear the list is longer than what's printed.
+    const FINAL_RESULTS_LOG_LIMIT = 30;
+    const visible = results.slice(0, FINAL_RESULTS_LOG_LIMIT);
+    console.log('');
+    console.log('═══ Final Results ' + '═'.repeat(45));
+    console.log(`📊 Final results (after filtering + sorting):`);
+    visible.forEach((r, i) => {
+      const tag = r.isSeasonPack ? '📦' : '🎬';
+      const idx = (i + 1).toString().padStart(3, ' ');
+      console.log(`   ${idx}. ${tag} ${r.title} [${r.indexerName ?? 'unknown'}]`);
+    });
+    if (results.length > FINAL_RESULTS_LOG_LIMIT) {
+      console.log(`   ... and ${results.length - FINAL_RESULTS_LOG_LIMIT} more`);
+    }
+  }
   return results;
 }
