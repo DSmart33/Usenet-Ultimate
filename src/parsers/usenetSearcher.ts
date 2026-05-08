@@ -12,7 +12,7 @@ import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { getAxiosProxyConfig, logProxyExitIp } from '../proxy.js';
 import { parseNewznabXmlWithMeta } from './newznabClient.js';
-import { stripDiacritics, isTextSearchMatch, tagSeasonPack, normalizeTitle, extractTitleFromRelease, runSeriesPackQueries, buildSeriesPackPaginationMaxPages, extractSeasonTokens } from './titleMatching.js';
+import { stripDiacritics, isTextSearchMatch, tagSeasonPack, normalizeTitle, extractTitleFromRelease, runSeriesPackQueries, buildSeriesPackPaginationMaxPages, buildSeasonPackPaginationMaxPages, extractSeasonTokens } from './titleMatching.js';
 import { slog, withSubBuffer } from './searchLogger.js';
 
 export class UsenetSearcher {
@@ -342,9 +342,6 @@ export class UsenetSearcher {
           : isDate
             ? stripDiacritics(`${title} ${dateDotted}`)
             : stripDiacritics(`${title} S${s}E${e}`);
-        slog(`🔍 TV text search for: ${query}`);
-        const results = await this.search(query, '5000'); // Category 5000 = TV
-        const before = results.length;
         // On absolute-numbering retries, strip the bare E\d token before
         // matching: extractTitleFromRelease only anchors on SxxExx, so a release
         // like "Lady Of Law E23 1080p..." would extract as "Lady Of Law E23"
@@ -358,78 +355,88 @@ export class UsenetSearcher {
           : isDate
             ? (s: string) => s.replace(datePattern, ' ').replace(/\s+/g, ' ')
             : (s: string) => s;
-        let filtered: NZBSearchResult[];
-        let removed: NZBSearchResult[];
-        if (isDate) {
-          // Date-numbered match runs in two passes so each rejection cause
-          // shows up in its own log block, matching the convention used by
-          // the title / remake / multi-episode / disabled-encodes filters.
-          //
-          // Pass 1: date filter. The indexer treats the date tokens as fuzzy
-          // keywords and returns releases dated any day that share the title
-          // (e.g. a query for `Stephen Colbert 2025.09.02` brings back hits
-          // dated 2025.09.16, 2025.12.09, etc). Re-verify the requested air
-          // date is present in the release title.
-          const [y, mo, d] = options!.airedDate!.slice(0, 10).split('-');
-          const requestedDate = new RegExp(`\\b${y}[.\\s_-]?${mo}[.\\s_-]?${d}\\b`);
-          const dateOk = (r: NZBSearchResult) => requestedDate.test(r.title);
-          const dateFiltered = results.filter(dateOk);
-          if (before !== dateFiltered.length) {
-            const wrongDate = results.filter(r => !dateOk(r));
-            slog(`   🎯 Date filter: ${before} → ${dateFiltered.length} (removed ${wrongDate.length} wrong date${wrongDate.length === 1 ? '' : 's'})`);
-            wrongDate.forEach(r => slog(`      ✂️  ${r.title}`));
-          }
 
-          // Pass 2: title filter. Daily/talk-show releases append the guest
-          // name after the air date, so the extracted title for
-          // `Show.<date>.Guest...` is `Show Guest` rather than `Show`.
-          // Standard exact-title equality fails; require the alias to be a
-          // prefix of the extracted release title instead.
-          const normExpected = normalizeTitle(title);
-          const titleOk = (r: NZBSearchResult): boolean => {
-            const cleaned = matchTitle(r.title);
-            const extractedNorm = normalizeTitle(extractTitleFromRelease(cleaned));
-            return normExpected.length > 0 && extractedNorm.startsWith(normExpected);
-          };
-          filtered = dateFiltered.filter(titleOk);
-          removed = dateFiltered.filter(r => !titleOk(r));
-          if (dateFiltered.length !== filtered.length) {
-            slog(`   🎯 Title filter: ${dateFiltered.length} → ${filtered.length} (removed ${removed.length} mismatches)`);
-            removed.forEach(r => slog(`      ✂️  ${r.title}`));
-          }
-        } else {
-          // On absolute-numbering retries, also reject results whose title carries
-          // an Sxx token that doesn't match the requested season. Catches
-          // non-absolute shows whose absolute query accidentally surfaced
-          // wrong-season episodes. Releases without any Sxx token (anime
-          // "Show E150" form) still pass.
-          const seasonOk = (resultTitle: string): boolean => {
-            if (!isAbsolute) return true;
-            const seasonTokens = extractSeasonTokens(resultTitle);
-            return seasonTokens.length === 0 || seasonTokens.includes(season);
-          };
-          const matches = (r: NZBSearchResult) =>
-            isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear)
-            && seasonOk(r.title);
-          filtered = results.filter(matches);
-          removed = results.filter(r => !matches(r));
-          if (before !== filtered.length) {
-            slog(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
-            removed.forEach(r => slog(`      ✂️  ${r.title}`));
-          }
-        }
-
-        const packTasks: Promise<NZBSearchResult[]>[] = [];
         const wantPacks = options?.includePacks !== false;
-
         const includeSeasonPacks = wantPacks && !isAbsolute && !isDate && (config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks);
+        const includeMultiSeasonPacks = wantPacks && !isAbsolute && !isDate && (config.searchConfig?.includeMultiSeasonPacks ?? true);
+
+        const tasks: Promise<NZBSearchResult[]>[] = [];
+
+        // Primary episode fetch + filter, run as a parallel task alongside
+        // pack queries. Wrapped in withSubBuffer so its filter logs render in
+        // a contiguous block even though pack-task logs are interleaved.
+        tasks.push(withSubBuffer(`TV text search [${this.indexer.name}] "${query}"`, async () => {
+          slog(`🔍 [${this.indexer.name}] TV text search for: ${query}`);
+          const results = await this.search(query, '5000'); // Category 5000 = TV
+          const before = results.length;
+          let filtered: NZBSearchResult[];
+          let removed: NZBSearchResult[];
+          if (isDate) {
+            // Date-numbered match runs in two passes so each rejection cause
+            // shows up in its own log block, matching the convention used by
+            // the title / remake / multi-episode / disabled-encodes filters.
+            //
+            // Pass 1: date filter. The indexer treats the date tokens as fuzzy
+            // keywords and returns releases dated any day that share the title
+            // (e.g. a query for `Stephen Colbert 2025.09.02` brings back hits
+            // dated 2025.09.16, 2025.12.09, etc). Re-verify the requested air
+            // date is present in the release title.
+            const [y, mo, d] = options!.airedDate!.slice(0, 10).split('-');
+            const requestedDate = new RegExp(`\\b${y}[.\\s_-]?${mo}[.\\s_-]?${d}\\b`);
+            const dateOk = (r: NZBSearchResult) => requestedDate.test(r.title);
+            const dateFiltered = results.filter(dateOk);
+            if (before !== dateFiltered.length) {
+              const wrongDate = results.filter(r => !dateOk(r));
+              slog(`   🎯 [${this.indexer.name}] Date filter: ${before} → ${dateFiltered.length} (removed ${wrongDate.length} wrong date${wrongDate.length === 1 ? '' : 's'})`);
+              wrongDate.forEach(r => slog(`      ✂️  ${r.title}`));
+            }
+
+            // Pass 2: title filter. Daily/talk-show releases append the guest
+            // name after the air date, so the extracted title for
+            // `Show.<date>.Guest...` is `Show Guest` rather than `Show`.
+            // Standard exact-title equality fails; require the alias to be a
+            // prefix of the extracted release title instead.
+            const normExpected = normalizeTitle(title);
+            const titleOk = (r: NZBSearchResult): boolean => {
+              const cleaned = matchTitle(r.title);
+              const extractedNorm = normalizeTitle(extractTitleFromRelease(cleaned));
+              return normExpected.length > 0 && extractedNorm.startsWith(normExpected);
+            };
+            filtered = dateFiltered.filter(titleOk);
+            removed = dateFiltered.filter(r => !titleOk(r));
+            if (dateFiltered.length !== filtered.length) {
+              slog(`   🎯 [${this.indexer.name}] Title filter: ${dateFiltered.length} → ${filtered.length} (removed ${removed.length} mismatches)`);
+              removed.forEach(r => slog(`      ✂️  ${r.title}`));
+            }
+          } else {
+            // On absolute-numbering retries, also reject results whose title carries
+            // an Sxx token that doesn't match the requested season. Catches
+            // non-absolute shows whose absolute query accidentally surfaced
+            // wrong-season episodes. Releases without any Sxx token (anime
+            // "Show E150" form) still pass.
+            const seasonOk = (resultTitle: string): boolean => {
+              if (!isAbsolute) return true;
+              const seasonTokens = extractSeasonTokens(resultTitle);
+              return seasonTokens.length === 0 || seasonTokens.includes(season);
+            };
+            const matches = (r: NZBSearchResult) =>
+              isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear)
+              && seasonOk(r.title);
+            filtered = results.filter(matches);
+            removed = results.filter(r => !matches(r));
+            if (before !== filtered.length) {
+              slog(`   🎯 [${this.indexer.name}] Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
+              removed.forEach(r => slog(`      ✂️  ${r.title}`));
+            }
+          }
+          return filtered;
+        }));
+
         if (includeSeasonPacks) {
-          const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
-          const spAdditionalPages = config.searchConfig?.seasonPackAdditionalPages;
-          const seasonPackPagination = spPaginationEnabled && spAdditionalPages ? { enabled: true, maxPages: spAdditionalPages } : undefined;
+          const seasonPackPagination = buildSeasonPackPaginationMaxPages(config.searchConfig);
           const packQuery = stripDiacritics(`${title} S${s}`);
-          slog(`🔍 Season pack search for: ${packQuery}`);
-          packTasks.push((async () => {
+          tasks.push(withSubBuffer(`Season pack [${this.indexer.name}]: ${packQuery}`, async () => {
+            slog(`🔍 [${this.indexer.name}] Season pack search for: ${packQuery}`);
             const packResults = await this.search(packQuery, '5000', seasonPackPagination);
             const packBefore = packResults.length;
             const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
@@ -437,22 +444,21 @@ export class UsenetSearcher {
             if (packBefore !== filteredPacks.length) {
               const keptLinks = new Set(filteredPacks.map(p => p.link));
               const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-              slog(`   📦 Season pack filter: ${packBefore} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
+              slog(`   📦 [${this.indexer.name}] Season pack filter: ${packBefore} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
               removedPacks.forEach(r => slog(`      ✂️  ${r.title}`));
             }
             if (filteredPacks.length > 0) {
-              slog(`   📦 Found ${filteredPacks.length} season packs${episodesInSeason ? ` (${episodesInSeason} eps/season, est. size per ep)` : ' (full pack size, episode count unknown)'}`);
+              slog(`   📦 [${this.indexer.name}] Found ${filteredPacks.length} season packs${episodesInSeason ? ` (${episodesInSeason} eps/season, est. size per ep)` : ' (full pack size, episode count unknown)'}`);
             }
             return filteredPacks;
-          })());
+          }));
         }
 
-        const includeMultiSeasonPacks = wantPacks && !isAbsolute && !isDate && (config.searchConfig?.includeMultiSeasonPacks ?? true);
         if (season > 1 && includeMultiSeasonPacks) {
           const fanoutPagination = buildSeriesPackPaginationMaxPages(config.searchConfig);
           const fanoutQuery = stripDiacritics(`${title} S01`);
-          slog(`🔍 [${this.indexer.name}] Multi-season fanout query: ${fanoutQuery}`);
-          packTasks.push((async () => {
+          tasks.push(withSubBuffer(`Multi-season fanout [${this.indexer.name}]: ${fanoutQuery}`, async () => {
+            slog(`🔍 [${this.indexer.name}] Multi-season fanout query: ${fanoutQuery}`);
             const fanoutResults = await this.search(fanoutQuery, '5000', fanoutPagination);
             const fanoutMatched = fanoutResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
             const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
@@ -463,24 +469,22 @@ export class UsenetSearcher {
               slog(`   📦 [${this.indexer.name}] Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
             }
             return fanoutPacks;
-          })());
+          }));
         }
 
         if (wantPacks && !isAbsolute && !isDate) {
           const seriesPagination = buildSeriesPackPaginationMaxPages(config.searchConfig);
-          packTasks.push(runSeriesPackQueries({
+          tasks.push(withSubBuffer(`Series-pack keyword queries [${this.indexer.name}]`, () => runSeriesPackQueries({
             searchFn: (q) => this.search(q, '5000', seriesPagination),
             title, season, episodesInSeason,
             isTitleMatch: (rt) => isTextSearchMatch(title, rt, year, country, additionalTitles, titleYear),
             searchConfig: config.searchConfig,
             logPrefix: this.indexer.name,
-          }));
+          })));
         }
 
-        const packResults = await Promise.all(packTasks);
-        for (const arr of packResults) filtered.push(...arr);
-
-        return filtered;
+        const allArrays = await Promise.all(tasks);
+        return allArrays.flat();
       }
 
       if (method !== 'imdb' && method !== 'text' && !externalId) {
@@ -598,23 +602,21 @@ export class UsenetSearcher {
 
       const includeSeasonPacks = wantPacks && (config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks);
       if (includeSeasonPacks && episodesInSeason && title) {
-        const spPaginationEnabled3 = config.searchConfig?.seasonPackPagination !== false;
-        const spAdditionalPages3 = config.searchConfig?.seasonPackAdditionalPages;
-        const seasonPackPagination3 = spPaginationEnabled3 && spAdditionalPages3 ? { enabled: true, maxPages: spAdditionalPages3 } : undefined;
+        const seasonPackPagination = buildSeasonPackPaginationMaxPages(config.searchConfig);
         const sp = season.toString().padStart(2, '0');
         const packQuery = stripDiacritics(`${title} S${sp}`);
-        slog(`🔍 Season pack search for: ${packQuery}`);
+        slog(`🔍 [${this.indexer.name}] Season pack search for: ${packQuery}`);
         packTasks.push((async () => {
-          const packResults = await this.search(packQuery, '5000', seasonPackPagination3);
+          const packResults = await this.search(packQuery, '5000', seasonPackPagination);
           const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
           const filteredPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
           if (packResults.length !== filteredPacks.length) {
             const keptLinks = new Set(filteredPacks.map(p => p.link));
             const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-            slog(`   📦 Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
+            slog(`   📦 [${this.indexer.name}] Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
             removedPacks.forEach(r => slog(`      ✂️  ${r.title}`));
           }
-          if (filteredPacks.length > 0) slog(`   📦 Found ${filteredPacks.length} season packs`);
+          if (filteredPacks.length > 0) slog(`   📦 [${this.indexer.name}] Found ${filteredPacks.length} season packs`);
           return filteredPacks;
         })());
       }
@@ -692,9 +694,7 @@ export class UsenetSearcher {
 
     const includeSeasonPacks = config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks;
     if (includeSeasonPacks && episodesInSeason) {
-      const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
-      const spAdditionalPages = config.searchConfig?.seasonPackAdditionalPages;
-      const seasonPackPagination = spPaginationEnabled && spAdditionalPages ? { enabled: true, maxPages: spAdditionalPages } : undefined;
+      const seasonPackPagination = buildSeasonPackPaginationMaxPages(config.searchConfig);
       const packQuery = stripDiacritics(`${title} S${s}`);
       packTasks.push(withSubBuffer(`Season pack: ${packQuery}`, async () => {
         const packResults = await this.search(packQuery, '5000', seasonPackPagination);
@@ -703,10 +703,10 @@ export class UsenetSearcher {
         if (packResults.length !== filteredPacks.length) {
           const keptLinks = new Set(filteredPacks.map(p => p.link));
           const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
-          slog(`   📦 Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
+          slog(`   📦 [${this.indexer.name}] Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
           removedPacks.forEach(r => slog(`      ✂️  ${r.title}`));
         }
-        if (filteredPacks.length > 0) slog(`   📦 Found ${filteredPacks.length} season packs`);
+        if (filteredPacks.length > 0) slog(`   📦 [${this.indexer.name}] Found ${filteredPacks.length} season packs`);
         return filteredPacks;
       }));
     }
@@ -720,9 +720,9 @@ export class UsenetSearcher {
         const fanoutMatched = fanoutResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
         const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
         if (fanoutResults.length !== fanoutPacks.length) {
-          slog(`   📦 Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
+          slog(`   📦 [${this.indexer.name}] Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
         }
-        if (fanoutPacks.length > 0) slog(`   📦 Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
+        if (fanoutPacks.length > 0) slog(`   📦 [${this.indexer.name}] Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
         return fanoutPacks;
       }));
     }

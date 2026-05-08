@@ -13,7 +13,7 @@ import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
-import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, buildSeriesPackPaginationAdditionalPages, extractSeasonTokens, normalizeTitle, extractTitleFromRelease } from '../parsers/titleMatching.js';
+import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, buildSeriesPackPaginationAdditionalPages, buildSeasonPackPaginationAdditionalPages, extractSeasonTokens, normalizeTitle, extractTitleFromRelease } from '../parsers/titleMatching.js';
 import { slog, withSubBuffer } from '../parsers/searchLogger.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
@@ -385,14 +385,14 @@ export class NzbhydraSearcher {
 
     const epQuery = stripDiacritics(`${queryTitle} S${s}E${e}`);
     tasks.push(withSubBuffer(`TV text search "${queryTitle}"`, async () => {
-      slog(`🔍 Query: "${epQuery}"`);
+      slog(`🔍 [NZBHydra] Query: "${epQuery}"`);
       const params: Record<string, string> = {
         apikey: this.apiKey, extended: '1', t: 'search', q: epQuery, cat: '5000', indexers: indexersCsv,
       };
       const r = await this.doSearch(params);
       const f = r.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
       if (r.length !== f.length) {
-        slog(`   🎯 Title filter: ${r.length} → ${f.length}`);
+        slog(`   🎯 [NZBHydra] Title filter: ${r.length} → ${f.length}`);
         r.filter(x => !isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear))
           .forEach(x => slog(`      ✂️  ${x.title}`));
       }
@@ -400,9 +400,7 @@ export class NzbhydraSearcher {
     }));
 
     if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
-      const spPagination = config.searchConfig?.seasonPackPagination !== false;
-      const spPages = config.searchConfig?.seasonPackAdditionalPages;
-      const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
+      const spOverride = buildSeasonPackPaginationAdditionalPages(config.searchConfig);
       const packQuery = stripDiacritics(`${queryTitle} S${s}`);
       tasks.push(withSubBuffer(`Season pack: ${packQuery}`, async () => {
         const params: Record<string, string> = {
@@ -412,9 +410,9 @@ export class NzbhydraSearcher {
         const titleMatched = packResults.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
         const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
         if (packResults.length !== packs.length) {
-          slog(`   📦 Season pack filter: ${packResults.length} → ${packs.length}`);
+          slog(`   📦 [NZBHydra] Season pack filter: ${packResults.length} → ${packs.length}`);
         }
-        if (packs.length > 0) slog(`   📦 Found ${packs.length} season pack(s) for "${queryTitle}"`);
+        if (packs.length > 0) slog(`   📦 [NZBHydra] Found ${packs.length} season pack(s) for "${queryTitle}"`);
         return packs;
       }));
     }
@@ -431,9 +429,9 @@ export class NzbhydraSearcher {
         const fanoutMatched = fanoutResults.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
         const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
         if (fanoutResults.length !== fanoutPacks.length) {
-          slog(`   📦 Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
+          slog(`   📦 [NZBHydra] Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
         }
-        if (fanoutPacks.length > 0) slog(`   📦 Found ${fanoutPacks.length} multi-season pack(s) covering S${season} for "${queryTitle}"`);
+        if (fanoutPacks.length > 0) slog(`   📦 [NZBHydra] Found ${fanoutPacks.length} multi-season pack(s) covering S${season} for "${queryTitle}"`);
         return fanoutPacks;
       }));
     }

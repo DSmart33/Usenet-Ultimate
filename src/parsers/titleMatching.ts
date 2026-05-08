@@ -402,6 +402,36 @@ export function getSeriesPackAdditionalPages(cfg: SearchConfig | undefined): num
 }
 
 /**
+ * Build a pagination override for the season-pack query (`Title S{nn}`) using
+ * the Newznab `maxPages` shape. Used by usenetSearcher. Returns undefined when
+ * pagination is disabled or no extra pages are configured, so callers can pass
+ * it through directly.
+ */
+export function buildSeasonPackPaginationMaxPages(cfg: SearchConfig | undefined): { enabled: true; maxPages: number } | undefined {
+  const enabled = cfg?.seasonPackPagination !== false;
+  const pages = cfg?.seasonPackAdditionalPages;
+  return enabled && pages ? { enabled: true, maxPages: pages } : undefined;
+}
+
+/**
+ * Variant of {@link buildSeasonPackPaginationMaxPages} that returns the
+ * Prowlarr/NZBHydra `additionalPages` shape.
+ */
+export function buildSeasonPackPaginationAdditionalPages(cfg: SearchConfig | undefined): { enabled: true; additionalPages: number } | undefined {
+  const enabled = cfg?.seasonPackPagination !== false;
+  const pages = cfg?.seasonPackAdditionalPages;
+  return enabled && pages ? { enabled: true, additionalPages: pages } : undefined;
+}
+
+/**
+ * Variant for callers (EasyNews) whose pagination override is just a number
+ * of additional pages, not an object.
+ */
+export function getSeasonPackAdditionalPages(cfg: SearchConfig | undefined): number | undefined {
+  return cfg?.seasonPackPagination === false ? undefined : cfg?.seasonPackAdditionalPages;
+}
+
+/**
  * Run series-pack keyword queries (e.g. '<Title> Complete'). Each query is run
  * via the caller-supplied searchFn so each indexer client can bind its own
  * pagination/category options. Results are title-matched and tagged via

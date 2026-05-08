@@ -22,7 +22,7 @@ import axios from 'axios';
 import type { SyncedIndexer, NZBSearchResult, ProwlarrSearchResult } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { parseNewznabXmlWithMeta } from '../parsers/newznabClient.js';
-import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, buildSeriesPackPaginationAdditionalPages, extractSeasonTokens, normalizeTitle, extractTitleFromRelease } from '../parsers/titleMatching.js';
+import { isTextSearchMatch, stripDiacritics, tagSeasonPack, runSeriesPackQueries, buildSeriesPackPaginationAdditionalPages, buildSeasonPackPaginationAdditionalPages, extractSeasonTokens, normalizeTitle, extractTitleFromRelease } from '../parsers/titleMatching.js';
 import { slog, withSubBuffer } from '../parsers/searchLogger.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
@@ -398,11 +398,11 @@ export class ProwlarrSearcher {
 
     const epQuery = stripDiacritics(`${queryTitle} S${s}E${e}`);
     tasks.push(withSubBuffer(`TV text search "${queryTitle}"`, async () => {
-      slog(`🔍 Query: "${epQuery}"`);
+      slog(`🔍 [Prowlarr] Query: "${epQuery}"`);
       const r = await this.doAggregateSearch(indexerIds, 'search', epQuery, ['5000']);
       const f = r.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
       if (r.length !== f.length) {
-        slog(`   🎯 Title filter: ${r.length} → ${f.length}`);
+        slog(`   🎯 [Prowlarr] Title filter: ${r.length} → ${f.length}`);
         r.filter(x => !isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear))
           .forEach(x => slog(`      ✂️  ${x.title}`));
       }
@@ -410,18 +410,16 @@ export class ProwlarrSearcher {
     }));
 
     if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
-      const spPagination = config.searchConfig?.seasonPackPagination !== false;
-      const spPages = config.searchConfig?.seasonPackAdditionalPages;
-      const spOverride = spPagination && spPages ? { enabled: true, additionalPages: spPages } : undefined;
+      const spOverride = buildSeasonPackPaginationAdditionalPages(config.searchConfig);
       const packQuery = stripDiacritics(`${queryTitle} S${s}`);
       tasks.push(withSubBuffer(`Season pack: ${packQuery}`, async () => {
         const packResults = await this.doAggregateSearch(indexerIds, 'search', packQuery, ['5000'], spOverride);
         const titleMatched = packResults.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
         const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
         if (packResults.length !== packs.length) {
-          slog(`   📦 Season pack filter: ${packResults.length} → ${packs.length}`);
+          slog(`   📦 [Prowlarr] Season pack filter: ${packResults.length} → ${packs.length}`);
         }
-        if (packs.length > 0) slog(`   📦 Found ${packs.length} season pack(s) for "${queryTitle}"`);
+        if (packs.length > 0) slog(`   📦 [Prowlarr] Found ${packs.length} season pack(s) for "${queryTitle}"`);
         return packs;
       }));
     }
@@ -435,9 +433,9 @@ export class ProwlarrSearcher {
         const fanoutMatched = fanoutResults.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
         const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
         if (fanoutResults.length !== fanoutPacks.length) {
-          slog(`   📦 Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
+          slog(`   📦 [Prowlarr] Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
         }
-        if (fanoutPacks.length > 0) slog(`   📦 Found ${fanoutPacks.length} multi-season pack(s) covering S${season} for "${queryTitle}"`);
+        if (fanoutPacks.length > 0) slog(`   📦 [Prowlarr] Found ${fanoutPacks.length} multi-season pack(s) covering S${season} for "${queryTitle}"`);
         return fanoutPacks;
       }));
     }
