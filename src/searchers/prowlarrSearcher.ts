@@ -259,9 +259,11 @@ export class ProwlarrSearcher {
     const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
     const animeFanoutEnabled = !!isAnime && !!additionalTitles?.length && !parallelAltEnabled;
 
-    // Canonical text + packs flow
+    // Canonical text + packs flow. epIndexerIds = text-method only (canonical
+    // SxxExx text query); packIndexerIds = text + ID-method (pack queries are
+    // text-by-nature regardless of an indexer's primary method).
     const canonicalTextPromise = packIndexerIds.length > 0 && title
-      ? this.runTitleSearchTV(title, title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, packIndexerIds)
+      ? this.runTitleSearchTV(title, title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, textMethodIds, packIndexerIds)
       : Promise.resolve([]);
 
     // Parallel-alt or anime fan-out: per-alt text+packs concurrent with canonical
@@ -271,7 +273,7 @@ export class ProwlarrSearcher {
         ? `🔀 Prowlarr parallel alt-title search: querying primary + ${additionalTitles.length} alt(s) concurrently`
         : `🎌 Prowlarr anime dual-title fan-out: querying primary + ${additionalTitles.length} alt(s)`);
       for (const alt of additionalTitles) {
-        altPromises.push(this.runTitleSearchTV(alt, alt, season, episode, episodesInSeason, year, country, undefined, titleYear, packIndexerIds));
+        altPromises.push(this.runTitleSearchTV(alt, alt, season, episode, episodesInSeason, year, country, undefined, titleYear, textMethodIds, packIndexerIds));
       }
     }
 
@@ -292,7 +294,7 @@ export class ProwlarrSearcher {
       if (allIndexerIds.length > 0) {
         for (const altTitle of additionalTitles) {
           slog(`🔄 Prowlarr alt-title retry: "${altTitle}"`);
-          const altPackResults = await this.runTitleSearchTV(altTitle, altTitle, season, episode, episodesInSeason, year, country, undefined, titleYear, allIndexerIds);
+          const altPackResults = await this.runTitleSearchTV(altTitle, altTitle, season, episode, episodesInSeason, year, country, undefined, titleYear, textMethodIds, allIndexerIds);
           if (altPackResults.length > 0) {
             allResults = altPackResults;
             break;
@@ -378,6 +380,15 @@ export class ProwlarrSearcher {
    * Run the full text-mode flow (episode + season pack + multi-season fanout +
    * series-pack keywords) for one title. Used by the canonical pass and by
    * per-alt-title branches (parallel-alt, anime fan-out, sequential alt retry).
+   *
+   * Two indexer-ID lists:
+   * - epIndexerIds: indexers with `text` configured. Receives the canonical
+   *   SxxExx episode text query. Skipped when empty.
+   * - packIndexerIds: text + ID-method indexers. Receives pack queries
+   *   (S{nn}, S01 fanout, series-pack keywords) since pack queries are
+   *   inherently text-based regardless of an indexer's primary method.
+   *   Matches Newznab's per-indexer behavior in searchOrchestrator where
+   *   searchTVShowPacks fires text-based pack queries against every indexer.
    */
   private async runTitleSearchTV(
     filterTitle: string,
@@ -389,31 +400,34 @@ export class ProwlarrSearcher {
     country: string | undefined,
     additionalFilterTitles: string[] | undefined,
     titleYear: string | undefined,
-    indexerIds: string[],
+    epIndexerIds: string[],
+    packIndexerIds: string[],
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
-    if (indexerIds.length === 0) return [];
+    if (epIndexerIds.length === 0 && packIndexerIds.length === 0) return [];
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
     const tasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
 
-    const epQuery = stripDiacritics(`${queryTitle} S${s}E${e}`);
-    tasks.push(withSubBuffer(`TV text search "${queryTitle}"`, async () => {
-      slog(`🔍 [Prowlarr] Query: "${epQuery}"`);
-      const r = await this.doAggregateSearch(indexerIds, 'search', epQuery, ['5000']);
-      const f = r.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
-      if (r.length !== f.length) {
-        slog(`   🎯 [Prowlarr] Title filter: ${r.length} → ${f.length}`);
-        r.filter(x => !isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear))
-          .forEach(x => slog(`      ✂️  ${x.title}`));
-      }
-      return f;
-    }));
+    if (epIndexerIds.length > 0) {
+      const epQuery = stripDiacritics(`${queryTitle} S${s}E${e}`);
+      tasks.push(withSubBuffer(`TV text search "${queryTitle}"`, async () => {
+        slog(`🔍 [Prowlarr] Query: "${epQuery}"`);
+        const r = await this.doAggregateSearch(epIndexerIds, 'search', epQuery, ['5000']);
+        const f = r.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
+        if (r.length !== f.length) {
+          slog(`   🎯 [Prowlarr] Title filter: ${r.length} → ${f.length}`);
+          r.filter(x => !isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear))
+            .forEach(x => slog(`      ✂️  ${x.title}`));
+        }
+        return f;
+      }));
+    }
 
-    if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
+    if (packIndexerIds.length > 0 && config.searchConfig?.includeSeasonPacks && episodesInSeason) {
       const spOverride = buildSeasonPackPaginationAdditionalPages(config.searchConfig);
       const packQuery = stripDiacritics(`${queryTitle} S${s}`);
       tasks.push(withSubBuffer(`Season pack: ${packQuery}`, async () => {
-        const packResults = await this.doAggregateSearch(indexerIds, 'search', packQuery, ['5000'], spOverride);
+        const packResults = await this.doAggregateSearch(packIndexerIds, 'search', packQuery, ['5000'], spOverride);
         const titleMatched = packResults.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
         const packs = tagSeasonPack(titleMatched, season, episodesInSeason);
         if (packResults.length !== packs.length) {
@@ -425,11 +439,11 @@ export class ProwlarrSearcher {
     }
 
     const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
-    if (season > 1 && includeMultiSeasonPacks) {
+    if (packIndexerIds.length > 0 && season > 1 && includeMultiSeasonPacks) {
       const fanoutOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
       const fanoutQuery = stripDiacritics(`${queryTitle} S01`);
       tasks.push(withSubBuffer(`Multi-season fanout: ${fanoutQuery}`, async () => {
-        const fanoutResults = await this.doAggregateSearch(indexerIds, 'search', fanoutQuery, ['5000'], fanoutOverride);
+        const fanoutResults = await this.doAggregateSearch(packIndexerIds, 'search', fanoutQuery, ['5000'], fanoutOverride);
         const fanoutMatched = fanoutResults.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
         const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
         if (fanoutResults.length !== fanoutPacks.length) {
@@ -440,14 +454,16 @@ export class ProwlarrSearcher {
       }));
     }
 
-    const seriesOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
-    tasks.push(withSubBuffer(`Series-pack keyword queries (${queryTitle})`, () => runSeriesPackQueries({
-      searchFn: (q) => this.doAggregateSearch(indexerIds, 'search', q, ['5000'], seriesOverride),
-      title: queryTitle, season, episodesInSeason,
-      isTitleMatch: (rt) => isTextSearchMatch(filterTitle, rt, year, country, additionalFilterTitles, titleYear),
-      searchConfig: config.searchConfig,
-      logPrefix: 'Prowlarr',
-    })));
+    if (packIndexerIds.length > 0) {
+      const seriesOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
+      tasks.push(withSubBuffer(`Series-pack keyword queries (${queryTitle})`, () => runSeriesPackQueries({
+        searchFn: (q) => this.doAggregateSearch(packIndexerIds, 'search', q, ['5000'], seriesOverride),
+        title: queryTitle, season, episodesInSeason,
+        isTitleMatch: (rt) => isTextSearchMatch(filterTitle, rt, year, country, additionalFilterTitles, titleYear),
+        searchConfig: config.searchConfig,
+        logPrefix: 'Prowlarr',
+      })));
+    }
 
     const sets = await Promise.all(tasks);
     return sets.flat();

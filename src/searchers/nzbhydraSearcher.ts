@@ -249,8 +249,11 @@ export class NzbhydraSearcher {
     const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true && !!additionalTitles?.length;
     const animeFanoutEnabled = !!isAnime && !!additionalTitles?.length && !parallelAltEnabled;
 
+    // epIndexerNames = text-method only (canonical SxxExx text query);
+    // packIndexerNames = text + ID-method (pack queries are text-by-nature
+    // regardless of an indexer's primary method).
     const canonicalTextPromise = packIndexerNames.length > 0 && title
-      ? this.runTitleSearchTV(title, title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, packIndexerNames)
+      ? this.runTitleSearchTV(title, title, season, episode, episodesInSeason, year, country, additionalTitles, titleYear, textMethodNames, packIndexerNames)
       : Promise.resolve([] as (NZBSearchResult & { indexerName: string })[]);
 
     const altPromises: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
@@ -259,7 +262,7 @@ export class NzbhydraSearcher {
         ? `🔀 NZBHydra parallel alt-title search: querying primary + ${additionalTitles.length} alt(s) concurrently`
         : `🎌 NZBHydra anime dual-title fan-out: querying primary + ${additionalTitles.length} alt(s)`);
       for (const alt of additionalTitles) {
-        altPromises.push(this.runTitleSearchTV(alt, alt, season, episode, episodesInSeason, year, country, undefined, titleYear, packIndexerNames));
+        altPromises.push(this.runTitleSearchTV(alt, alt, season, episode, episodesInSeason, year, country, undefined, titleYear, textMethodNames, packIndexerNames));
       }
     }
 
@@ -279,7 +282,7 @@ export class NzbhydraSearcher {
       if (allNames.length > 0) {
         for (const altTitle of additionalTitles) {
           slog(`🔄 NZBHydra alt-title retry: "${altTitle}"`);
-          const altPackResults = await this.runTitleSearchTV(altTitle, altTitle, season, episode, episodesInSeason, year, country, undefined, titleYear, allNames);
+          const altPackResults = await this.runTitleSearchTV(altTitle, altTitle, season, episode, episodesInSeason, year, country, undefined, titleYear, textMethodNames, allNames);
           if (altPackResults.length > 0) {
             allResults = altPackResults;
             break;
@@ -365,6 +368,14 @@ export class NzbhydraSearcher {
    * Run the full text-mode flow (episode + season pack + multi-season fanout +
    * series-pack keywords) for one title against the given indexers.
    */
+  /**
+   * Two indexer-name lists:
+   * - epIndexerNames: indexers with `text` configured. Receives the canonical
+   *   SxxExx episode text query. Skipped when empty.
+   * - packIndexerNames: text + ID-method indexers. Receives pack queries
+   *   (S{nn}, S01 fanout, series-pack keywords) since pack queries are
+   *   inherently text-based regardless of an indexer's primary method.
+   */
   private async runTitleSearchTV(
     filterTitle: string,
     queryTitle: string,
@@ -375,36 +386,40 @@ export class NzbhydraSearcher {
     country: string | undefined,
     additionalFilterTitles: string[] | undefined,
     titleYear: string | undefined,
-    indexerNames: string[],
+    epIndexerNames: string[],
+    packIndexerNames: string[],
   ): Promise<(NZBSearchResult & { indexerName: string })[]> {
-    if (indexerNames.length === 0) return [];
+    if (epIndexerNames.length === 0 && packIndexerNames.length === 0) return [];
     const s = season.toString().padStart(2, '0');
     const e = episode.toString().padStart(2, '0');
-    const indexersCsv = indexerNames.join(',');
+    const epIndexersCsv = epIndexerNames.join(',');
+    const packIndexersCsv = packIndexerNames.join(',');
     const tasks: Promise<(NZBSearchResult & { indexerName: string })[]>[] = [];
 
-    const epQuery = stripDiacritics(`${queryTitle} S${s}E${e}`);
-    tasks.push(withSubBuffer(`TV text search "${queryTitle}"`, async () => {
-      slog(`🔍 [NZBHydra] Query: "${epQuery}"`);
-      const params: Record<string, string> = {
-        apikey: this.apiKey, extended: '1', t: 'search', q: epQuery, cat: '5000', indexers: indexersCsv,
-      };
-      const r = await this.doSearch(params);
-      const f = r.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
-      if (r.length !== f.length) {
-        slog(`   🎯 [NZBHydra] Title filter: ${r.length} → ${f.length}`);
-        r.filter(x => !isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear))
-          .forEach(x => slog(`      ✂️  ${x.title}`));
-      }
-      return f;
-    }));
+    if (epIndexerNames.length > 0) {
+      const epQuery = stripDiacritics(`${queryTitle} S${s}E${e}`);
+      tasks.push(withSubBuffer(`TV text search "${queryTitle}"`, async () => {
+        slog(`🔍 [NZBHydra] Query: "${epQuery}"`);
+        const params: Record<string, string> = {
+          apikey: this.apiKey, extended: '1', t: 'search', q: epQuery, cat: '5000', indexers: epIndexersCsv,
+        };
+        const r = await this.doSearch(params);
+        const f = r.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
+        if (r.length !== f.length) {
+          slog(`   🎯 [NZBHydra] Title filter: ${r.length} → ${f.length}`);
+          r.filter(x => !isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear))
+            .forEach(x => slog(`      ✂️  ${x.title}`));
+        }
+        return f;
+      }));
+    }
 
-    if (config.searchConfig?.includeSeasonPacks && episodesInSeason) {
+    if (packIndexerNames.length > 0 && config.searchConfig?.includeSeasonPacks && episodesInSeason) {
       const spOverride = buildSeasonPackPaginationAdditionalPages(config.searchConfig);
       const packQuery = stripDiacritics(`${queryTitle} S${s}`);
       tasks.push(withSubBuffer(`Season pack: ${packQuery}`, async () => {
         const params: Record<string, string> = {
-          apikey: this.apiKey, extended: '1', t: 'search', q: packQuery, cat: '5000', indexers: indexersCsv,
+          apikey: this.apiKey, extended: '1', t: 'search', q: packQuery, cat: '5000', indexers: packIndexersCsv,
         };
         const packResults = await this.doSearch(params, spOverride);
         const titleMatched = packResults.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
@@ -418,12 +433,12 @@ export class NzbhydraSearcher {
     }
 
     const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
-    if (season > 1 && includeMultiSeasonPacks) {
+    if (packIndexerNames.length > 0 && season > 1 && includeMultiSeasonPacks) {
       const fanoutOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
       const fanoutQuery = stripDiacritics(`${queryTitle} S01`);
       tasks.push(withSubBuffer(`Multi-season fanout: ${fanoutQuery}`, async () => {
         const params: Record<string, string> = {
-          apikey: this.apiKey, extended: '1', t: 'search', q: fanoutQuery, cat: '5000', indexers: indexersCsv,
+          apikey: this.apiKey, extended: '1', t: 'search', q: fanoutQuery, cat: '5000', indexers: packIndexersCsv,
         };
         const fanoutResults = await this.doSearch(params, fanoutOverride);
         const fanoutMatched = fanoutResults.filter(x => isTextSearchMatch(filterTitle, x.title, year, country, additionalFilterTitles, titleYear));
@@ -436,19 +451,21 @@ export class NzbhydraSearcher {
       }));
     }
 
-    const seriesOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
-    tasks.push(withSubBuffer(`Series-pack keyword queries (${queryTitle})`, () => runSeriesPackQueries({
-      searchFn: async (q) => {
-        const params: Record<string, string> = {
-          apikey: this.apiKey, extended: '1', t: 'search', q, cat: '5000', indexers: indexersCsv,
-        };
-        return this.doSearch(params, seriesOverride);
-      },
-      title: queryTitle, season, episodesInSeason,
-      isTitleMatch: (rt) => isTextSearchMatch(filterTitle, rt, year, country, additionalFilterTitles, titleYear),
-      searchConfig: config.searchConfig,
-      logPrefix: 'NZBHydra',
-    })));
+    if (packIndexerNames.length > 0) {
+      const seriesOverride = buildSeriesPackPaginationAdditionalPages(config.searchConfig);
+      tasks.push(withSubBuffer(`Series-pack keyword queries (${queryTitle})`, () => runSeriesPackQueries({
+        searchFn: async (q) => {
+          const params: Record<string, string> = {
+            apikey: this.apiKey, extended: '1', t: 'search', q, cat: '5000', indexers: packIndexersCsv,
+          };
+          return this.doSearch(params, seriesOverride);
+        },
+        title: queryTitle, season, episodesInSeason,
+        isTitleMatch: (rt) => isTextSearchMatch(filterTitle, rt, year, country, additionalFilterTitles, titleYear),
+        searchConfig: config.searchConfig,
+        logPrefix: 'NZBHydra',
+      })));
+    }
 
     const sets = await Promise.all(tasks);
     return sets.flat();
