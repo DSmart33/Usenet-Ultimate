@@ -231,6 +231,12 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       : enabledIndexers;
     if (isAnime) console.log(`🎌 Anime detected — using per-indexer anime search methods`);
 
+    // Indexer is text-capable when its configured method (post-anime-swap) for the current type includes 'text'.
+    const isTextCapable = (i: typeof effectiveIndexers[number]): boolean => {
+      const m = type === 'movie' ? (i.movieSearchMethod || ['imdb']) : (i.tvSearchMethod || ['imdb']);
+      return (Array.isArray(m) ? m : [m]).includes('text');
+    };
+
     // Collect unique search methods needed across all enabled indexers
     const neededMethods = new Set<string>();
     for (const indexer of effectiveIndexers) {
@@ -284,6 +290,10 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       indexerLines.set(name, existing);
     };
 
+    if (isAnime && !!additionalTitles?.length && effectiveIndexers.some(isTextCapable)) {
+      console.log(`🎌 Newznab anime dual-title fan-out: querying primary + ${additionalTitles!.length} alt(s)`);
+    }
+
     // Search across all enabled indexers, each with its own methods and resolved IDs
     const searchPromises = effectiveIndexers
       .map(async (indexer) => {
@@ -322,7 +332,15 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
             }
 
             if (type === 'series' && season !== undefined) {
-              tasks.push(withSubBuffer('Pack queries', () => searcher.searchTVShowPacks(title, season, episodesInSeason, year, country, additionalTitles, titleYear)));
+              // Mirror the gates inside searchTVShowPacks so the sub-buffer header doesn't print when no pack feature will run.
+              const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
+              const includeSeasonPacks = config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks;
+              const anyPackFeatureEnabled =
+                (includeMultiSeasonPacks && (season > 1 || !!episodesInSeason))
+                || (!!includeSeasonPacks && !!episodesInSeason);
+              if (anyPackFeatureEnabled) {
+                tasks.push(withSubBuffer('Pack queries', () => searcher.searchTVShowPacks(title, season, episodesInSeason, year, country, additionalTitles, titleYear)));
+              }
             }
 
             const allMethodResults = (await Promise.all(tasks)).flat();
@@ -351,8 +369,14 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     const parallelAltEnabled = config.searchConfig?.parallelAlternateTitleSearch === true
       && !!additionalTitles?.length
       && !isAnime;
+    const parallelAltCapable = effectiveIndexers.filter(isTextCapable);
+    if (parallelAltEnabled && parallelAltCapable.length > 0) {
+      slog(type === 'movie'
+        ? `🔀 Newznab parallel alt-title movie search: querying primary + ${additionalTitles!.length} alt(s) concurrently`
+        : `🔀 Newznab parallel alt-title search: querying primary + ${additionalTitles!.length} alt(s) concurrently`);
+    }
     const altSearchPromises = parallelAltEnabled
-      ? effectiveIndexers.flatMap(indexer => additionalTitles!.map(async (altTitle) => {
+      ? parallelAltCapable.flatMap(indexer => additionalTitles!.map(async (altTitle) => {
           const startTime = Date.now();
           const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
           const { result, lines } = await withBuffer(async (): Promise<any[]> => {
@@ -398,7 +422,10 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       && config.searchConfig?.aliasTitleFallback !== false
       && !!searchAliases?.length
     ) {
-      const retryIndexers = enabledIndexers.filter(i => !timedOutIndexers.has(i.name));
+      const retryIndexers = effectiveIndexers.filter(i => !timedOutIndexers.has(i.name) && isTextCapable(i));
+      if (retryIndexers.length === 0 && enabledIndexers.length > 0) {
+        slog(`⚠️  No text-method indexers, skipping alias-title fallback`);
+      }
       if (retryIndexers.length > 0) {
         // When TVDB has an aired date for the targeted episode, use the
         // date-numbered query format (alias YYYY.MM.DD) so daily/talk shows
@@ -460,7 +487,10 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       && episode !== undefined
       && config.searchConfig?.absoluteEpisodeFallback !== false
     ) {
-      const retryIndexers = enabledIndexers.filter(i => !timedOutIndexers.has(i.name));
+      const retryIndexers = effectiveIndexers.filter(i => !timedOutIndexers.has(i.name) && isTextCapable(i));
+      if (retryIndexers.length === 0 && enabledIndexers.length > 0) {
+        slog(`⚠️  No text-method indexers, skipping absolute-episode fallback`);
+      }
       if (retryIndexers.length > 0) {
         // Three-tier source chain: TVDB canonical → TVDB cumulative → Cinemeta cumulative → per-season E{episode}.
         // Tiers 1 and 2 come from the same eager TVDB call during title resolve, so picking between them is free.
@@ -523,9 +553,13 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     // Skip indexers that have timed out at any prior point in this cycle.
     // Skipped entirely in parallel-alt mode — those alts already fired upfront.
     if (results.length === 0 && additionalTitles?.length && enabledIndexers.length > 0 && !parallelAltEnabled) {
-      const altIndexers = enabledIndexers.filter(i => !timedOutIndexers.has(i.name));
+      const altIndexers = effectiveIndexers.filter(i => !timedOutIndexers.has(i.name) && isTextCapable(i));
+      if (altIndexers.length === 0 && enabledIndexers.length > 0) {
+        slog(`⚠️  No text-method indexers, skipping alt-title retry`);
+      }
       for (const altTitle of additionalTitles) {
         if (altIndexers.length === 0) break;
+        slog(`🔄 Newznab alt-title retry: "${altTitle}"`);
         const altPromises = altIndexers.map(async (indexer) => {
           const { result, lines } = await withBuffer(async (): Promise<any[]> => {
             return withSubBuffer(`Alt-title retry: "${altTitle}"`, async () => {
