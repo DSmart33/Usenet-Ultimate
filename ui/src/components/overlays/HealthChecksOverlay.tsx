@@ -123,7 +123,7 @@ export default function HealthChecksOverlay({
               {/* Sub-options */}
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Auto-queue to NZBDav</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Auto-queue to NzbDAV</label>
                   <select
                     value={healthChecks.autoQueueMode}
                     onChange={(e) => setHealthChecks({ ...healthChecks, autoQueueMode: e.target.value as 'off' | 'top' | 'all' })}
@@ -134,7 +134,7 @@ export default function HealthChecksOverlay({
                     <option value="all">All Healthy</option>
                   </select>
                   <p className="text-xs text-slate-500 mt-1">
-                    Automatically queue verified results to NZBDav for caching. Uses cached NZB data from health checks to save indexer grabs. (NZBDav streaming mode only)
+                    Automatically queue verified results to NzbDAV for caching. Uses cached NZB data from health checks to save indexer grabs. (NzbDAV streaming mode only)
                   </p>
                 </div>
                 {config?.easynewsEnabled && config?.easynewsMode === 'nzb' && (
@@ -155,7 +155,7 @@ export default function HealthChecksOverlay({
                       Disabled: EasyNews results auto-marked as healthy.
                     </p>
                     <p className="text-xs text-amber-400 mt-1 ml-7">
-                      ⚠️ With EasyNews bypassing health checks and auto-queue set to "All Healthy", this will queue all EasyNews results to NZBDav. In this case, consider "Top Result" to avoid flooding your download client.
+                      ⚠️ With EasyNews bypassing health checks and auto-queue set to "All Healthy", this will queue all EasyNews results to NzbDAV. In this case, consider "Top Result" to avoid flooding your download client.
                     </p>
                   </div>
                 )}
@@ -184,7 +184,7 @@ export default function HealthChecksOverlay({
                     <span className="text-sm font-medium text-slate-300">Library Pre-Check</span>
                   </label>
                   <p className="text-xs text-slate-500 mt-1 ml-7">
-                    Check the NZBDav library before running NNTP health checks. Content already downloaded is instantly marked as verified, skipping expensive segment checks. (NZBDav streaming mode only)
+                    Check the NzbDAV library before running NNTP health checks. Content already downloaded is instantly marked as verified, skipping expensive segment checks. (NzbDAV streaming mode only)
                   </p>
                 </div>
               </div>
@@ -205,7 +205,7 @@ export default function HealthChecksOverlay({
                   <span className="text-lg leading-none mt-0.5">📚</span>
                   <div>
                     <div className="font-medium text-blue-400">In Library</div>
-                    <div className="text-slate-400 text-xs">Already downloaded and available in your NZBDav library. Skipped NNTP health check.</div>
+                    <div className="text-slate-400 text-xs">Already downloaded and available in your NzbDAV library. Skipped NNTP health check.</div>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -350,7 +350,7 @@ export default function HealthChecksOverlay({
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
                         {batchCount} {healthChecks.inspectionMethod === 'smart' ? 'batch' : 'NZBs'} × {Math.max(1, poolProviderCount)} pool provider{poolProviderCount !== 1 ? 's' : ''}.
-                        {' '}<span className="text-amber-400/80">These connections plus any NZBDav connections must not exceed your provider's maximum allowed connections.</span>
+                        {' '}<span className="text-amber-400/80">These connections plus any NzbDAV connections must not exceed your provider's maximum allowed connections.</span>
                       </p>
                     </>
                   );

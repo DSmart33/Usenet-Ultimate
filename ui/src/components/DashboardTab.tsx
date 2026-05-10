@@ -260,7 +260,7 @@ export function DashboardTab({
                     </div>
                     <div className="text-3xl font-bold group-hover:text-purple-400 group-active:text-purple-400 transition-colors">
                       {config.streamingMode === 'nzbdav'
-                        ? <>NZBDav<span className="text-lg font-normal text-purple-400 ml-2">+ {!ultimateFallback.enabled ? 'Dual-Stage Proxy' : nzbdavStreamingMethod === 'pipe' ? 'Pipe' : nzbdavStreamingMethod === 'direct' ? 'Direct' : 'Dual-Stage Proxy'}</span></>
+                        ? <>NzbDAV<span className="text-lg font-normal text-purple-400 ml-2">+ {!ultimateFallback.enabled ? 'Dual-Stage Proxy' : nzbdavStreamingMethod === 'pipe' ? 'Pipe' : nzbdavStreamingMethod === 'direct' ? 'Direct' : 'Dual-Stage Proxy'}</span></>
                         : 'Native'}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
@@ -331,7 +331,7 @@ export function DashboardTab({
                       <span className="text-slate-300 text-2xl ml-1">Dead</span>
                     </div>
                     {streamingMode !== 'nzbdav' && (
-                      <span className="text-xs text-slate-600 mt-1">NZB Database is only available in NZBDav streaming mode</span>
+                      <span className="text-xs text-slate-600 mt-1">NZB Database is only available in NzbDAV streaming mode</span>
                     )}
                   </div>
                 ),

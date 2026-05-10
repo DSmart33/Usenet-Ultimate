@@ -73,7 +73,7 @@ export function UserAgentOverlay({
             <label className="block text-sm font-medium text-slate-300 mb-2">
               <span className="flex items-center gap-2">
                 <Server className="w-4 h-4 text-purple-400" />
-                NZBDav Operations
+                NzbDAV Operations
               </span>
             </label>
             <input
@@ -83,7 +83,7 @@ export function UserAgentOverlay({
               className="input w-full"
               placeholder="User agent string"
             />
-            <p className="text-xs text-slate-500 mt-1">Used for NZBDav API operations (connection tests, NZB submissions)</p>
+            <p className="text-xs text-slate-500 mt-1">Used for NzbDAV API operations (connection tests, NZB submissions)</p>
           </div>
 
           <div>

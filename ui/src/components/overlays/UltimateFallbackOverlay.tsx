@@ -427,14 +427,14 @@ export function UltimateFallbackOverlay({
                 <p className="text-xs text-slate-500">Prefer the fastest resolving NZB, even if there are unresolved candidates with higher priority.</p>
               </div>
             </label>
-            <p className="text-xs text-slate-500 pt-1">Mode also controls NZBDav Wait Times below.</p>
+            <p className="text-xs text-slate-500 pt-1">Mode also controls NzbDAV Wait Times below.</p>
           </div>
 
-          {/* NZBDav Wait Times — per-mode set */}
+          {/* NzbDAV Wait Times — per-mode set */}
           <div className={clsx("bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4 transition-opacity", !ultimateFallback.enabled && "opacity-40 pointer-events-none")}>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <div className="text-sm font-medium text-slate-300">NZBDav Wait Times</div>
+                <div className="text-sm font-medium text-slate-300">NzbDAV Wait Times</div>
                 <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300/90 font-medium">
                   Editing: {isPriority ? 'Priority' : 'Speed'}
                 </span>
@@ -603,7 +603,7 @@ export function UltimateFallbackOverlay({
               </div>
             </div>
             <ul className="text-xs text-slate-500 space-y-1 list-disc list-inside">
-              <li>The time Ultimate Fallback will wait for a health-verified NZB to finish processing in NZBDav before moving on to the next candidate.</li>
+              <li>The time Ultimate Fallback will wait for a health-verified NZB to finish processing in NzbDAV before moving on to the next candidate.</li>
               <li>Priority and Speed modes use a separate set of wait times, switch the Preference Mode above to edit each one.</li>
               <li>Set to 0 (∞) to disbale the timer and let nzbdav take as long as it needs to finish. Max 1 min 30s. Hold the +/- buttons to accelerate.</li>
             </ul>
@@ -651,7 +651,7 @@ export function UltimateFallbackOverlay({
                     <span>max NNTP connections ({ultimateFallback.candidateCount} candidate{ultimateFallback.candidateCount !== 1 ? 's' : ''} × {Math.max(1, enabledPoolProviders)} pool provider{enabledPoolProviders !== 1 ? 's' : ''})</span>
                   </div>
                   <div className="text-xs text-amber-400/50 mt-1">
-                    These connections are separate from NZBDav's download connections. Ensure your provider allows enough concurrent connections for both.
+                    These connections are separate from NzbDAV's download connections. Ensure your provider allows enough concurrent connections for both.
                   </div>
                 </>
               )}
@@ -724,7 +724,7 @@ export function UltimateFallbackOverlay({
               <div className="flex-1">
                 <div className="text-sm font-medium text-slate-300">Health Checking</div>
                 <ul className="text-xs text-slate-500 mt-0.5 list-disc list-inside space-y-1">
-                  <li>Enabling verifies every candidate in parallel before and during NZBDav submission, sampling articles to confirm the NZB is alive and detecting its container format up front. Evicting an NZBDav job if necessary and cleansing the submission pipleline at the same time.</li>
+                  <li>Enabling verifies every candidate in parallel before and during NzbDAV submission, sampling articles to confirm the NZB is alive and detecting its container format up front. Evicting an NzbDAV job if necessary and cleansing the submission pipleline at the same time.</li>
                   <li>Disable to skip this parallel phase, Ultimate Fallback will submit candidates straight to nzbdav and detect each container after extraction.</li>
                 </ul>
               </div>

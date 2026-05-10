@@ -176,7 +176,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbhydraTimeoutEnabled, setNzbhydraTimeoutEnabled] = useState(true);
   const [nzbhydraTimeout, setNzbhydraTimeout] = useState(30);
 
-  // ─── NZBDav ─────────────────────────────────────────────────────────
+  // ─── NzbDAV ─────────────────────────────────────────────────────────
   const [nzbdavUrl, setNzbdavUrl] = useState('http://localhost:3000');
   const [nzbdavApiKey, setNzbdavApiKey] = useState('');
   const [nzbdavWebdavUrl, setNzbdavWebdavUrl] = useState('http://localhost:3000');
@@ -538,7 +538,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editForm.name, editForm.url, editForm.apiKey, editForm.enabled, JSON.stringify(editForm.movieSearchMethod), JSON.stringify(editForm.tvSearchMethod), JSON.stringify(editForm.animeMovieSearchMethod), JSON.stringify(editForm.animeTvSearchMethod), editForm.caps, editForm.website, editForm.logo, editForm.pagination, editForm.maxPages, editForm.timeoutEnabled, editForm.timeout, expandedIndexer]);
 
-  // Reset NZBDav connection status when fields change after initial load
+  // Reset NzbDAV connection status when fields change after initial load
   useEffect(() => {
     if (!initialLoadDone.current) return;
     if (!nzbdavFieldsChanged.current) {
@@ -901,7 +901,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       // Mark initial load as done so auto-save hooks don't fire on load.
       // setTimeout defers past React's useEffect cycle — effects from the setState
       // batch above see initialLoadDone.current === false and skip the save.
-      // Also auto-test NZBDav connection on startup (inline to avoid stale closure)
+      // Also auto-test NzbDAV connection on startup (inline to avoid stale closure)
       setTimeout(async () => {
         initialLoadDone.current = true;
         if ((data.streamingMode || 'nzbdav') === 'nzbdav' && data.nzbdavUrl) {
@@ -1363,7 +1363,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbhydraTimeoutEnabled, setNzbhydraTimeoutEnabled,
     nzbhydraTimeout, setNzbhydraTimeout,
 
-    // NZBDav
+    // NzbDAV
     nzbdavUrl, setNzbdavUrl,
     nzbdavApiKey, setNzbdavApiKey,
     nzbdavWebdavUrl, setNzbdavWebdavUrl,

@@ -2,7 +2,7 @@
 //   Confirmation dialog shown when the user enables either of the two
 //   library-delete stream-tile toggles. The tiles trigger destructive WebDAV
 //   DELETE operations, so the modal lists the prerequisites the user needs
-//   to satisfy on their NzbDav instance before turning the feature on.
+//   to satisfy on their NzbDAV instance before turning the feature on.
 
 import { AlertTriangle } from 'lucide-react';
 
@@ -29,7 +29,7 @@ export function LibraryDeleteWarningModal({ libraryDeleteWarning, setLibraryDele
           Follow these instructions to safely enable this feature.
         </p>
         <ol className="text-sm text-slate-400 list-decimal list-inside space-y-2 mb-6">
-          <li>Ensure your NzbDav instance is not publicly exposed.</li>
+          <li>Ensure your NzbDAV instance is not publicly exposed.</li>
           <li>
             Disable "Enforce Read-Only" in NzbDAV
             <ol className="list-decimal list-inside pl-5 mt-1 space-y-0.5 text-slate-400/90">

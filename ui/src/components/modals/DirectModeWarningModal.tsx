@@ -25,10 +25,10 @@ export function DirectModeWarningModal({ directModeWarning, setDirectModeWarning
         <p className="text-slate-300 mb-3">
           Direct mode redirects the player straight to the WebDAV URL with WebDAV credentials embedded.
         </p>
-        <p className="text-slate-300 mb-2">If your NzbDav is accessible remotely, you'll want to follow the following best practices:</p>
+        <p className="text-slate-300 mb-2">If your NzbDAV is accessible remotely, you'll want to follow the following best practices:</p>
         <ol className="text-sm text-slate-400 list-decimal list-inside space-y-1 mb-6">
-          <li>Use different credentials for your NzbDav admin login and WebDAV user.</li>
-          <li>Keep NzbDav's "Enforce Read Only" WebDAV option on (this is the default).</li>
+          <li>Use different credentials for your NzbDAV admin login and WebDAV user.</li>
+          <li>Keep NzbDAV's "Enforce Read Only" WebDAV option on (this is the default).</li>
         </ol>
         <div className="flex justify-end gap-2">
           <button

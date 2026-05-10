@@ -1,5 +1,5 @@
 // What this does:
-//   Streaming configuration overlay with NZBDav connection settings, stream buffer, and categories
+//   Streaming configuration overlay with NzbDAV connection settings, stream buffer, and categories
 
 import { Play, X, Activity } from 'lucide-react';
 import clsx from 'clsx';
@@ -99,28 +99,28 @@ export function StreamingOverlay({
               className="input flex-1 max-w-xs"
             >
               <option value="stremio" disabled>Stremio Native (Unavailable)</option>
-              <option value="nzbdav">NZBDav (Hosted)</option>
+              <option value="nzbdav">NzbDAV</option>
             </select>
             <p className="text-xs text-slate-500 mt-2">
-              <strong>NZBDav:</strong> Stream through a hosted NZBDav WebDAV server instance
+              <strong>NzbDAV:</strong> Stream through a hosted NzbDAV WebDAV server instance
             </p>
           </div>
 
           {streamingMode === 'nzbdav' && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">NZBDav URL</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2">NzbDAV URL</label>
                 <input type="text" value={nzbdavUrl} onChange={(e) => setNzbdavUrl(e.target.value)} placeholder="http://localhost:3000" className="input" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">NZBDav API Key</label>
-                <input type="password" value={nzbdavApiKey} onChange={(e) => setNzbdavApiKey(e.target.value)} placeholder="Your NZBDav API key" className="input" />
+                <label className="block text-sm font-medium text-slate-300 mb-2">NzbDAV API Key</label>
+                <input type="password" value={nzbdavApiKey} onChange={(e) => setNzbdavApiKey(e.target.value)} placeholder="Your NzbDAV API key" className="input" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">WebDAV URL</label>
                 <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Proxy Streaming Method:</span> Use the local/internal hostname for best performance (e.g. http://nzbdav:3000)</p>
                 <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> Must be a publicly reachable URL (e.g. https://nzbdav.example.com) if using a reverse proxy (Traefik, Caddy, Nginx, etc.)</p>
-                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> If using an auth layer (Authelia, Authentik, etc.), the NZBDav hostname must bypass auth so Stremio can reach it directly</p>
+                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> If using an auth layer (Authelia, Authentik, etc.), the NzbDAV hostname must bypass auth so Stremio can reach it directly</p>
                 <input type="text" value={nzbdavWebdavUrl} onChange={(e) => setNzbdavWebdavUrl(e.target.value)} placeholder="http://localhost:3000" className="input" />
               </div>
               <div className="grid grid-cols-2 gap-4">

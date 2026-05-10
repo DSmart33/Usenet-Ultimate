@@ -759,7 +759,7 @@ export function IndexManagerOverlay({
                           >+</button>
                         </div>
                       </div>
-                      <p className="text-xs text-amber-400/60 italic">Skip indexer queries when the library returns as least this many results after filtering · NZBDav streaming mode only</p>
+                      <p className="text-xs text-amber-400/60 italic">Skip indexer queries when the library returns as least this many results after filtering · NzbDAV streaming mode only</p>
 
                       <div className="space-y-3 pt-3 border-t border-amber-500/20">
                         <div className="flex items-center justify-between gap-3">
@@ -801,7 +801,7 @@ export function IndexManagerOverlay({
                           <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
                         </label>
                       </div>
-                      <p className="text-xs text-amber-400/60 italic">Scan <code className="text-amber-300/80">/content/uncategorized</code>, in additon to the default categories, for content that's been manually uploaded to the default location in NZBDav.</p>
+                      <p className="text-xs text-amber-400/60 italic">Scan <code className="text-amber-300/80">/content/uncategorized</code>, in additon to the default categories, for content that's been manually uploaded to the default location in NzbDAV.</p>
 
                       <div className="space-y-3 pt-3 border-t border-amber-500/20">
                         <div className="text-sm font-semibold text-slate-200 py-2">Skip Ultimate Library Stream Tile</div>
