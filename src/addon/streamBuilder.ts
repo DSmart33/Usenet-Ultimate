@@ -19,6 +19,7 @@ import type { HealthCheckResult } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
 import { createFallbackGroup, type FallbackCandidate } from '../nzbdav/index.js';
 import { encodeTileEnvelope } from '../nzbdav/redirectHelpers.js';
+import { registerDeleteAllTargets } from '../nzbdav/deleteAllTargetsStore.js';
 import { buildStreamDisplay } from './streamDisplay.js';
 
 // Ultimate Fallback tile name + path
@@ -484,9 +485,9 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
     }
 
     // Pass B — build the single delete-all tile (scoped to this request only).
-    // Targets list rides inside the packed `t=` envelope so the route doesn't
-    // need to look up library state from any cache (Ultimate Library results
-    // never cache by design — see addon/index.ts:445-449).
+    // Targets list lives server-side in deleteAllTargetsStore; the tile URL
+    // carries only an opaque token. Inline-array packing blew past client
+    // URL truncation limits on libraries with many results.
     // Insertion is decided AFTER this block: the tile follows the bypass
     // tile's position so it lands right after "Skip Ultimate Library"
     // wherever that ends up.
@@ -520,11 +521,12 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         const packNote = packScopeMode
           ? 'For series/season packs, the entire release folder is deleted.'
           : 'For series/season packs, only the individual episode is deleted.';
+        const tk = registerDeleteAllTargets(allTargets);
         deleteAllTile = {
           name: '\u274C Delete All Results From WebDAV',
           title: `Clicking this tile permanently deletes ${count} result(s) from your WebDAV mount. ${packNote}`,
           url: `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/library-delete-all?t=${packTilePayload({
-            sk: sessionKey, type, id: idStr, targets: allTargets,
+            sk: sessionKey, type, id: idStr, tk,
           })}`,
           behaviorHints: { notWebReady: true },
         };

@@ -21,6 +21,7 @@ import { posix as pathPosix } from 'path';
 import { evictReadyByVideoPath, evictReadyByVideoPathPrefix, clearVideoPathState, markVideoPathBroken, markLibraryBypass } from '../nzbdav/streamCache.js';
 import { sendLibraryBypassArmedVideo, sendDeleteAllSuccessVideo, sendDeleteFileSuccessVideo, sendDeletePackSuccessVideo, sendDeleteFailedVideo } from '../nzbdav/streamHandler.js';
 import { incrementRedirectCounterOnUrl } from '../nzbdav/redirectHelpers.js';
+import { getDeleteAllTargets } from '../nzbdav/deleteAllTargetsStore.js';
 import { getWebdavClient } from '../nzbdav/webdavClient.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
 import { buildSearchCacheKey, deleteSearchCacheEntry } from '../addon/index.js';
@@ -440,8 +441,8 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     const sk = typeof packed?.sk === 'string' ? packed.sk : undefined;
     const type = typeof packed?.type === 'string' ? packed.type : undefined;
     const id = typeof packed?.id === 'string' ? packed.id : undefined;
-    const rawTargets = packed?.targets;
-    if (!manifestKey || !sk || !type || !id || !Array.isArray(rawTargets)) {
+    const tk = typeof packed?.tk === 'string' ? packed.tk : undefined;
+    if (!manifestKey || !sk || !type || !id || !tk) {
       return sendDeleteFailedVideo(req, res);
     }
 
@@ -450,27 +451,12 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       return sendDeleteAllSuccessVideo(req, res);
     }
 
-    // Targets ride inside the packed `t=` envelope built by streamBuilder.
-    // Ultimate Library results never cache (by design), so the tile carries
-    // its own target list. Validation below per-path catches any tampered URL
-    // before it reaches WebDAV.
-    const targets: Array<{ path: string; scope: 'file' | 'pack' }> = [];
-    {
-      const seen = new Set<string>();
-      for (const item of rawTargets) {
-        let path: string | undefined;
-        let scope: 'file' | 'pack' = 'file';
-        if (item && typeof item === 'object' && typeof (item as any).path === 'string') {
-          path = (item as any).path;
-          if ((item as any).scope === 'pack') scope = 'pack';
-        }
-        if (!path || path.length === 0 || seen.has(path)) continue;
-        seen.add(path);
-        targets.push({ path, scope });
-      }
-    }
-    if (targets.length === 0) {
-      console.warn(`\u{1F5D1}\uFE0F Delete-all: targets list empty after decode`);
+    // Targets live in deleteAllTargetsStore; the tile envelope carries only
+    // the token. Per-target validation below still gates everything before
+    // it reaches WebDAV.
+    const targets = getDeleteAllTargets(tk);
+    if (!targets || targets.length === 0) {
+      console.warn(`\u{1F5D1}\uFE0F Delete-all: token miss (restart, expired, or invalid)`);
       return sendDeleteFailedVideo(req, res);
     }
 
