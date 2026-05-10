@@ -34,6 +34,14 @@ function normalizeProwlarrUrl(url: string): string {
   }
 }
 
+/** Matches the trailing episode-pattern suffix on a cache key — handles both
+ *  legacy (":S04E08", ":S04[. _-]?E08") and chain-aware
+ *  (":(?:S04…|\b<YYYY>[. _-]?<MM>[. _-]?<DD>\b)") forms. The chain-aware form
+ *  contains literal colons from `(?:` groups, so we anchor on the suffix
+ *  prefix shape (`:(?:` or `:S\d\d` followed by a separator) rather than
+ *  `:S\d\d` alone, which can occur nested inside the regex itself. */
+const EPISODE_PATTERN_SUFFIX_RE = /:(?:\(\?:|S\d{2}(?:[. _\-\[(]|E\d))[\s\S]*$/;
+
 /** Pending preparations — in-flight promises that resolve into readyCache or deadNzbCache */
 const pendingCache = new Map<string, CacheEntry>();
 
@@ -552,10 +560,7 @@ export function evictReadyByVideoPath(videoPath: string, markDead: boolean = tru
         const sepIdx = key.indexOf('::');
         if (sepIdx !== -1) {
           const nzbUrl = key.substring(0, sepIdx);
-          // Extract episode pattern from cache key suffix — handles both old form (":S04E08",
-          // ":S04[. _-]?E08") and chain-aware form (":S04(?:[. _-]?E\d+)*[. _-]?E08(?!\d)").
-          // Anchor on the prefix shape since the chain-aware form contains literal colons.
-          const epMatch = key.match(/:S\d{2}(?:[. _\-\[(]|E\d)[\s\S]*$/);
+          const epMatch = key.match(EPISODE_PATTERN_SUFFIX_RE);
           const episodePattern = epMatch ? epMatch[0].substring(1) : undefined;
           const deadKey = getDeadCacheKey(nzbUrl, episodePattern);
           if (!deadNzbCache.has(deadKey)) {
@@ -627,7 +632,7 @@ export function evictReadyByVideoPathPrefix(prefix: string, markDead: boolean = 
         const sepIdx = key.indexOf('::');
         if (sepIdx !== -1) {
           const nzbUrl = key.substring(0, sepIdx);
-          const epMatch = key.match(/:S\d{2}(?:[. _\-\[(]|E\d)[\s\S]*$/);
+          const epMatch = key.match(EPISODE_PATTERN_SUFFIX_RE);
           const episodePattern = epMatch ? epMatch[0].substring(1) : undefined;
           const deadKey = getDeadCacheKey(nzbUrl, episodePattern);
           if (!deadNzbCache.has(deadKey)) {
@@ -677,11 +682,7 @@ function extractTitle(cacheKey: string): string {
   const separatorIdx = cacheKey.indexOf('::');
   if (separatorIdx === -1) return cacheKey;
   const afterSep = cacheKey.substring(separatorIdx + 2);
-  // Strip episode pattern suffix — handles both old form (":S04E08", ":S04[. _-]?E08")
-  // and chain-aware form (":S04(?:[. _-]?E\d+)*[. _-]?E08(?!\d)"). The chain-aware form
-  // contains literal colons from `(?:` groups, so we anchor on the prefix shape and
-  // consume any chars through end-of-string.
-  return afterSep.replace(/:S\d{2}(?:[. _\-\[(]|E\d)[\s\S]*$/, '');
+  return afterSep.replace(EPISODE_PATTERN_SUFFIX_RE, '');
 }
 
 /**
