@@ -224,11 +224,14 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
     // === SHARED: Process from raw results → streams (filter, sort, health check, build) ===
     const processFromRaw = async (rawResults: any[], deprioritizedPacks: any[], healthMap: Map<string, any>, titleMeta: { type: string; season?: number; episode?: number; episodesInSeason?: number; episodeAired?: string; now: number; runtime?: number; shortCircuited?: boolean }) => {
-      // Filter dead NZBs
+      // Filter dead NZBs from both main results AND deprioritized packs — yearless
+      // season packs of remade shows take the deprioritized path (applyRemakeFilter)
+      // and would otherwise bypass the dead-NZB DB.
       let allResults = filterDeadFromRaw(rawResults);
+      const filteredDeprioritizedPacks = filterDeadFromRaw(deprioritizedPacks);
 
       // Apply current user filter/sort preferences (deprioritized packs appended after sort)
-      allResults = applyUserFilters(allResults, titleMeta.type, titleMeta.now, titleMeta.runtime, deprioritizedPacks);
+      allResults = applyUserFilters(allResults, titleMeta.type, titleMeta.now, titleMeta.runtime, filteredDeprioritizedPacks);
 
       // Health checks pre-filter results before UF sees them; UF also performs
       // its own per-candidate verification. Pass pre-existing health data so the
