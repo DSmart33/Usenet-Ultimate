@@ -42,7 +42,15 @@ export async function markLibraryHits(
   episodesInSeason: number | undefined,
   episodeAired?: string,
 ): Promise<number> {
-  const unchecked = candidates.filter(r => !healthResults.has(r.link));
+  // Re-check entries whose existing health entry is a Library tag — the file
+  // may have been deleted from WebDAV since the cached search ran, so trusting
+  // the prior `Library` verdict on cache hit leaves a stale 📚 icon on tiles
+  // pointing at files that no longer exist. Non-library health results
+  // (NNTP/Zyclops verdicts) are stable; skip those.
+  const unchecked = candidates.filter(r => {
+    const h = healthResults.get(r.link);
+    return !h || h.message === 'Library';
+  });
   if (unchecked.length === 0) return 0;
   // Pass 2 fallback: daily/talk-show files in the library are date-named, so
   // SxxExx-only matching misses them. When the search context carries an
@@ -67,6 +75,15 @@ export async function markLibraryHits(
         // to thread the healthResults Map through its signature.
         r.inLibrary = true;
         hits++;
+      } else if (r.inLibrary) {
+        // Was in the library on the prior run but isn't now (file deleted via
+        // the delete tile, manually removed from WebDAV, etc). Clear the stale
+        // flag and drop the cached Library health entry so downstream sort and
+        // streamBuilder stop painting the 📚 badge.
+        r.inLibrary = false;
+        if (healthResults.get(r.link)?.message === 'Library') {
+          healthResults.delete(r.link);
+        }
       }
     } catch {
       // Non-fatal — checkNzbLibrary only re-throws errors flagged isNzbdavFailure;
