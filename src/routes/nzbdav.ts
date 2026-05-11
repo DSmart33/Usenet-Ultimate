@@ -17,6 +17,7 @@ import { PassThrough } from 'stream';
 import type { Config } from '../types.js';
 import type { NZBDavConfig } from '../nzbdav/index.js';
 import { encodeWebdavPath, WebDav404Error, buildNzbdavConfig } from '../nzbdav/utils.js';
+import { cleanupHistoryForPath } from '../nzbdav/historyApi.js';
 import { posix as pathPosix } from 'path';
 import { evictReadyByVideoPath, evictReadyByVideoPathPrefix, clearVideoPathState, markVideoPathBroken, markLibraryBypass } from '../nzbdav/streamCache.js';
 import { sendLibraryBypassArmedVideo, sendDeleteAllSuccessVideo, sendDeleteFileSuccessVideo, sendDeletePackSuccessVideo, sendDeleteFailedVideo } from '../nzbdav/streamHandler.js';
@@ -429,6 +430,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       // subfolder for pack-extracted episodes). Pack scope already removed
       // the whole release folder via Depth: infinity, so no cleanup.
       if (scope === 'file') await pruneEmptyAncestors(targetPath);
+      await cleanupHistoryForPath(targetPath, scope, buildNzbdavConfig());
       return sendScopeSuccess(req, res);
     }
     console.error(`\u274C WebDAV delete failed (${scope}) for ${targetPath}: ${result.error}`);
@@ -476,6 +478,7 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
         // File-scope leaves empty parents; pack-scope already removed the
         // release folder via Depth: infinity so there's nothing to prune.
         if (t.scope === 'file') await pruneEmptyAncestors(v.path);
+        await cleanupHistoryForPath(v.path, t.scope, buildNzbdavConfig());
         okCount++;
       } else {
         console.error(`\u274C Delete-all failed (${t.scope}) for ${v.path}: ${result.error}`);
