@@ -54,7 +54,7 @@ interface IndexerDeps {
   deleteIndexer: (name: string) => void;
   reorderIndexers: (indexers: UsenetIndexer[]) => void;
   fetchIndexerCaps: (url: string, apiKey: string, indexerName?: string, zyclops?: any) => Promise<any>;
-  proxyFetch: (url: string, options?: { headers?: Record<string, string>; method?: string; signal?: AbortSignal; body?: any }) => Promise<{ ok: boolean; status: number; statusText: string; text: () => Promise<string>; json: () => Promise<any>; headers: Map<string, string> }>;
+  proxyFetch: (url: string, options?: { headers?: Record<string, string>; method?: string; signal?: AbortSignal; body?: any }, indexerName?: string) => Promise<{ ok: boolean; status: number; statusText: string; text: () => Promise<string>; json: () => Promise<any>; headers: Map<string, string> }>;
   getLatestVersions: () => { chrome: string; prowlarr: string };
 }
 
@@ -230,7 +230,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
       // SAFETY: Skip proxy when going through Zyclops
       const response = indexer.zyclops?.enabled
         ? await fetch(searchUrl, { headers })
-        : await proxyFetch(searchUrl, { headers });
+        : await proxyFetch(searchUrl, { headers }, indexer.name);
 
       if (!response.ok) {
         return res.status(400).json({
@@ -284,7 +284,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
       const userAgent5 = config.userAgents?.indexerSearch || getLatestVersions().chrome;
       const headers = { 'User-Agent': userAgent5 };
       console.log('\u{1F4E4} Request to test new indexer:', { url: searchUrl, headers });
-      const response = await proxyFetch(searchUrl, { headers });
+      const response = await proxyFetch(searchUrl, { headers }, name);
 
       if (!response.ok) {
         return res.status(400).json({

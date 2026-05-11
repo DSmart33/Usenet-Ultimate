@@ -173,13 +173,15 @@ export async function logProxyExitIp(targetUrl: string, label: string): Promise<
  */
 export async function proxyFetch(
   url: string,
-  options?: { headers?: Record<string, string>; method?: string; signal?: AbortSignal; body?: any }
+  options?: { headers?: Record<string, string>; method?: string; signal?: AbortSignal; body?: any },
+  indexerName?: string
 ): Promise<{ ok: boolean; status: number; statusText: string; text: () => Promise<string>; json: () => Promise<any>; headers: Map<string, string> }> {
   const proxyMode = config.proxyMode || 'disabled';
 
-  // Bypass proxy for disabled mode, local URLs, or internal service URLs
-  // (Prowlarr/NZBHydra are internal services whose download-proxy URLs must
-  // be reached directly, not through the external HTTP proxy)
+  // Bypass proxy for disabled mode, local URLs, internal service URLs, or
+  // per-indexer opt-out (Prowlarr/NZBHydra are internal services whose
+  // download-proxy URLs must be reached directly, not through the external
+  // HTTP proxy).
   const parsed = new URL(url);
   const isLocal = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname) || parsed.hostname.startsWith('127.');
   const isInternalService = (() => {
@@ -190,7 +192,11 @@ export async function proxyFetch(
           || (nzbhydraHost && parsed.hostname === nzbhydraHost);
     } catch { return false; }
   })();
-  if (proxyMode === 'disabled' || isLocal || isInternalService) {
+  const indexerProxyDisabled = !!indexerName && !isProxyEnabledForIndexer(indexerName);
+  if (indexerProxyDisabled && proxyMode !== 'disabled' && !isLocal && !isInternalService) {
+    console.log(`\u{1F513} [${indexerName}] proxy bypassed per indexer setting`);
+  }
+  if (proxyMode === 'disabled' || isLocal || isInternalService || indexerProxyDisabled) {
     const res = await fetch(url, options);
     const headersMap = new Map<string, string>();
     res.headers.forEach((v, k) => headersMap.set(k, v));
