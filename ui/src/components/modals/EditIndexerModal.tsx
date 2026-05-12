@@ -1,11 +1,15 @@
 // What this does:
 //   Modal for editing an existing indexer with capability discovery and test search
 
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { Settings, X, Eye, EyeOff, Search, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import type { Config, IndexerCaps, EditIndexerForm } from '../../types';
 import { normalizeNewznabUrl } from '../../utils/normalizeNewznabUrl';
+import { useHoldRepeat } from '../../hooks/useHoldRepeat';
+import { TimeoutStepper } from '../shared/TimeoutStepper';
+import { PagesStepper } from '../shared/PagesStepper';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../../constants';
 
 interface EditIndexerModalProps {
   onClose: () => void;
@@ -56,6 +60,10 @@ export function EditIndexerModal({
 }: EditIndexerModalProps) {
   const currentIndexer = config?.indexers.find(i => i.name === expandedIndexer);
   const zyclopsActive = currentIndexer?.zyclops?.enabled === true;
+
+  // Hold-to-accelerate handlers for the per-indexer timeout stepper.
+  const editTimeoutDec = useHoldRepeat(useCallback(() => setEditForm(prev => ({ ...prev, timeout: Math.max(1, prev.timeout - 1) })), [setEditForm]));
+  const editTimeoutInc = useHoldRepeat(useCallback(() => setEditForm(prev => ({ ...prev, timeout: Math.min(45, prev.timeout + 1) })), [setEditForm]));
 
   // Clear test state when modal unmounts
   useEffect(() => {
@@ -130,44 +138,74 @@ export function EditIndexerModal({
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="edit-enabled"
-              checked={editForm.enabled}
-              onChange={(e) => setEditForm(prev => ({ ...prev, enabled: e.target.checked }))}
-              disabled={zyclopsActive}
-              className={clsx('w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500', zyclopsActive && 'opacity-50 cursor-not-allowed')}
-            />
-            <label htmlFor="edit-enabled" className={clsx('text-sm text-slate-300', zyclopsActive && 'opacity-50')}>
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor="edit-enabled" className={clsx('flex-1 cursor-pointer text-sm text-slate-300', zyclopsActive && 'opacity-50 cursor-not-allowed')}>
               Enabled {zyclopsActive && '(managed by Zyclops)'}
+            </label>
+            <label className={clsx('relative inline-flex items-center', zyclopsActive ? 'cursor-not-allowed' : 'cursor-pointer')}>
+              <input
+                type="checkbox"
+                id="edit-enabled"
+                checked={editForm.enabled}
+                onChange={(e) => setEditForm(prev => ({ ...prev, enabled: e.target.checked }))}
+                disabled={zyclopsActive}
+                className="sr-only peer"
+              />
+              <div className={clsx("w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600", zyclopsActive && 'opacity-50')}></div>
             </label>
           </div>
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="edit-pagination"
-                checked={editForm.pagination}
-                onChange={(e) => setEditForm(prev => ({ ...prev, pagination: e.target.checked }))}
-                className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500"
-              />
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="edit-timeout-enabled" className="flex-1 cursor-pointer">
+                <span className="text-sm text-slate-300">Request timeout</span>
+                <span className="text-xs text-slate-500 ml-2">Limit how long to wait for indexer responses</span>
+              </label>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="edit-timeout-enabled"
+                  checked={editForm.timeoutEnabled}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, timeoutEnabled: e.target.checked }))}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+              </label>
+            </div>
+            {editForm.timeoutEnabled && (
+              <div className="pl-6">
+                <TimeoutStepper
+                  value={editForm.timeout}
+                  defaultValue={DEFAULT_INDEXER_TIMEOUT_SECONDS}
+                  decProps={editTimeoutDec}
+                  incProps={editTimeoutInc}
+                  onChange={(next) => setEditForm(prev => ({ ...prev, timeout: next }))}
+                  inputId="edit-timeout-seconds"
+                />
+              </div>
+            )}
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
               <label htmlFor="edit-pagination" className="flex-1 cursor-pointer">
                 <span className="text-sm text-slate-300">Paginated search</span>
                 <span className="text-xs text-slate-500 ml-2">Fetch additional pages of results when available</span>
               </label>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="edit-pagination"
+                  checked={editForm.pagination}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, pagination: e.target.checked }))}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+              </label>
             </div>
             {editForm.pagination && (
-              <div className="pl-6 flex items-center gap-2">
-                <label className="text-xs text-slate-400">Max extra pages</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
+              <div className="pl-6">
+                <PagesStepper
                   value={editForm.maxPages}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, maxPages: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) }))}
-                  onFocus={(e) => e.target.select()}
-                  className="input w-20 text-sm"
+                  onChange={(v) => setEditForm(prev => ({ ...prev, maxPages: v }))}
                 />
               </div>
             )}

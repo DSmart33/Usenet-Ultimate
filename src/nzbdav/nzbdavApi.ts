@@ -6,7 +6,7 @@
 import { config as globalConfig } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { proxyFetch, logProxyExitIp, verifyProxyCircuit } from '../proxy.js';
-import { getCachedNzbContent } from '../health/nzbContentCache.js';
+import { getCachedNzbContent, cacheNzbContent } from '../health/nzbContentCache.js';
 import type { NZBDavConfig, HistorySlot } from './types.js';
 import { nzbdavError } from './utils.js';
 
@@ -31,18 +31,19 @@ export async function submitNzb(
   title: string,
   config: NZBDavConfig,
   contentType?: string,
-  budgetMs?: number
+  budgetMs?: number,
+  logPrefix = '',
 ): Promise<string> {
   const budgetStart = Date.now();
   const remainingBudget = () => budgetMs ? Math.max(1000, budgetMs - (Date.now() - budgetStart)) : 30000;
   // Check if NZB was already downloaded during health checks
   let nzbContent = getCachedNzbContent(nzbUrl);
   if (nzbContent) {
-    console.log(`  \u{1F4BE} Using cached NZB from health check (${nzbContent.length} bytes)`);
+    console.log(`${logPrefix}  \u{1F4BE} Using cached NZB from health check (${nzbContent.length} bytes)`);
   } else {
     // Download NZB from indexer with timeout
     const downloadUserAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
-    console.log(`  \u{1F4E5} Downloading NZB from indexer: ${nzbUrl.substring(0, 80)}...`);
+    console.log(`${logPrefix}  \u{1F4E5} Downloading NZB from indexer: ${nzbUrl.substring(0, 80)}...`);
     await verifyProxyCircuit(nzbUrl, 'nzb-grab');
     await logProxyExitIp(nzbUrl, 'nzb-grab');
 
@@ -70,7 +71,7 @@ export async function submitNzb(
     }
 
     nzbContent = await nzbResponse.text();
-    console.log(`  \u2705 NZB downloaded (${nzbContent.length} bytes)`);
+    console.log(`${logPrefix}  \u2705 NZB downloaded (${nzbContent.length} bytes)`);
   }
 
   // Validate NZB content - must contain <nzb element
@@ -94,8 +95,8 @@ export async function submitNzb(
   formData.append('nzbFile', new Blob([nzbContent], { type: 'application/x-nzb' }), `${title}.nzb`);
 
   const nzbdavUserAgent = globalConfig.userAgents?.nzbdavOperations || getLatestVersions().chrome;
-  console.log(`  \u{1F4E4} Submitting NZB to NZBDav...`);
-  console.log(`  \u{1F4E4} API URL: ${apiUrl.replace(config.apiKey, '***')}`);
+  console.log(`${logPrefix}  \u{1F4E4} Submitting NZB to NZBDav...`);
+  console.log(`${logPrefix}  \u{1F4E4} API URL: ${apiUrl.replace(config.apiKey, '***')}`);
 
   const submitController = new AbortController();
   const submitTimeoutMs = remainingBudget();
@@ -118,10 +119,10 @@ export async function submitNzb(
   }
   clearTimeout(submitTimeout);
 
-  console.log(`  \u{1F4E4} NZBDav response status: ${nzbdavResponse.status}`);
+  console.log(`${logPrefix}  \u{1F4E4} NZBDav response status: ${nzbdavResponse.status}`);
 
   const responseText = await nzbdavResponse.text();
-  if (!nzbdavResponse.ok) console.log(`  \u{1F4E4} NZBDav response body: ${responseText.substring(0, 500)}`);
+  if (!nzbdavResponse.ok) console.log(`${logPrefix}  \u{1F4E4} NZBDav response body: ${responseText.substring(0, 500)}`);
 
   if (!nzbdavResponse.ok) {
     throw nzbdavError(`NZBDav rejected NZB: ${nzbdavResponse.status} - ${responseText}`);
@@ -134,7 +135,7 @@ export async function submitNzb(
     throw nzbdavError(`NZBDav returned invalid JSON: ${responseText}`);
   }
 
-  console.log(`  \u{1F4E4} Parsed response:`, JSON.stringify(result));
+  console.log(`${logPrefix}  \u{1F4E4} Parsed response:`, JSON.stringify(result));
 
   const nzoId = result.nzo_ids?.[0];
 
@@ -142,8 +143,65 @@ export async function submitNzb(
     throw nzbdavError(`No NZO ID returned from NZBDav. Response: ${JSON.stringify(result)}`);
   }
 
-  console.log(`  \u2705 NZB submitted, nzo_id: ${nzoId}`);
+  console.log(`${logPrefix}  \u2705 NZB submitted, nzo_id: ${nzoId}`);
   return nzoId;
+}
+
+/**
+ * Pre-fetch an NZB from the indexer and cache it for later submission.
+ * Best-effort — never throws. Returns true if the NZB is cached and ready.
+ */
+export async function prefetchNzb(nzbUrl: string, logPrefix = '', quiet = false): Promise<boolean> {
+  // Already cached (from health check or earlier prefetch)
+  if (getCachedNzbContent(nzbUrl)) return true;
+
+  try {
+    const downloadUserAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
+    if (!quiet) console.log(`${logPrefix}  📥 Prefetching NZB: ${nzbUrl.substring(0, 80)}...`);
+    await verifyProxyCircuit(nzbUrl, 'nzb-prefetch');
+    await logProxyExitIp(nzbUrl, 'nzb-prefetch');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
+    let nzbResponse: { ok: boolean; status: number; statusText: string; text: () => Promise<string> };
+    try {
+      nzbResponse = await proxyFetch(nzbUrl, {
+        headers: { 'User-Agent': downloadUserAgent },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timeout);
+      if (!quiet) console.warn(`${logPrefix}  ⚠️ Prefetch failed: ${(err as Error).message}`);
+      return false;
+    }
+    clearTimeout(timeout);
+
+    if (!nzbResponse.ok) {
+      if (!quiet) console.warn(`${logPrefix}  ⚠️ Prefetch failed: ${nzbResponse.status} ${nzbResponse.statusText}`);
+      return false;
+    }
+
+    const nzbContent = await nzbResponse.text();
+
+    // Validate NZB XML
+    if (!nzbContent.includes('<nzb') || !nzbContent.includes('</nzb>')) {
+      if (nzbContent.includes('<error')) {
+        const errorMatch = nzbContent.match(/description="([^"]+)"/);
+        if (!quiet) console.warn(`${logPrefix}  ⚠️ Prefetch: indexer error — ${errorMatch ? errorMatch[1] : 'unknown'}`);
+      } else {
+        if (!quiet) console.warn(`${logPrefix}  ⚠️ Prefetch: invalid NZB content (${nzbContent.length} bytes)`);
+      }
+      return false;
+    }
+
+    cacheNzbContent(nzbUrl, nzbContent);
+    if (!quiet) console.log(`${logPrefix}  ✅ Prefetched NZB (${nzbContent.length} bytes)`);
+    return true;
+  } catch (err) {
+    if (!quiet) console.warn(`${logPrefix}  ⚠️ Prefetch error: ${(err as Error).message}`);
+    return false;
+  }
 }
 
 /**
@@ -155,95 +213,152 @@ export async function cancelJob(nzoId: string, config: NZBDavConfig, reason?: st
   const cancelUrl = `${baseUrl}/api?mode=queue&name=delete&value=${encodeURIComponent(nzoId)}&apikey=${config.apiKey}`;
   const reasonSuffix = reason ? ` (${reason})` : '';
 
-  try {
-    const response = await fetch(cancelUrl, {
-      headers: { 'User-Agent': globalConfig.userAgents?.nzbdavOperations || getLatestVersions().chrome },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (response.ok) {
-      console.log(`  🗑️ Cancelled NZBDav job: ${nzoId}${reasonSuffix}`);
-    } else {
-      console.warn(`  ⚠️ Failed to cancel NZBDav job ${nzoId}${reasonSuffix}: ${response.status}`);
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch(cancelUrl, {
+        headers: { 'User-Agent': globalConfig.userAgents?.nzbdavOperations || getLatestVersions().chrome },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok) {
+        console.log(`  🗑️ Cancelled NZBDav job: ${nzoId}${reasonSuffix}`);
+        return;
+      }
+      if (attempt === 2) {
+        console.warn(`  ⚠️ Failed to cancel NZBDav job ${nzoId}${reasonSuffix}: ${response.status}`);
+      }
+    } catch (err) {
+      if (attempt === 2) {
+        console.warn(`  ⚠️ Error cancelling NZBDav job ${nzoId}${reasonSuffix}: ${(err as Error).message}`);
+      }
     }
-  } catch (err) {
-    console.warn(`  ⚠️ Error cancelling NZBDav job ${nzoId}${reasonSuffix}: ${(err as Error).message}`);
+    if (attempt < 2) await new Promise(r => setTimeout(r, 200));
   }
 }
 
 /**
- * Poll NZBDav history API for job status
+ * Poll NZBDav queue + history APIs for job status.
+ * Queue time (job waiting to start) does NOT count against the budget —
+ * the budget only ticks while the job is actively processing.
  */
 export async function waitForJobCompletion(
   nzoId: string,
   config: NZBDavConfig,
   timeoutMs = 120000,  // 2 minutes
-  pollIntervalMs = 2000,  // 2 seconds
-  contentType?: string
+  pollIntervalMs = 250,  // 250ms polling for fast job completion detection
+  contentType?: string,
+  logPrefix = '',
 ): Promise<'completed' | 'failed'> {
   const baseUrl = config.url.replace(/\/$/, '');
   const category = resolveCategory(config, contentType);
-  const startTime = Date.now();
+  const userAgent = globalConfig.userAgents?.nzbdavOperations || getLatestVersions().chrome;
 
   const unlimitedBudget = timeoutMs === 0;
-  console.log(`  \u23F3 Waiting for job completion (${unlimitedBudget ? 'no limit' : `${Math.round(timeoutMs / 1000)}s budget`})...`);
+  // Tracks cumulative time the job has been actively processing (not queued).
+  // Undefined = job hasn't started processing yet.
+  let processingElapsedMs = 0;
+  let lastProcessingTickTime: number | undefined;
+  let lastStatusLogTime = 0; // throttle repeating status logs to 1s intervals
 
-  while (unlimitedBudget || Date.now() - startTime < timeoutMs) {
+  const tickProcessing = () => {
+    if (lastProcessingTickTime) {
+      processingElapsedMs += Date.now() - lastProcessingTickTime;
+    }
+    lastProcessingTickTime = Date.now();
+  };
+  const pauseProcessing = () => { lastProcessingTickTime = undefined; };
+  const budgetRemaining = () => unlimitedBudget ? Infinity : timeoutMs - processingElapsedMs;
+  const shouldLog = () => {
+    const now = Date.now();
+    if (now - lastStatusLogTime < 1000) return false;
+    lastStatusLogTime = now;
+    return true;
+  };
+
+  console.log(`${logPrefix}  \u23F3 Waiting for job completion (${unlimitedBudget ? 'no limit' : `${Math.round(timeoutMs / 1000)}s budget`})...`);
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    // Accumulate processing time and check budget
+    if (lastProcessingTickTime) tickProcessing();
+    if (!unlimitedBudget && processingElapsedMs >= timeoutMs) break;
+
+    const perPollTimeoutMs = !lastProcessingTickTime || unlimitedBudget
+      ? 10_000
+      : Math.min(10_000, Math.max(1000, budgetRemaining()));
+
     try {
-      // Query history API
+      // Poll queue + history in parallel
+      const queueUrl = `${baseUrl}/api?mode=queue&apikey=${config.apiKey}&output=json`;
       const historyUrl = `${baseUrl}/api?mode=history&apikey=${config.apiKey}&start=0&limit=50&category=${encodeURIComponent(category)}&output=json`;
 
-      const perPollTimeoutMs = unlimitedBudget ? 10_000 : Math.min(10_000, Math.max(1000, timeoutMs - (Date.now() - startTime)));
-      const response = await fetch(historyUrl, {
-        headers: { 'User-Agent': globalConfig.userAgents?.nzbdavOperations || getLatestVersions().chrome },
-        signal: AbortSignal.timeout(perPollTimeoutMs),
-      });
+      const [queueRes, historyRes] = await Promise.all([
+        fetch(queueUrl, { headers: { 'User-Agent': userAgent }, signal: AbortSignal.timeout(perPollTimeoutMs) }).catch(() => null),
+        fetch(historyUrl, { headers: { 'User-Agent': userAgent }, signal: AbortSignal.timeout(perPollTimeoutMs) }),
+      ]);
 
-      if (!response.ok) {
-        console.warn(`  \u26A0\uFE0F History API returned ${response.status}, retrying...`);
-        await new Promise(r => setTimeout(r, pollIntervalMs));
-        continue;
+      // Check history first — job moves here when completed/failed
+      if (historyRes.ok) {
+        const data = await historyRes.json() as { history?: { slots?: HistorySlot[] } };
+        const job = (data.history?.slots || []).find(slot => (slot.nzo_id || slot.nzoId) === nzoId);
+
+        if (job) {
+          const status = (job.status || job.Status || '').toString().toLowerCase();
+
+          if (status === 'completed') {
+            console.log(`${logPrefix}  \u2705 Job completed successfully`);
+            return 'completed';
+          }
+
+          if (status === 'failed') {
+            const failMessage = job.fail_message || job.failMessage || 'Unknown error';
+            console.log(`${logPrefix}  \u274C Job failed: ${failMessage}`);
+            throw nzbdavError(`NZBDav download failed: ${failMessage}`);
+          }
+        }
+      } else {
+        if (shouldLog()) console.warn(`${logPrefix}  \u26A0\uFE0F History API returned ${historyRes.status}, retrying...`);
       }
 
-      const data = await response.json() as { history?: { slots?: HistorySlot[] } };
-      const slots = data.history?.slots || [];
+      // Check queue — detect queued vs actively processing
+      if (queueRes?.ok) {
+        const qData = await queueRes.json() as { queue?: { slots?: Array<{ nzo_id?: string; nzoId?: string; status?: string; Status?: string }> } };
+        const qJob = (qData.queue?.slots || []).find(slot => (slot.nzo_id || slot.nzoId) === nzoId);
 
-      // Find our job by nzo_id
-      const job = slots.find(slot =>
-        (slot.nzo_id || slot.nzoId) === nzoId
-      );
+        if (qJob) {
+          const qStatus = (qJob.status || qJob.Status || '').toString().toLowerCase();
+          const isQueued = qStatus === 'queued' || qStatus === 'paused';
 
-      if (job) {
-        const status = (job.status || job.Status || '').toString().toLowerCase();
-
-        if (status === 'completed') {
-          console.log(`  \u2705 Job completed successfully`);
-          return 'completed';
+          if (isQueued) {
+            pauseProcessing();
+            if (shouldLog()) console.log(`${logPrefix}  \u23F3 Job queued — waiting for processing slot (budget paused)`);
+          } else {
+            if (!lastProcessingTickTime) {
+              lastProcessingTickTime = Date.now();
+              console.log(`${logPrefix}  \u23F3 Job processing — budget started (${unlimitedBudget ? 'no limit' : `${Math.round(timeoutMs / 1000)}s`})`);
+            } else {
+              if (shouldLog()) {
+                const remaining = unlimitedBudget ? '∞' : Math.max(0, Math.round(budgetRemaining() / 1000));
+                console.log(`${logPrefix}  \u23F3 Job status: ${qStatus} (${Math.round(processingElapsedMs / 1000)}s elapsed, ${remaining}s remaining)`);
+              }
+            }
+          }
+        } else if (!lastProcessingTickTime) {
+          // Not in queue and not in history — likely transitioning, start budget as safety
+          lastProcessingTickTime = Date.now();
         }
-
-        if (status === 'failed') {
-          const failMessage = job.fail_message || job.failMessage || 'Unknown error';
-          console.log(`  \u274C Job failed: ${failMessage}`);
-          cancelJob(nzoId, config, 'job failed').catch(() => {});
-
-          throw nzbdavError(`NZBDav download failed: ${failMessage}`);
-        }
-
-        // Job exists but still processing
-        const elapsed = Math.round((Date.now() - startTime) / 1000);
-        const remaining = unlimitedBudget ? '∞' : Math.max(0, Math.round((timeoutMs - (Date.now() - startTime)) / 1000));
-        console.log(`  \u23F3 Job status: ${status} (${elapsed}s elapsed, ${remaining}s remaining)`);
+      } else if (!lastProcessingTickTime) {
+        // Can't reach queue API — fall back to starting budget immediately
+        lastProcessingTickTime = Date.now();
       }
 
     } catch (error) {
-      if ((error as any).isNzbdavFailure) {
-        throw error;
-      }
-      console.warn(`  \u26A0\uFE0F Error checking history: ${(error as Error).message}`);
+      if ((error as any).isNzbdavFailure) throw error;
+      if (shouldLog()) console.warn(`${logPrefix}  \u26A0\uFE0F Error checking job status: ${(error as Error).message}`);
+      if (!lastProcessingTickTime) lastProcessingTickTime = Date.now();
     }
 
     await new Promise(r => setTimeout(r, pollIntervalMs));
   }
 
-  cancelJob(nzoId, config, 'budget exceeded').catch(() => {});
   throw nzbdavError(`Timeout waiting for NZBDav job after ${timeoutMs / 1000}s`, true);
 }

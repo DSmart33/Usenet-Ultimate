@@ -3,6 +3,9 @@
 
 import type { StreamDisplayConfig, MockStreamData } from '../types';
 
+// Mirrors DEFAULT_INDEXER_TIMEOUT_SECONDS in src/types.ts. Keep in sync.
+export const DEFAULT_INDEXER_TIMEOUT_SECONDS = 15;
+
 export const ZYCLOPS_BACKBONES = [
   'abavia', 'base-ip', 'elbracht', 'eweka-internet-services',
   'giganews', 'its-hosted', 'netnews', 'omicron',
@@ -119,6 +122,7 @@ export const DEFAULT_HEALTH_CHECKS = {
   inspectionMethod: 'smart' as const,
   smartBatchSize: 3,
   smartAdditionalRuns: 1,
+  smartMinHealthy: 1,
   maxConnections: 12,
   autoQueueMode: 'all' as 'off' | 'top' | 'all',
   hideBlocked: true,
@@ -127,7 +131,7 @@ export const DEFAULT_HEALTH_CHECKS = {
 };
 
 export const DEFAULT_FILTERS = {
-  sortOrder: ['quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition', 'age', 'bitrate'] as string[],
+  sortOrder: ['regexScore', 'quality', 'videoTag', 'seScore', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition', 'age', 'bitrate'] as string[],
   enabledSorts: {
     quality: true,
     videoTag: true,
@@ -139,6 +143,8 @@ export const DEFAULT_FILTERS = {
     edition: false,
     age: false,
     bitrate: false,
+    regexScore: false,
+    seScore: false,
   } as Record<string, boolean>,
   enabledPriorities: {
     resolution: {} as Record<string, boolean>,
@@ -158,14 +164,100 @@ export const DEFAULT_FILTERS = {
   maxStreams: undefined as number | undefined,
   maxStreamsPerResolution: undefined as number | undefined,
   maxStreamsPerQuality: undefined as number | undefined,
+  maxSeasonPacks: undefined as number | undefined,
   resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'] as string[],
-  videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'] as string[],
-  encodePriority: ['av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'] as string[],
+  videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'DCP', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'] as string[],
+  encodePriority: ['vvc', 'av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'] as string[],
   visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'] as string[],
-  audioTagPriority: ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'] as string[],
+  audioTagPriority: ['Atmos (TrueHD)', 'DTS:X', 'Atmos (DD+)', 'TrueHD', 'DTS-HD MA', 'FLAC', 'DTS-HD', 'DD+', 'DTS-ES', 'DTS', 'AAC', 'DD', 'Opus', 'PCM', 'MP3', 'Unknown'] as string[],
   languagePriority: ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'] as string[],
   editionPriority: ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'] as string[],
-  preferNonStandardEdition: false
+  preferNonStandardEdition: false,
+  preferSeasonPacks: false,
+  preferLibraryResults: false,
+  enableRemakeFiltering: true,
+  allowMultiEpisodeFiles: true,
 };
 
-export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'fallback', 'healthChecks', 'nzbDatabase', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
+export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'ultimateFallback', 'healthChecks', 'nzbDatabase', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
+
+export const DEFAULT_ULTIMATE_FALLBACK = {
+  enabled: false,
+  healthCheckEnabled: false,
+  whenToResolve: 'on-tile-selection' as 'on-results' | 'on-tile-selection',
+  userPickFallback: 'failure-video' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
+  candidateCount: 1,
+  preferenceMode: 'priority' as 'priority' | 'speed',
+  archiveInspection: true,
+  sampleCount: 3 as 3 | 7,
+  maxAttempts: 0,
+  desiredBackups: 0,
+  backupProcessingLimit: 3,
+  // Keep in sync with src/nzbdav/timeoutDefaults.ts (UF_TIMEOUT_DEFAULTS).
+  priorityMoviesTimeoutSeconds: 30,
+  priorityTvTimeoutSeconds: 15,
+  prioritySeasonPackTimeoutSeconds: 30,
+  speedMoviesTimeoutSeconds: 20,
+  speedTvTimeoutSeconds: 10,
+  speedSeasonPackTimeoutSeconds: 20,
+  healthCheckIndexers: {} as Record<string, boolean>,
+};
+
+// Preset profiles for the UF overlay's Presets card. Spread over current state
+// so `enabled` and `healthCheckIndexers` are preserved across preset clicks.
+export const UF_PRESET_CLASSIC = {
+  healthCheckEnabled: false,
+  whenToResolve: 'on-tile-selection' as 'on-results' | 'on-tile-selection',
+  userPickFallback: 'failure-video' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
+  candidateCount: 1,
+  preferenceMode: 'priority' as 'priority' | 'speed',
+  archiveInspection: true,
+  sampleCount: 3 as 3 | 7,
+  maxAttempts: 0,
+  desiredBackups: 0,
+  backupProcessingLimit: 3,
+  priorityMoviesTimeoutSeconds: 30,
+  priorityTvTimeoutSeconds: 15,
+  prioritySeasonPackTimeoutSeconds: 30,
+  speedMoviesTimeoutSeconds: 20,
+  speedTvTimeoutSeconds: 10,
+  speedSeasonPackTimeoutSeconds: 20,
+};
+
+export const UF_PRESET_LITE = {
+  healthCheckEnabled: true,
+  whenToResolve: 'on-results' as 'on-results' | 'on-tile-selection',
+  userPickFallback: 'failure-video' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
+  candidateCount: 2,
+  preferenceMode: 'priority' as 'priority' | 'speed',
+  archiveInspection: true,
+  sampleCount: 3 as 3 | 7,
+  maxAttempts: 0,
+  desiredBackups: 1,
+  backupProcessingLimit: 1,
+  priorityMoviesTimeoutSeconds: 30,
+  priorityTvTimeoutSeconds: 15,
+  prioritySeasonPackTimeoutSeconds: 30,
+  speedMoviesTimeoutSeconds: 20,
+  speedTvTimeoutSeconds: 10,
+  speedSeasonPackTimeoutSeconds: 20,
+};
+
+export const UF_PRESET_ENHANCED = {
+  healthCheckEnabled: true,
+  whenToResolve: 'on-results' as 'on-results' | 'on-tile-selection',
+  userPickFallback: 'failure-video' as 'uf-lobby' | 'failure-video' | 'fallback-chain',
+  candidateCount: 3,
+  preferenceMode: 'priority' as 'priority' | 'speed',
+  archiveInspection: true,
+  sampleCount: 3 as 3 | 7,
+  maxAttempts: 0,
+  desiredBackups: 1,
+  backupProcessingLimit: 2,
+  priorityMoviesTimeoutSeconds: 30,
+  priorityTvTimeoutSeconds: 15,
+  prioritySeasonPackTimeoutSeconds: 30,
+  speedMoviesTimeoutSeconds: 20,
+  speedTvTimeoutSeconds: 10,
+  speedSeasonPackTimeoutSeconds: 20,
+};

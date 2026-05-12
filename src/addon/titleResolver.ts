@@ -7,7 +7,7 @@
  */
 
 import axios from 'axios';
-import { config } from '../config/index.js';
+import { config, getTvRemakeFiltering } from '../config/index.js';
 import { resolveTitleFromTmdb, resolveTitleFromTvdb, resolveEpisodeCountFromTvdb, resolveRuntimeFromTmdb, detectRemake } from '../idResolver.js';
 import { isStylizedTitle } from '../parsers/titleMatching.js';
 import { isAnimeByImdbId, lookupByImdbId, getKitsuImdbEntries } from '../anime/animeDatabase.js';
@@ -25,6 +25,12 @@ export interface ResolvedTitleInfo {
   genres?: string[];
   /** Number of episodes in the requested season */
   episodesInSeason?: number;
+  /** Cumulative episode count across seasons before the requested one (excludes specials/season 0). Used by the absolute-numbering fallback. */
+  priorSeasonsEpisodeCount?: number;
+  /** Canonical absolute episode number from TVDB (when set for this episode). Tier-1 source for the absolute-numbering fallback. */
+  absoluteEpisodeNumber?: number;
+  /** Cumulative episode count across prior aired seasons from TVDB (excludes S0 specials). Tier-2 source when canonical isn't set. */
+  tvdbPriorSeasonsCount?: number;
   /** Additional title variants for text search (e.g. Cinemeta title when different from resolved) */
   additionalTitles?: string[];
   /** Whether this content is detected as anime (Animation + Japan) */
@@ -37,6 +43,10 @@ export interface ResolvedTitleInfo {
   hasRemake?: boolean;
   /** Year extracted from parenthetical suffix in resolved title, e.g. "2003" from "Show (2003)" */
   titleYear?: string;
+  /** English aliases from TVDB whose normalized form is a strict substring of the resolved title and substantially shorter (< 70% length). Used as a zero-result UTS fallback for shows whose release groups publish under a shortened name. */
+  searchAliases?: string[];
+  /** Air date of the targeted episode in `YYYY-MM-DD` form, when TVDB has it. Used by the alias fallback to send date-formatted queries (e.g. `Jimmy Fallon 2024.05.21`) for shows whose releases are dated rather than season/episode-numbered. */
+  episodeAired?: string;
 }
 
 /**
@@ -46,7 +56,7 @@ async function resolveFromCinemeta(
   type: string,
   imdbId: string,
   season?: number
-): Promise<{ title: string; year?: string; country?: string; genres?: string[]; episodesInSeason?: number; runtime?: number }> {
+): Promise<{ title: string; year?: string; country?: string; genres?: string[]; episodesInSeason?: number; priorSeasonsEpisodeCount?: number; runtime?: number }> {
   try {
     const url = `https://v3-cinemeta.strem.io/meta/${type}/${imdbId}.json`;
     const response = await axios.get(url, { timeout: 5000 });
@@ -55,11 +65,15 @@ async function resolveFromCinemeta(
       const year = meta.releaseInfo?.match(/^\d{4}/)?.[0] || meta.year?.toString();
       const country = meta.country || undefined;
       const genres: string[] | undefined = Array.isArray(meta.genres) ? meta.genres : undefined;
-      // Count episodes in the requested season from the videos array
+      // Count episodes in the requested season + cumulative count of prior seasons
+      // (skipping specials at season 0). The prior count feeds the absolute-
+      // numbering fallback in the orchestrator.
       let episodesInSeason: number | undefined;
+      let priorSeasonsEpisodeCount: number | undefined;
       if (season !== undefined && Array.isArray(meta.videos)) {
         episodesInSeason = meta.videos.filter((v: any) => v.season === season).length;
         if (episodesInSeason === 0) episodesInSeason = undefined;
+        priorSeasonsEpisodeCount = meta.videos.filter((v: any) => v.season > 0 && v.season < season).length;
       }
       // Parse runtime (e.g. "148 min" → 8880 seconds)
       let runtime: number | undefined;
@@ -68,7 +82,7 @@ async function resolveFromCinemeta(
         if (mins > 0) runtime = mins * 60;
       }
       console.log(`🎯 Resolved ${imdbId} → "${meta.name}" (${year || 'unknown year'}, ${country || 'unknown country'})${episodesInSeason ? ` [S${season}: ${episodesInSeason} episodes]` : ''}${genres ? ` [${genres.join(', ')}]` : ''}${runtime ? ` [${Math.round(runtime / 60)}min]` : ''}`);
-      return { title: meta.name, year, country, genres, episodesInSeason, runtime };
+      return { title: meta.name, year, country, genres, episodesInSeason, priorSeasonsEpisodeCount, runtime };
     }
   } catch (error) {
     console.warn(`⚠️  Failed to resolve title for ${imdbId}:`, (error as Error).message);
@@ -100,6 +114,9 @@ export async function resolveTitle(
   let episodesInSeason = resolved.episodesInSeason;
   let runtime = resolved.runtime;
   let episodeName: string | undefined;
+  let absoluteEpisodeNumber: number | undefined;
+  let tvdbPriorSeasonsCount: number | undefined;
+  let episodeAired: string | undefined;
   if (type === 'series' && season !== undefined) {
     const tvdbResult = await resolveEpisodeCountFromTvdb(imdbId, season, episode);
     if (tvdbResult) {
@@ -109,6 +126,9 @@ export async function resolveTitle(
       episodesInSeason = tvdbResult.count;
       if (tvdbResult.runtime) runtime = tvdbResult.runtime;
       if (tvdbResult.episodeName) episodeName = tvdbResult.episodeName;
+      if (tvdbResult.absoluteNumber) absoluteEpisodeNumber = tvdbResult.absoluteNumber;
+      if (tvdbResult.priorSeasonsCount !== undefined) tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
+      if (tvdbResult.episodeAired) episodeAired = tvdbResult.episodeAired;
     }
   }
   console.log(`📌 Title: "${cinemetaTitle}"${year ? ` (${year})` : ''}${country ? ` [${country}]` : ''}${episodesInSeason ? ` — ${episodesInSeason} eps in season` : ''}`);
@@ -118,8 +138,12 @@ export async function resolveTitle(
 
   // Step 4: Resolve canonical title
   // For anime: use Kitsu-IMDB title (series-level canonical name), skip TVDB/TMDB
+  // (so tvdbNativeTitle never sets for anime; native-language alts via TVDB
+  // don't apply to the anime path).
   // For non-anime: TVDB for TV, TMDB for movies
   let resolvedTitle: string | null = null;
+  let tvdbAliases: string[] | undefined;
+  let tvdbNativeTitle: string | undefined;
   if (isAnime) {
     const fribb = lookupByImdbId(imdbId);
     if (fribb?.kitsu_id) {
@@ -140,6 +164,8 @@ export async function resolveTitle(
         console.log(`📅 Using TVDB year ${tvdbTitleResult.year} (Cinemeta: ${year})`);
         year = tvdbTitleResult.year;
       }
+      tvdbAliases = tvdbTitleResult?.aliases;
+      tvdbNativeTitle = tvdbTitleResult?.nativeTitle;
     } else {
       const tmdbResult = await resolveTitleFromTmdb(imdbId, 'movie');
       resolvedTitle = tmdbResult?.title ?? null;
@@ -150,8 +176,13 @@ export async function resolveTitle(
     }
   }
   // Strip parenthetical year suffix from resolved title (e.g. "Show (2003)" → "Show")
-  // TVDB/TMDB add these for disambiguation but release groups don't use them
+  // TVDB/TMDB add these for disambiguation but release groups don't use them.
+  // Same strip applies to the native-language title since the disambiguating
+  // suffix carries through TVDB's translation regardless of locale.
   let titleYear: string | undefined;
+  if (tvdbNativeTitle) {
+    tvdbNativeTitle = tvdbNativeTitle.replace(/\s*\(\d{4}\)\s*$/, '');
+  }
   if (resolvedTitle) {
     const yearMatch = resolvedTitle.match(/\s*\((\d{4})\)\s*$/);
     if (yearMatch) {
@@ -180,6 +211,14 @@ export async function resolveTitle(
     // Normal case: Cinemeta differs from resolved, keep it as fallback
     additionalTitles = [cinemetaTitle];
   }
+  // When force-English replaced a non-English TVDB title, append the original
+  // native-language form as an additional alt. parallelAlternateTitleSearch then
+  // fans English + native concurrently; sequential alt-title retry uses native
+  // on zero-result fallback. nativeTitle is only set when an actual substitution
+  // occurred, so the !== title guard is sufficient (no normalize dedup needed).
+  if (tvdbNativeTitle && tvdbNativeTitle !== title) {
+    additionalTitles = additionalTitles ? [...additionalTitles, tvdbNativeTitle] : [tvdbNativeTitle];
+  }
   if (resolvedTitle && resolvedTitle !== cinemetaTitle && title === resolvedTitle) {
     if (isAnime && additionalTitles?.length) {
       console.log(`🎯 Anime search titles: "${resolvedTitle}" + "${cinemetaTitle}"`);
@@ -195,9 +234,33 @@ export async function resolveTitle(
   }
 
   // Step 6: Detect remakes — check if another show shares the same title (for text search filtering)
-  const hasRemake = (type === 'series' && config.searchConfig?.enableRemakeFiltering !== false)
+  const hasRemake = (type === 'series' && getTvRemakeFiltering(config))
     ? await detectRemake(title)
     : undefined;
+
+  // Step 7: Substring-shortcut alias filter for the zero-result UTS fallback.
+  // Keeps an alias only when it is a strict substring of the canonical title
+  // and substantially shorter (< 70% length ratio). Excludes length-similar
+  // variants and longer supplemental aliases that wouldn't help the search.
+  let searchAliases: string[] | undefined;
+  if (tvdbAliases?.length && title) {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const titleNorm = norm(title);
+    if (titleNorm.length > 0) {
+      const kept: string[] = [];
+      for (const alias of tvdbAliases) {
+        const aliasNorm = norm(alias);
+        if (aliasNorm.length === 0) continue;
+        if (!titleNorm.includes(aliasNorm)) continue;
+        if (aliasNorm.length / titleNorm.length >= 0.7) continue;
+        kept.push(alias);
+      }
+      if (kept.length > 0) {
+        searchAliases = kept;
+        console.log(`🎤 Substring alias(es) for "${title}": [${kept.map(a => `"${a}"`).join(', ')}]`);
+      }
+    }
+  }
 
   return {
     title,
@@ -206,11 +269,16 @@ export async function resolveTitle(
     country,
     genres,
     episodesInSeason,
+    priorSeasonsEpisodeCount: resolved.priorSeasonsEpisodeCount,
+    absoluteEpisodeNumber,
+    tvdbPriorSeasonsCount,
     additionalTitles,
     isAnime,
     runtime,
     episodeName,
     hasRemake,
     titleYear,
+    searchAliases,
+    episodeAired,
   };
 }

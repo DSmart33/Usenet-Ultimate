@@ -12,7 +12,7 @@ import { downloadArchiveHeader, inspectArchive, hasVideoContent, download7zEndMe
 import type { UsenetProvider } from '../types.js';
 import type { HealthCheckResult, HealthCheckOptions } from './types.js';
 import { downloadAndParseNzb, CircuitChangedError } from './nzbParser.js';
-import { extractFilename, isVideoFile, isCompressedArchive } from './fileClassifier.js';
+import { extractFilename, isVideoFile, isCompressedArchive, getVideoContainerType, getContainerFromArchiveFiles } from './fileClassifier.js';
 import { findFirstArchivePart, selectMultiPartSamples, collectAllArchiveSegments } from './archiveGrouper.js';
 import { NntpConnectionPool } from './nntpConnection.js';
 import { checkArticlesMultiProvider } from './articleChecker.js';
@@ -67,7 +67,13 @@ export async function performHealthCheck(
     const videoFiles = files.filter(f => isVideoFile(f.subject));
     const archiveFiles = files.filter(f => isCompressedArchive(f.subject));
 
-    log(`${files.length} files (${videoFiles.length} video, ${archiveFiles.length} archive)`);
+    // Extract container type from the first video file subject
+    let containerType: string | undefined;
+    if (videoFiles.length > 0) {
+      containerType = getVideoContainerType(videoFiles[0].subject);
+    }
+
+    log(`${files.length} files (${videoFiles.length} video, ${archiveFiles.length} archive)${containerType ? ` [${containerType}]` : ''}`);
 
     // Determine which file to check
     // For archives, find the first part (.7z.001, .part001.rar, .rar, etc.)
@@ -97,14 +103,16 @@ export async function performHealthCheck(
     log(`Checking ${fileType}: ${extractFilename(fileToCheck.subject)}`);
 
     // For archives, inspect the header to determine compression and contents
-    // Use first enabled pool provider (or first backup if no pool)
+    // Try each enabled provider until one succeeds (pool providers first, then backups)
     // Archive inspection can be disabled for faster checks
     let archiveInfo = null;
     if (options.archiveInspection && fileType === 'archive' && fileToCheck.segments.length > 0) {
-      const inspectionProvider = providers.find(p => p.enabled && p.type === 'pool')
-        || providers.find(p => p.enabled);
+      const inspectionProviders = [
+        ...providers.filter(p => p.enabled && p.type === 'pool'),
+        ...providers.filter(p => p.enabled && p.type !== 'pool'),
+      ];
 
-      if (inspectionProvider) {
+      for (const inspectionProvider of inspectionProviders) {
         try {
           log('🔍 Inspecting archive header...');
           const messageIds = fileToCheck.segments.slice(0, 3).map(s => s.messageId);
@@ -159,7 +167,8 @@ export async function performHealthCheck(
                   username: inspectionProvider.username,
                   password: inspectionProvider.password
                 },
-                endSocket
+                endSocket,
+                password,
               );
               if (enhanced) {
                 archiveInfo = enhanced;
@@ -180,7 +189,12 @@ export async function performHealthCheck(
             }
           }
 
-          log(`Archive: ${archiveInfo.format}, encrypted=${archiveInfo.encrypted}, compression=${archiveInfo.compression}, ${archiveInfo.files.length} files`);
+          // Extract container type from archive file listing
+          if (!containerType && archiveInfo.files.length > 0) {
+            containerType = getContainerFromArchiveFiles(archiveInfo.files);
+          }
+
+          log(`Archive: ${archiveInfo.format}, encrypted=${archiveInfo.encrypted}, compression=${archiveInfo.compression}, ${archiveInfo.files.length} files${containerType ? ` [${containerType}]` : ''}`);
           if (archiveInfo.files.length > 0) {
             log(`  files: ${archiveInfo.files.slice(0, 3).map(f => f.name).join(', ')}`);
           }
@@ -192,6 +206,7 @@ export async function performHealthCheck(
               status: 'blocked',
               message: 'Encrypted archive (no password)',
               playable: false,
+              containerType,
             };
           }
           if (archiveInfo.encrypted && password) {
@@ -205,7 +220,8 @@ export async function performHealthCheck(
               status: 'blocked',
               message: 'Nested archive',
               playable: false,
-              password
+              password,
+              containerType,
             };
           }
 
@@ -215,11 +231,14 @@ export async function performHealthCheck(
               status: 'blocked',
               message: 'No video files in archive',
               playable: false,
-              password
+              password,
+              containerType,
             };
           }
+
+          break; // Inspection succeeded — stop trying providers
         } catch (err) {
-          warn(`⚠️ Archive inspection failed: ${(err as Error).message}`);
+          warn(`⚠️ Archive inspection failed (${inspectionProvider.name}): ${(err as Error).message}`);
         }
       }
     }
@@ -232,7 +251,8 @@ export async function performHealthCheck(
         status: 'blocked',
         message: 'No segments found',
         playable: false,
-        password
+        password,
+        containerType,
       };
     }
 
@@ -290,7 +310,8 @@ export async function performHealthCheck(
           message: `Verified (${samplesToCheck.length} samples checked${backupNote})`,
           playable: true,
           providersUsed: providerNames,
-          password
+          password,
+          containerType,
         };
       } else {
         if (archiveInfo && archiveInfo.compression === 'stored') {
@@ -300,7 +321,8 @@ export async function performHealthCheck(
             message: `Stored archive (${samplesToCheck.length} samples checked${backupNote})`,
             playable: true,
             providersUsed: providerNames,
-            password
+            password,
+            containerType,
           };
         } else if (archiveInfo && archiveInfo.compression === 'compressed') {
           log(`→ Verified: compressed archive${backupNote}`);
@@ -309,7 +331,8 @@ export async function performHealthCheck(
             message: `Compressed archive (${samplesToCheck.length} samples checked${backupNote})`,
             playable: true,
             providersUsed: providerNames,
-            password
+            password,
+            containerType,
           };
         } else {
           log(`→ Verified: archive available${backupNote}`);
@@ -318,7 +341,8 @@ export async function performHealthCheck(
             message: `Archive available (${samplesToCheck.length} samples checked${backupNote})`,
             playable: true,
             providersUsed: providerNames,
-            password
+            password,
+            containerType,
           };
         }
       }
@@ -336,7 +360,8 @@ export async function performHealthCheck(
         message: `Missing ${result.totalMissing} of ${samplesToCheck.length} segments${providerInfo}`,
         playable: false,
         providersUsed: providerNames,
-        password
+        password,
+        containerType,
       };
     }
 
@@ -346,7 +371,8 @@ export async function performHealthCheck(
       message: 'Could not verify all articles',
       playable: false,
       providersUsed: providerNames,
-      password
+      password,
+      containerType,
     };
 
   } catch (error) {

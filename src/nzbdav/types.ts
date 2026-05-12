@@ -18,6 +18,7 @@ export interface NZBDavConfig {
   webdavPassword: string;
   moviesCategory: string;
   tvCategory: string;
+  scanUncategorized: boolean;
 }
 
 export interface StreamData {
@@ -50,7 +51,13 @@ export interface FallbackCandidate {
   nzbUrl: string;
   title: string;
   indexerName: string;
+  size?: number;
   isSeasonPack?: boolean;
+  /** Full WebDAV path, set only for library-origin candidates (mirrors
+   *  RawResult.libraryVideoPath). Lets UF probe the exact file regardless of
+   *  which root it lives under, including /content/uncategorized/... where
+   *  resolveCategory would otherwise reconstruct the wrong path. */
+  libraryVideoPath?: string;
 }
 
 export interface FallbackGroup {
@@ -58,5 +65,6 @@ export interface FallbackGroup {
   type: string;
   season?: string;
   episode?: string;
+  episodesInSeason?: number;
   createdAt: number;
 }

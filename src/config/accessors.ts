@@ -9,9 +9,11 @@
  *   env var > config.json > hardcoded default
  */
 
-import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer } from '../types.js';
+import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer, UltimateFallbackConfig } from '../types.js';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { configData, ZYCLOPS_DEFAULT_ENDPOINT } from './schema.js';
+import { UF_TIMEOUT_DEFAULTS } from '../nzbdav/timeoutDefaults.js';
 
 /** Parse a 'true'/'false' env var string. Returns undefined if not set. */
 function envBool(name: string): boolean | undefined {
@@ -81,50 +83,6 @@ export const config: Config = {
   get nzbdavTvCategory() {
     return configData.nzbdavTvCategory;
   },
-  get nzbdavFallbackEnabled() {
-    const env = envBool('NZBDAV_FALLBACK_ENABLED');
-    if (env !== undefined) return env;
-    if (configData.nzbdavFallbackEnabled !== undefined) return configData.nzbdavFallbackEnabled;
-    // Default: disabled — user must explicitly enable fallback
-    return false;
-  },
-  get nzbdavLibraryCheckEnabled() {
-    const env = envBool('NZBDAV_LIBRARY_CHECK');
-    if (env !== undefined) return env;
-    // Force on when auto-resolve is active (relies on library checks)
-    if (configData.autoResolveOnSearch !== false
-        && configData.nzbdavFallbackEnabled
-        && configData.nzbdavFallbackOrder === 'top') {
-      return true;
-    }
-    return configData.nzbdavLibraryCheckEnabled !== false;
-  },
-  get nzbdavMaxFallbacks() {
-    return envInt('NZBDAV_MAX_FALLBACKS') ?? configData.nzbdavMaxFallbacks ?? 0;
-  },
-  get nzbdavJobTimeoutSeconds() {
-    return envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds ?? 120;
-  },
-  get nzbdavMoviesTimeoutSeconds() {
-    const raw = envInt('NZBDAV_MOVIES_TIMEOUT') ?? configData.nzbdavMoviesTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 30;
-    return Math.max(1, Math.min(90, raw));
-  },
-  get nzbdavTvTimeoutSeconds() {
-    const raw = envInt('NZBDAV_TV_TIMEOUT') ?? configData.nzbdavTvTimeoutSeconds ?? (envInt('NZBDAV_JOB_TIMEOUT') ?? configData.nzbdavJobTimeoutSeconds) ?? 15;
-    return Math.max(1, Math.min(90, raw));
-  },
-  get nzbdavSeasonPackTimeoutSeconds() {
-    const raw = envInt('NZBDAV_SEASON_PACK_TIMEOUT') ?? configData.nzbdavSeasonPackTimeoutSeconds ?? 30;
-    return Math.max(1, Math.min(90, raw));
-  },
-  get nzbdavFallbackOrder() {
-    return envEnum('NZBDAV_FALLBACK_ORDER', ['selected', 'top']) || configData.nzbdavFallbackOrder || 'top';
-  },
-  get autoResolveOnSearch() {
-    const env = envBool('AUTO_RESOLVE_ON_SEARCH');
-    if (env !== undefined) return env;
-    return configData.autoResolveOnSearch !== false;
-  },
   get nzbdavCacheTimeouts() {
     const env = envBool('INCLUDE_TIMEOUTS_AS_DEAD_NZBS');
     if (env !== undefined) return env;
@@ -135,10 +93,21 @@ export const config: Config = {
     if (envMB != null && envMB > 0) return Math.max(8, envMB);
     return Math.max(8, configData.nzbdavStreamBufferMB ?? 128);
   },
-  get nzbdavProxyEnabled() {
-    const env = envBool('NZBDAV_PROXY_ENABLED');
-    if (env !== undefined) return env;
-    return configData.nzbdavProxyEnabled !== false;
+  get nzbdavPipeBufferMB() {
+    const envMB = envInt('NZBDAV_PIPE_BUFFER_MB');
+    if (envMB != null && envMB > 0) return Math.max(1, Math.min(16, envMB));
+    return Math.max(1, Math.min(16, configData.nzbdavPipeBufferMB ?? 8));
+  },
+  get nzbdavStreamingMethod(): 'pipe' | 'proxy' | 'direct' {
+    const envMethod = envEnum('NZBDAV_STREAMING_METHOD', ['pipe', 'proxy', 'direct']);
+    if (envMethod) return envMethod;
+    const envLegacy = envBool('NZBDAV_PROXY_ENABLED');
+    if (envLegacy === true) return 'proxy';
+    if (envLegacy === false) return 'direct';
+    if (configData.nzbdavStreamingMethod) return configData.nzbdavStreamingMethod;
+    if (configData.nzbdavProxyEnabled === false) return 'direct';
+    if (configData.nzbdavProxyEnabled === true) return 'proxy';
+    return 'proxy';
   },
   get healthyNzbDbMode(): 'time' | 'storage' {
     return configData.healthyNzbDbMode || 'time';
@@ -174,14 +143,36 @@ export const config: Config = {
   },
   get searchConfig(): SearchConfig {
     const sc = configData.searchConfig || { includeSeasonPacks: true };
-    const remakeEnv = envBool('ENABLE_REMAKE_DETECTION');
-    const multiEpEnv = envBool('ALLOW_MULTI_EPISODE_FILES');
     const urlDedupEnv = envBool('URL_DEDUP');
+    const displayLibraryEnv = envBool('DISPLAY_LIBRARY_IN_RESULTS');
+    const absoluteEpFallbackEnv = envBool('ABSOLUTE_EPISODE_FALLBACK');
+    const parallelAltTitleEnv = envBool('PARALLEL_ALTERNATE_TITLE_SEARCH');
+    const junkFilterEnv = envBool('JUNK_FILTER');
+    const cacheEmptyResultsEnv = envBool('CACHE_EMPTY_RESULTS');
+    const libraryThresholdEnv = envInt('LIBRARY_SEARCH_THRESHOLD');
+    const scanUncategorizedEnv = envBool('LIBRARY_SEARCH_SCAN_UNCATEGORIZED');
+    const tvdbEnglishEnv = envBool('TVDB_PREFER_ENGLISH_TITLE');
+    const aliasTitleFallbackEnv = envBool('ALIAS_TITLE_FALLBACK');
     return {
       ...sc,
-      ...(remakeEnv !== undefined && { enableRemakeFiltering: remakeEnv }),
-      ...(multiEpEnv !== undefined && { allowMultiEpisodeFiles: multiEpEnv }),
+      // Always present in the response (default true). Other 3 fields below
+      // remain conditionally spread because they default to undefined.
+      displayLibraryInResults: displayLibraryEnv ?? sc.displayLibraryInResults ?? true,
+      absoluteEpisodeFallback: absoluteEpFallbackEnv ?? sc.absoluteEpisodeFallback ?? true,
+      parallelAlternateTitleSearch: parallelAltTitleEnv ?? sc.parallelAlternateTitleSearch ?? false,
+      tvdbPreferEnglishTitle: tvdbEnglishEnv ?? sc.tvdbPreferEnglishTitle ?? true,
+      aliasTitleFallback: aliasTitleFallbackEnv ?? sc.aliasTitleFallback ?? true,
+      // Library short-circuit threshold (0 = disabled, 1-10 = active). Clamped on read so a
+      // bad config.json or env var can't push it out of range; settings updater also clamps on writes.
+      librarySearchThreshold: Math.max(0, Math.min(10, libraryThresholdEnv ?? sc.librarySearchThreshold ?? 0)),
+      librarySearchScanUncategorized: scanUncategorizedEnv ?? sc.librarySearchScanUncategorized ?? true,
+      libraryDeleteAllTile: sc.libraryDeleteAllTile ?? false,
+      libraryDeletePerStreamTile: sc.libraryDeletePerStreamTile ?? false,
+      libraryDeleteAllPackScope: sc.libraryDeleteAllPackScope === 'pack' ? 'pack' : 'episode',
+      librarySkipTilePosition: sc.librarySkipTilePosition === 'last' ? 'last' : 'second',
       ...(urlDedupEnv !== undefined && { urlDedup: urlDedupEnv }),
+      ...(junkFilterEnv !== undefined && { junkFilter: junkFilterEnv }),
+      ...(cacheEmptyResultsEnv !== undefined && { cacheEmptyResults: cacheEmptyResultsEnv }),
     };
   },
   get useTextSearch() {
@@ -220,8 +211,9 @@ export const config: Config = {
   },
   get filters() {
     return configData.filters || {
-      sortOrder: ['quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition'],
+      sortOrder: ['regexScore', 'quality', 'videoTag', 'seScore', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition'],
       enabledSorts: {
+        regexScore: false,
         quality: true,
         videoTag: true,
         size: true,
@@ -229,7 +221,8 @@ export const config: Config = {
         visualTag: true,
         audioTag: true,
         language: false,
-        edition: false
+        edition: false,
+        seScore: false
       },
       enabledPriorities: {
         resolution: {},
@@ -250,10 +243,10 @@ export const config: Config = {
       maxStreamsPerResolution: undefined,
       maxStreamsPerQuality: undefined,
       resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'],
-      videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'],
-      encodePriority: ['av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'],
+      videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'DCP', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'],
+      encodePriority: ['vvc', 'av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'],
       visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'],
-      audioTagPriority: ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'],
+      audioTagPriority: ['Atmos (TrueHD)', 'DTS:X', 'Atmos (DD+)', 'TrueHD', 'DTS-HD MA', 'FLAC', 'DTS-HD', 'DD+', 'DTS-ES', 'DTS', 'AAC', 'DD', 'Opus', 'PCM', 'MP3', 'Unknown'],
       languagePriority: ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'],
       editionPriority: ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard']
     };
@@ -278,6 +271,7 @@ export const config: Config = {
         inspectionMethod: 'smart' as const,
         smartBatchSize: 3,
         smartAdditionalRuns: 1,
+        smartMinHealthy: 1,
         maxConnections: 12,
         autoQueueMode: 'all' as const,
         hideBlocked: true,
@@ -319,6 +313,7 @@ export const config: Config = {
       inspectionMethod: hc.inspectionMethod || 'smart',
       smartBatchSize: hc.smartBatchSize ?? 3,
       smartAdditionalRuns: hc.smartAdditionalRuns ?? 1,
+      smartMinHealthy: hc.smartMinHealthy ?? 1,
       maxConnections: hc.maxConnections ?? 12,
       autoQueueMode: hc.autoQueueMode ?? 'all',
       libraryPreCheck: hc.libraryPreCheck !== false,
@@ -368,6 +363,12 @@ export const config: Config = {
   get prowlarrApiKey() {
     return envStr('PROWLARR_API_KEY') || configData.prowlarrApiKey;
   },
+  get prowlarrTimeoutEnabled() {
+    return configData.prowlarrTimeoutEnabled ?? true;
+  },
+  get prowlarrTimeout() {
+    return configData.prowlarrTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
+  },
   get nzbhydraUrl() {
     return envStr('NZBHYDRA_URL') || configData.nzbhydraUrl;
   },
@@ -379,6 +380,12 @@ export const config: Config = {
   },
   get nzbhydraPassword() {
     return envStr('NZBHYDRA_PASSWORD') || configData.nzbhydraPassword || '';
+  },
+  get nzbhydraTimeoutEnabled() {
+    return configData.nzbhydraTimeoutEnabled ?? true;
+  },
+  get nzbhydraTimeout() {
+    return configData.nzbhydraTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
   },
   get zyclopsEndpoint() {
     return configData.zyclopsEndpoint || ZYCLOPS_DEFAULT_ENDPOINT;
@@ -398,6 +405,16 @@ export const config: Config = {
   get easynewsMaxPages() {
     return configData.easynewsMaxPages || 3;
   },
+  get easynewsTimeoutEnabled() {
+    return configData.easynewsTimeoutEnabled ?? true;
+  },
+  get easynewsTimeout() {
+    return configData.easynewsTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
+  },
+  get searchTimeoutOverride() {
+    const raw = envInt('SEARCH_TIMEOUT');
+    return raw !== undefined ? Math.max(1, Math.min(45, raw)) : undefined;
+  },
   get easynewsMode() {
     return configData.easynewsMode || 'nzb';
   },
@@ -407,4 +424,66 @@ export const config: Config = {
   get indexerPriority() {
     return configData.indexerPriority;
   },
+  get ultimateFallback(): UltimateFallbackConfig {
+    const ur = configData.ultimateFallback;
+    const enabled = envBool('ULTIMATE_FALLBACK_ENABLED') ?? ur?.enabled ?? false;
+    const healthCheckEnabled = envBool('ULTIMATE_FALLBACK_HEALTH_CHECK_ENABLED') ?? ur?.healthCheckEnabled ?? false;
+    const whenToResolve = envEnum('ULTIMATE_FALLBACK_WHEN_TO_RESOLVE', ['on-results', 'on-tile-selection']) ?? ur?.whenToResolve ?? 'on-tile-selection';
+    const userPickFallback = envEnum('ULTIMATE_FALLBACK_USER_PICK_FALLBACK', ['uf-lobby', 'failure-video', 'fallback-chain']) ?? ur?.userPickFallback ?? 'failure-video';
+    const candidateCount = Math.max(1, Math.min(10, envInt('ULTIMATE_FALLBACK_CANDIDATE_COUNT') ?? ur?.candidateCount ?? 1));
+    const preferenceMode = envEnum('ULTIMATE_FALLBACK_PREFERENCE_MODE', ['priority', 'speed']) ?? ur?.preferenceMode ?? 'priority';
+    // Archive inspection is mandatory for UF — its container-matching guarantee
+    // (each backup matches the primary's container type) depends on reading
+    // archive headers at health-check time. Without it, archive candidates
+    // come back with unknown container type and UF can't filter mismatches
+    // before submitting them to nzbdav.
+    const archiveInspection = true;
+    const rawSample = envInt('ULTIMATE_FALLBACK_SAMPLE_COUNT') ?? ur?.sampleCount ?? 3;
+    const sampleCount: 3 | 7 = rawSample === 7 ? 7 : 3;
+    const maxAttempts = Math.max(0, Math.min(20, envInt('ULTIMATE_FALLBACK_MAX_ATTEMPTS') ?? ur?.maxAttempts ?? 0));
+    const desiredBackups = Math.max(0, Math.min(10, envInt('ULTIMATE_FALLBACK_DESIRED_BACKUPS') ?? ur?.desiredBackups ?? 0));
+    const backupProcessingLimit = Math.max(0, Math.min(20, envInt('ULTIMATE_FALLBACK_BACKUP_PROCESSING_LIMIT') ?? ur?.backupProcessingLimit ?? 3));
+    const priorityMoviesTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_MOVIES_TIMEOUT') ?? ur?.priorityMoviesTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.movies));
+    const priorityTvTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_TV_TIMEOUT') ?? ur?.priorityTvTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.tv));
+    const prioritySeasonPackTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_PRIORITY_SEASON_PACK_TIMEOUT') ?? ur?.prioritySeasonPackTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.priority.seasonPack));
+    const speedMoviesTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_MOVIES_TIMEOUT') ?? ur?.speedMoviesTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.movies));
+    const speedTvTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_TV_TIMEOUT') ?? ur?.speedTvTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.tv));
+    const speedSeasonPackTimeoutSeconds = Math.max(0, Math.min(90, envInt('ULTIMATE_FALLBACK_SPEED_SEASON_PACK_TIMEOUT') ?? ur?.speedSeasonPackTimeoutSeconds ?? UF_TIMEOUT_DEFAULTS.speed.seasonPack));
+    return {
+      enabled,
+      healthCheckEnabled,
+      whenToResolve,
+      userPickFallback,
+      candidateCount,
+      preferenceMode,
+      archiveInspection,
+      sampleCount,
+      maxAttempts,
+      desiredBackups,
+      backupProcessingLimit,
+      priorityMoviesTimeoutSeconds,
+      priorityTvTimeoutSeconds,
+      prioritySeasonPackTimeoutSeconds,
+      speedMoviesTimeoutSeconds,
+      speedTvTimeoutSeconds,
+      speedSeasonPackTimeoutSeconds,
+      healthCheckIndexers: ur?.healthCheckIndexers,
+    };
+  },
 };
+
+/**
+ * Resolved TV-scope accessors for Filters-menu toggles.
+ * Precedence: env var > tvFilters > filters > default true.
+ */
+export function getTvRemakeFiltering(cfg: Config): boolean {
+  const envVal = envBool('ENABLE_REMAKE_DETECTION');
+  if (envVal !== undefined) return envVal;
+  return (cfg.tvFilters?.enableRemakeFiltering ?? cfg.filters?.enableRemakeFiltering) !== false;
+}
+
+export function getTvAllowMultiEpisode(cfg: Config): boolean {
+  const envVal = envBool('ALLOW_MULTI_EPISODE_FILES');
+  if (envVal !== undefined) return envVal;
+  return (cfg.tvFilters?.allowMultiEpisodeFiles ?? cfg.filters?.allowMultiEpisodeFiles) !== false;
+}

@@ -23,11 +23,21 @@
 
 import * as net from 'net';
 import * as tls from 'tls';
+import * as crypto from 'crypto';
 import { connectToUsenet } from '../health/nntpConnection.js';
 import { decompressLZMA1 } from './lzmaDecoder.js';
+import { decompressLZMA2 } from './lzma2Decoder.js';
 import type { ArchiveInfo, UsenetConfig, EncodedHeaderInfo } from './types.js';
 import { read7zNumber, checkFileContentType } from './utils.js';
 import { downloadSegment } from './nntpSegmentDownloader.js';
+
+// AES-256 coder ID in the 7z coder-chain (4 bytes: 0x06F10701).
+const AES256_CODEC_ID = Buffer.from([0x06, 0xF1, 0x07, 0x01]);
+
+// Sanity caps applied to values parsed from untrusted NZB/archive bytes.
+const MAX_METADATA_SIZE = 10 * 1024 * 1024;   // 10MB for pack/unpack/nextHeader sizes
+const MAX_PASSWORD_LENGTH = 1024;              // characters, pre-utf16le expansion
+const MAX_KDF_CYCLES_POWER = 24;               // 2^24 ≈ 16M SHA updates, ~1s on modern CPUs
 
 /**
  * Parse 7-Zip archive header (start header only, from first segments)
@@ -92,7 +102,8 @@ export async function download7zEndMetadata(
   startHeader: Buffer,
   allSegments: Array<{ messageId: string; bytes: number; number: number }>,
   config: UsenetConfig,
-  existingSocket?: net.Socket | tls.TLSSocket
+  existingSocket?: net.Socket | tls.TLSSocket,
+  password?: string,
 ): Promise<ArchiveInfo | null> {
   try {
     if (startHeader.length < 32) return null;
@@ -104,124 +115,205 @@ export async function download7zEndMetadata(
 
     if (nextHeaderSize === 0 || nextHeaderSize > 10 * 1024 * 1024) return null; // sanity: max 10MB metadata
 
-    // The end header starts at byte 32 + nextHeaderOffset in the archive file
-    const endHeaderStart = 32 + nextHeaderOffset;
-    const endHeaderEnd = endHeaderStart + nextHeaderSize;
-
-    // Calculate cumulative byte offsets for each segment
-    // Segments are numbered 1-based in NZBs, sorted by number
+    // ── End header extraction (tail-based) ──
+    // NZB seg.bytes reflects yEnc article size, not decoded binary size.
+    // Cumulative offset drift across thousands of segments makes offset-based
+    // extraction unreliable at the archive tail. Instead, download the last
+    // few segments and extract the end header from the decoded tail.
     const sortedSegments = [...allSegments].sort((a, b) => a.number - b.number);
-    let cumulativeBytes = 0;
-    const segmentRanges: Array<{ messageId: string; startByte: number; endByte: number }> = [];
-    for (const seg of sortedSegments) {
-      segmentRanges.push({
-        messageId: seg.messageId,
-        startByte: cumulativeBytes,
-        endByte: cumulativeBytes + seg.bytes
-      });
-      cumulativeBytes += seg.bytes;
-    }
-
-    // Find segments that overlap with the end header region
-    const neededSegments = segmentRanges.filter(
-      sr => sr.endByte > endHeaderStart && sr.startByte < endHeaderEnd
+    const estimatedSegSize = 490000; // ~490KB typical decoded segment
+    // 25-segment floor (~12MB tail) — obfuscated archives often push the real
+    // encoded end-header well past the last segment's worth of bytes even when
+    // nextHeaderSize is lying about where the catalog lives.
+    const numToDownload = Math.min(
+      Math.max(25, Math.ceil(nextHeaderSize / estimatedSegSize) + 1),
+      sortedSegments.length
     );
+    const tailSegments = sortedSegments.slice(-numToDownload);
 
-    if (neededSegments.length === 0) return null;
-
-    // Limit to 5 segments to avoid excessive downloads
-    const segmentsToFetch = neededSegments.slice(0, 5);
-
-    // Download the segments
     const socket = existingSocket || await connectToUsenet(config);
     const ownsSocket = !existingSocket;
 
     try {
       const chunks: Buffer[] = [];
-      for (const seg of segmentsToFetch) {
+      for (const seg of tailSegments) {
         try {
           const data = await downloadSegment(socket, seg.messageId);
           chunks.push(data);
         } catch {
-          // If a segment fails, try to parse what we have
           break;
         }
       }
 
       if (chunks.length === 0) return null;
 
-      // Trim the downloaded data to the actual end header region.
-      // The first fetched segment may start before endHeaderStart,
-      // so we need to skip the leading bytes that aren't part of the header.
-      const firstSegStartByte = segmentsToFetch[0].startByte;
-      const trimOffset = endHeaderStart - firstSegStartByte;
-      const rawData = Buffer.concat(chunks);
-      const endData = rawData.slice(trimOffset, trimOffset + nextHeaderSize);
+      const tailData = Buffer.concat(chunks);
+      if (tailData.length < nextHeaderSize) return null;
 
-      // Check if the end header is an encoded (LZMA-compressed) header
+      // End header is the last nextHeaderSize bytes of the archive
+      let endData = tailData.slice(tailData.length - nextHeaderSize);
+      let endHeaderFoundViaScan = false;
+
+      console.log(`  [7z] Tail fetched: ${numToDownload}/${sortedSegments.length} segs, ${tailData.length}B decoded. nextHeaderOffset=${nextHeaderOffset}, nextHeaderSize=${nextHeaderSize}. endData first16=${endData.subarray(0, 16).toString('hex')}`);
+
+      // If the slice isn't a valid header byte, the start header's offset is
+      // corrupt/obfuscated. Scan the entire downloaded tail for a structurally
+      // valid end header — parseEncodedHeaderInfo rejects random noise so the
+      // wider window is safe and necessary (with nextHeaderSize also obfuscated
+      // we have no tighter anchor to work with).
+      if (endData.length > 0 && endData[0] !== 0x17 && endData[0] !== 0x01) {
+        const scanStart = 0;
+        const picked = findEndHeaderInTail(tailData, scanStart, nextHeaderSize);
+        if (picked) {
+          endData = tailData.slice(picked.offset);
+          endHeaderFoundViaScan = true;
+          console.log(`  [7z] Tail scan match: 0x${picked.kind.toString(16).padStart(2, '0')} at offset ${tailData.length - picked.offset} from end (${endData.length} bytes, ${picked.reason})`);
+        } else {
+          console.log(`  [7z] No valid end header in tail (likely obfuscated or truncated, first byte 0x${endData[0].toString(16).padStart(2, '0')}, scan window ${tailData.length - scanStart}B)`);
+        }
+      }
       if (endData.length > 0 && endData[0] === 0x17) {
         const encInfo = parseEncodedHeaderInfo(endData);
 
-        if (encInfo && encInfo.isLZMA && encInfo.coderProps.length === 5) {
-          // The packed header data lives at byte 32 + packPos in the archive
-          const packStart = 32 + encInfo.packPos;
-          const packEnd = packStart + encInfo.packSize;
+        if (!encInfo && endHeaderFoundViaScan) {
+          console.log(`  [7z] Encoded header parse failed (endData: ${endData.length} bytes, first 16: ${endData.subarray(0, 16).toString('hex')})`);
+        }
 
-          // Find segments containing the packed header data
-          const packSegments = segmentRanges.filter(
-            sr => sr.endByte > packStart && sr.startByte < packEnd
-          );
+        // Fetch and decompress packed header data (LZMA1 or LZMA2)
+        const canDecompress = encInfo && (
+          (encInfo.codecType === 'lzma1' && encInfo.coderProps.length === 5) ||
+          (encInfo.codecType === 'lzma2' && encInfo.coderProps.length >= 1)
+        );
 
-          if (packSegments.length > 0) {
-            // Limit to 10 segments for packed header download
-            const packToFetch = packSegments.slice(0, 10);
-            console.log(`  [7z] Decoding compressed metadata (${encInfo.packSize} packed → ${encInfo.unpackSize} unpacked, ${packToFetch.length} segments)...`);
+        if (canDecompress && encInfo) {
+          // Extract packed catalog data. 7z layout: [packed catalog][end header].
+          // When the start header is intact we derive packed-data position from
+          // NextHeaderOffset; when we recovered via tail scan NextHeaderOffset
+          // is untrustworthy so we position packed data relative to the scanned
+          // end-header location instead.
+          const archiveSize = 32 + nextHeaderOffset + nextHeaderSize;
+          const packDataStart = 32 + encInfo.packPos;
+          const packDataDistFromEnd = archiveSize - packDataStart;
+          const packDataInTail = !endHeaderFoundViaScan
+            && packDataDistFromEnd > 0
+            && packDataDistFromEnd <= tailData.length;
 
-            const packChunks: Buffer[] = [];
-            for (const seg of packToFetch) {
-              try {
-                const data = await downloadSegment(socket, seg.messageId);
-                packChunks.push(data);
-              } catch {
-                break;
+          let packedData: Buffer | null = null;
+
+          if (packDataInTail) {
+            // Packed data is in our tail buffer — extract directly (no offset drift)
+            const offsetInTail = tailData.length - packDataDistFromEnd;
+            packedData = tailData.subarray(offsetInTail, offsetInTail + encInfo.packSize);
+            console.log(`  [7z] Decoding ${encInfo.codecType} metadata (${encInfo.packSize} packed → ${encInfo.unpackSize} unpacked, from tail buffer)...`);
+          } else if (endHeaderFoundViaScan && encInfo.packSize > 0) {
+            // Start header was corrupted — extract packed data relative to where we found the end header
+            // In 7z layout: [packed catalog][end header] — packed data sits right before the end header
+            const endHeaderPosInTail = tailData.length - endData.length;
+            const packStartInTail = endHeaderPosInTail - encInfo.packSize;
+            if (packStartInTail >= 0) {
+              packedData = tailData.subarray(packStartInTail, packStartInTail + encInfo.packSize);
+              console.log(`  [7z] Decoding ${encInfo.codecType} metadata (${encInfo.packSize} packed → ${encInfo.unpackSize} unpacked, relative to scanned end header)...`);
+            }
+          } else {
+            // Packed data is NOT in tail — fall back to offset-based segment fetch
+            // (drift-prone, but this path is rare for typical archives)
+            let cumulativeBytes = 0;
+            const segmentRanges: Array<{ messageId: string; startByte: number; endByte: number }> = [];
+            for (const seg of sortedSegments) {
+              segmentRanges.push({ messageId: seg.messageId, startByte: cumulativeBytes, endByte: cumulativeBytes + seg.bytes });
+              cumulativeBytes += seg.bytes;
+            }
+            const packStart = 32 + encInfo.packPos;
+            const packEnd = packStart + encInfo.packSize;
+            const packSegments = segmentRanges.filter(
+              (sr: { startByte: number; endByte: number }) => sr.endByte > packStart && sr.startByte < packEnd
+            );
+            if (packSegments.length > 0) {
+              const packToFetch = packSegments.slice(0, 10);
+              console.log(`  [7z] Decoding ${encInfo.codecType} metadata (${encInfo.packSize} packed → ${encInfo.unpackSize} unpacked, ${packToFetch.length} segments, offset-based)...`);
+              const packChunks: Buffer[] = [];
+              for (const seg of packToFetch) {
+                try { packChunks.push(await downloadSegment(socket, seg.messageId)); } catch { break; }
+              }
+              if (packChunks.length > 0) {
+                const packFirstStart = packToFetch[0].startByte;
+                const packTrimOffset = packStart - packFirstStart;
+                const packRaw = Buffer.concat(packChunks);
+                packedData = packRaw.subarray(packTrimOffset, packTrimOffset + encInfo.packSize);
+              }
+            }
+          }
+
+          if (packedData && packedData.length >= encInfo.packSize) {
+            // Decrypt if AES-encrypted (must happen before LZMA decompression)
+            if (encInfo.encrypted && encInfo.aesProps) {
+              if (password) {
+                // AES-CBC requires exact ciphertext length, 16-byte aligned.
+                // Any drift here produces valid-looking garbage plaintext that
+                // LZMA can't decode — fail loud instead of silent corruption.
+                if (packedData.length !== encInfo.packSize || packedData.length % 16 !== 0) {
+                  console.warn(`  [7z] Packed data length mismatch (got ${packedData.length}, expected ${encInfo.packSize}, 16-aligned=${packedData.length % 16 === 0}) — aborting decrypt`);
+                  packedData = null;
+                } else {
+                  try {
+                    const key = derive7zAESKey(password, encInfo.aesProps.salt, encInfo.aesProps.numCyclesPower);
+                    if (!key) {
+                      console.warn(`  [7z] AES key derivation rejected (numCyclesPower=${encInfo.aesProps.numCyclesPower}, pwLen=${password.length}) — out of sanity bounds`);
+                      packedData = null;
+                    } else {
+                      packedData = decrypt7zAES(packedData, key, encInfo.aesProps.iv);
+                      // Sanity-check the decrypted plaintext: 7z metadata always
+                      // starts with 0x01 (kHeader). A different first byte means
+                      // the key is wrong — bail before LZMA emits "invalid
+                      // distance" which would falsely implicate the decoder.
+                      if (packedData.length === 0 || packedData[0] !== 0x01) {
+                        const firstHex = packedData.length > 0 ? packedData[0].toString(16).padStart(2, '0') : '--';
+                        console.warn(`  [7z] AES decrypt produced first-byte 0x${firstHex}, expected 0x01 — likely wrong password`);
+                        packedData = null;
+                      } else {
+                        console.log(`  [7z] AES decrypted (${encInfo.aesProps.numCyclesPower} cycles, ${packedData.length}B plaintext)`);
+                      }
+                    }
+                  } catch (err) {
+                    console.warn(`  [7z] AES decryption failed (wrong password?): ${(err as Error).message}`);
+                    packedData = null;
+                  }
+                }
+              } else {
+                // Encrypted but no password — skip decompression entirely
+                packedData = null;
               }
             }
 
-            if (packChunks.length > 0) {
-              // Trim to the actual packed data region
-              const packFirstStart = packToFetch[0].startByte;
-              const packTrimOffset = packStart - packFirstStart;
-              const packRaw = Buffer.concat(packChunks);
-              const packedData = packRaw.slice(packTrimOffset, packTrimOffset + encInfo.packSize);
+            if (!packedData) {
+              // Decryption failed or skipped — fall through to basic encrypted info
+            } else try {
+              const decompressed = encInfo.codecType === 'lzma2'
+                ? decompressLZMA2(packedData, encInfo.coderProps[0], encInfo.unpackSize)
+                : decompressLZMA1(packedData, encInfo.coderProps, encInfo.unpackSize);
+              const firstByte = decompressed.length > 0 ? decompressed[0] : -1;
 
-              try {
-                const decompressed = decompressLZMA1(packedData, encInfo.coderProps, encInfo.unpackSize);
-                const firstByte = decompressed.length > 0 ? decompressed[0] : -1;
-
-                if (decompressed.length > 0) {
-                  let result: ArchiveInfo;
-                  if (firstByte === 0x01) {
-                    // kHeader — parse normally
-                    result = parse7zEndHeader(decompressed, decompressed.length);
-                  } else {
-                    // May start directly with properties (kMainStreamsInfo=0x04, kFilesInfo=0x05, etc.)
-                    result = {
-                      format: '7z',
-                      encrypted: false,
-                      compression: 'unknown',
-                      files: [],
-                      hasNestedArchive: false,
-                      hasISO: false
-                    };
-                    parse7zHeaderProperties(decompressed, 0, result);
-                    if (result.compression === 'unknown') result.compression = 'compressed';
-                  }
-                  if (encInfo.encrypted) result.encrypted = true;
-                  return result;
+              if (decompressed.length > 0) {
+                let result: ArchiveInfo;
+                if (firstByte === 0x01) {
+                  result = parse7zEndHeader(decompressed, decompressed.length);
+                } else {
+                  result = {
+                    format: '7z',
+                    encrypted: false,
+                    compression: 'unknown',
+                    files: [],
+                    hasNestedArchive: false,
+                    hasISO: false
+                  };
+                  parse7zHeaderProperties(decompressed, 0, result);
+                  if (result.compression === 'unknown') result.compression = 'compressed';
                 }
-              } catch (err) {
-                console.warn(`  [7z] LZMA decompression failed: ${(err as Error).message}`);
+                if (encInfo.encrypted) result.encrypted = true;
+                return result;
               }
+            } catch (err) {
+              console.warn(`  [7z] ${encInfo.codecType} decompression failed: ${(err as Error).message}`);
             }
           }
         }
@@ -248,6 +340,146 @@ export async function download7zEndMetadata(
   }
 }
 
+/** Parse AES-256 coder properties from raw property bytes (per 7z SDK 7zAes.cpp). */
+function parseAESProps(props: Buffer): { numCyclesPower: number; salt: Buffer; iv: Buffer } | null {
+  if (props.length < 1) return null;
+  const byte0 = props[0];
+  const numCyclesPower = byte0 & 0x3F;
+
+  let saltSize = 0;
+  let ivSize = 0;
+  let offset = 1;
+
+  // Per 7z SDK: bit 7 = hasSalt, bit 6 = hasIV
+  // Size = flag_bit_value + nibble_from_byte1
+  if ((byte0 & 0xC0) !== 0) {
+    if (offset >= props.length) return null;
+    const byte1 = props[offset++];
+    saltSize = ((byte0 >> 7) & 1) + (byte1 >> 4);
+    ivSize = ((byte0 >> 6) & 1) + (byte1 & 0x0F);
+  }
+
+  const salt = saltSize > 0 ? Buffer.from(props.subarray(offset, offset + saltSize)) : Buffer.alloc(0);
+  offset += saltSize;
+  const iv = ivSize > 0 ? Buffer.from(props.subarray(offset, offset + ivSize)) : Buffer.alloc(0);
+
+  // AES-256-CBC requires exactly 16-byte IV — pad with zeros if shorter
+  const paddedIV = Buffer.alloc(16);
+  if (iv.length > 0) iv.copy(paddedIV);
+
+  return { numCyclesPower, salt, iv: paddedIV };
+}
+
+/**
+ * Derive AES-256 key from password using 7z's counter-based SHA-256 stretching.
+ * Returns null if inputs violate sanity bounds (untrusted NZB input — DoS guard).
+ */
+function derive7zAESKey(password: string, salt: Buffer, numCyclesPower: number): Buffer | null {
+  if (password.length > MAX_PASSWORD_LENGTH) return null;
+
+  const passwordUtf16 = Buffer.from(password, 'utf16le');
+
+  // Special case: numCyclesPower === 0x3F skips SHA entirely.
+  // Key = (salt ‖ password)[:32] zero-padded. (7z SDK 7zAes.cpp, py7zr helpers.py)
+  if (numCyclesPower === 0x3F) {
+    const key = Buffer.alloc(32);
+    const concat = Buffer.concat([salt, passwordUtf16]);
+    concat.copy(key, 0, 0, Math.min(32, concat.length));
+    return key;
+  }
+
+  // Reject implausibly high stretching — guards against a malicious NZB pinning
+  // a worker on 2^63 SHA updates. Legitimate archives use 19-22.
+  if (numCyclesPower > MAX_KDF_CYCLES_POWER) return null;
+
+  const iterations = 2 ** numCyclesPower;
+  // Per 7z SDK (7zAes.cpp) and py7zr: order is salt + password + counter per iteration.
+  const hash = crypto.createHash('sha256');
+  for (let i = 0; i < iterations; i++) {
+    const counter = Buffer.alloc(8);
+    counter.writeBigUInt64LE(BigInt(i));
+    hash.update(salt);
+    hash.update(passwordUtf16);
+    hash.update(counter);
+  }
+  return hash.digest();
+}
+
+/** Decrypt AES-256-CBC encrypted data. */
+function decrypt7zAES(data: Buffer, key: Buffer, iv: Buffer): Buffer {
+  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+  decipher.setAutoPadding(false); // 7z doesn't use PKCS#7 padding
+  return Buffer.concat([decipher.update(data), decipher.final()]);
+}
+
+/**
+ * Locate the archive's end header inside the downloaded tail when the start
+ * header's NextHeaderOffset is corrupt (obfuscated by pirates or bit-rotted).
+ *
+ * Pass 1 prefers 0x17 (encoded header) and validates each candidate with a
+ * structural parse — `parseEncodedHeaderInfo` only returns non-null for
+ * syntactically valid encoded headers, so this is a strong filter that
+ * naturally rejects AES-ciphertext false positives.
+ *
+ * Pass 2 falls back to 0x01 (direct header) with a two-byte signature that
+ * matches the 7z spec (kHeader followed by kArchiveProperties / kAdditional /
+ * kMainStreamsInfo / kFilesInfo) plus a property-id density check to reject
+ * high-entropy candidates inside encrypted payload.
+ */
+type TailHeaderMatch = { offset: number; kind: 0x17 | 0x01; reason: string };
+function findEndHeaderInTail(
+  tailData: Buffer,
+  scanStart: number,
+  nextHeaderSize: number,
+): TailHeaderMatch | null {
+  // Pass 1: 0x17-encoded header candidates, validated by parseEncodedHeaderInfo.
+  const encodedCandidates: TailHeaderMatch[] = [];
+  for (let scan = scanStart; scan < tailData.length - 1; scan++) {
+    if (tailData[scan] !== 0x17) continue;
+    const next = tailData[scan + 1];
+    if (next !== 0x06 && next !== 0x07) continue;
+    const info = parseEncodedHeaderInfo(tailData.slice(scan));
+    if (!info || info.codecType === 'none') continue;
+    encodedCandidates.push({ offset: scan, kind: 0x17, reason: `codec=${info.codecType}, packSize=${info.packSize}` });
+  }
+  if (encodedCandidates.length > 0) {
+    encodedCandidates.sort((a, b) => {
+      const da = Math.abs((tailData.length - a.offset) - nextHeaderSize);
+      const db = Math.abs((tailData.length - b.offset) - nextHeaderSize);
+      return da - db;
+    });
+    return encodedCandidates[0];
+  }
+
+  // Pass 2: 0x01 direct headers. kHeader (0x01) is followed by one of:
+  //   0x02 kArchiveProperties, 0x03 kAdditionalStreamsInfo,
+  //   0x04 kMainStreamsInfo, 0x05 kFilesInfo.
+  // Plus a density check: in a real direct header the structural skeleton
+  // (property IDs + short vints) has most bytes ≤ 0x19. AES-encrypted bytes
+  // look uniformly random, so >50% of bytes exceed 0x19.
+  const directCandidates: TailHeaderMatch[] = [];
+  for (let scan = scanStart; scan < tailData.length - 32; scan++) {
+    if (tailData[scan] !== 0x01) continue;
+    const next = tailData[scan + 1];
+    if (next !== 0x02 && next !== 0x03 && next !== 0x04 && next !== 0x05) continue;
+    const probe = tailData.slice(scan, scan + 32);
+    let lowCount = 0;
+    for (const b of probe) if (b <= 0x19) lowCount++;
+    if (lowCount < 22) continue; // <70% low bytes — likely random/encrypted
+    directCandidates.push({ offset: scan, kind: 0x01, reason: `density=${lowCount}/32` });
+  }
+  if (directCandidates.length > 0) {
+    directCandidates.sort((a, b) => {
+      const da = Math.abs((tailData.length - a.offset) - nextHeaderSize);
+      const db = Math.abs((tailData.length - b.offset) - nextHeaderSize);
+      return da - db;
+    });
+    return directCandidates[0];
+  }
+
+  return null;
+}
+
 /**
  * Parse the StreamsInfo inside a kEncodedHeader (0x17).
  * Extracts pack position, sizes, and LZMA codec properties needed to
@@ -269,14 +501,9 @@ function parseEncodedHeaderInfo(data: Buffer): EncodedHeaderInfo | null {
     let packSize = 0;
     let unpackSize = 0;
     let coderProps = Buffer.alloc(0);
-    let isLZMA = false;
+    let codecType: 'none' | 'lzma1' | 'lzma2' = 'none';
     let encrypted = false;
-
-    // Scan for AES encryption pattern
-    const aesPattern = Buffer.from([0x06, 0xF1, 0x07, 0x01]);
-    if (data.indexOf(aesPattern) !== -1) {
-      encrypted = true;
-    }
+    let aesRawProps: Buffer | undefined;
 
     while (offset < data.length) {
       const propId = data.readUInt8(offset);
@@ -333,6 +560,7 @@ function parseEncodedHeaderInfo(data: Buffer): EncodedHeaderInfo | null {
       }
 
       if (propId === 0x07) { // kUnPackInfo
+        let totalOutStreams = 1; // default: single output stream
         while (offset < data.length) {
           const subId = data.readUInt8(offset);
           offset++;
@@ -352,7 +580,7 @@ function parseEncodedHeaderInfo(data: Buffer): EncodedHeaderInfo | null {
               if (!numCoders) return null;
               offset += numCoders.length;
 
-              let totalOutStreams = 0;
+              totalOutStreams = 0;
 
               for (let c = 0; c < numCoders.value; c++) {
                 const flags = data.readUInt8(offset);
@@ -366,10 +594,15 @@ function parseEncodedHeaderInfo(data: Buffer): EncodedHeaderInfo | null {
                 const codecId = Buffer.from(data.slice(offset, offset + idSize));
                 offset += idSize;
 
-                // Check for LZMA1 (0x030101)
-                if (c === 0 && codecId.length === 3 &&
-                    codecId[0] === 0x03 && codecId[1] === 0x01 && codecId[2] === 0x01) {
-                  isLZMA = true;
+                // Detect codecs at any position (handles AES + LZMA chains)
+                const isAES = codecId.equals(AES256_CODEC_ID);
+                if (isAES) encrypted = true;
+                if (codecType === 'none') {
+                  if (codecId.length === 3 && codecId[0] === 0x03 && codecId[1] === 0x01 && codecId[2] === 0x01) {
+                    codecType = 'lzma1';
+                  } else if (codecId.length === 1 && codecId[0] === 0x21) {
+                    codecType = 'lzma2';
+                  }
                 }
 
                 let numOut = 1;
@@ -388,8 +621,13 @@ function parseEncodedHeaderInfo(data: Buffer): EncodedHeaderInfo | null {
                   const propsSize = read7zNumber(data, offset);
                   if (!propsSize) return null;
                   offset += propsSize.length;
-                  if (c === 0) {
+                  // Capture LZMA/LZMA2 props
+                  if (codecType !== 'none' && coderProps.length === 0) {
                     coderProps = Buffer.from(data.slice(offset, offset + propsSize.value));
+                  }
+                  // Capture AES props separately
+                  if (isAES && !aesRawProps) {
+                    aesRawProps = Buffer.from(data.slice(offset, offset + propsSize.value));
                   }
                   offset += propsSize.value;
                 }
@@ -414,11 +652,15 @@ function parseEncodedHeaderInfo(data: Buffer): EncodedHeaderInfo | null {
               // This is a simplification - won't handle multi-folder encoded headers
             }
           } else if (subId === 0x0C) { // kCodersUnPackSize
-            // One unpack size per output stream per folder
-            const s = read7zNumber(data, offset);
-            if (!s) return null;
-            unpackSize = s.value;
-            offset += s.length;
+            // One unpack size per output stream per folder.
+            // For multi-coder chains (e.g. AES+LZMA), there are multiple sizes —
+            // use the LAST one (final output = actual decompressed header size).
+            for (let u = 0; u < totalOutStreams; u++) {
+              const s = read7zNumber(data, offset);
+              if (!s) return null;
+              unpackSize = s.value; // keeps overwriting — last one wins
+              offset += s.length;
+            }
           } else if (subId === 0x0A) { // kCRC
             const allDefined = data.readUInt8(offset);
             offset++;
@@ -445,8 +687,16 @@ function parseEncodedHeaderInfo(data: Buffer): EncodedHeaderInfo | null {
 
     if (packSize === 0 || unpackSize === 0 || coderProps.length === 0) return null;
 
-    return { packPos, packSize, unpackSize, coderProps, isLZMA, encrypted };
+    // Sanity caps — untrusted input from NZB. Matches nextHeaderSize cap elsewhere.
+    if (packSize > MAX_METADATA_SIZE || unpackSize > MAX_METADATA_SIZE) return null;
+
+    const aesProps = aesRawProps ? parseAESProps(aesRawProps) : undefined;
+    return { packPos, packSize, unpackSize, coderProps, codecType, encrypted, aesProps: aesProps ?? undefined };
   } catch (err) {
+    // RangeErrors are expected when findEndHeaderInTail tests a random 0x17
+    // byte inside encrypted noise — the parser hits Buffer OOB and bails.
+    // Silent null is the right outcome; other errors indicate real failures.
+    if (err instanceof RangeError) return null;
     console.warn(`  [7z] Failed to parse encoded header info: ${(err as Error).message}`);
     return null;
   }
@@ -474,8 +724,7 @@ export function parse7zEndHeader(data: Buffer, expectedSize: number): ArchiveInf
       if (propId === 0x17) {
         // Encoded header — metadata is compressed or encrypted
         // Scan for AES encryption coder ID pattern
-        const aesPattern = Buffer.from([0x06, 0xF1, 0x07, 0x01]);
-        if (data.indexOf(aesPattern) !== -1) {
+        if (data.indexOf(AES256_CODEC_ID) !== -1) {
           info.encrypted = true;
         }
         info.compression = 'compressed';
@@ -583,7 +832,8 @@ export function parse7zHeaderProperties(data: Buffer, startOffset: number, info:
           if (!propSize) break;
           offset += propSize.length;
 
-          const propEnd = offset + propSize.value;
+          // Clamp propEnd to buffer length (encrypted/truncated headers may extend past available data)
+          const propEnd = Math.min(offset + propSize.value, data.length);
 
           // kName (0x11) — file names in UTF-16LE
           if (filePropId === 0x11 && propSize.value > 1) {

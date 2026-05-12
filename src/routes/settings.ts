@@ -14,6 +14,7 @@
 import { Router } from 'express';
 import type { Config } from '../types.js';
 import { configData } from '../config/schema.js';
+import { getTvAllowMultiEpisode } from '../config/accessors.js';
 import { recalculateTTLExpirations, clearMultiEpisodeDeadEntries, clearTimeoutDeadEntries } from '../nzbdav/streamCache.js';
 
 interface SettingsDeps {
@@ -43,6 +44,8 @@ function buildConfigResponse(config: Config) {
       caps: i.caps,
       pagination: i.pagination,
       maxPages: i.maxPages,
+      timeoutEnabled: i.timeoutEnabled,
+      timeout: i.timeout,
       zyclops: i.zyclops,
     })),
     cacheEnabled: config.cacheEnabled,
@@ -51,10 +54,14 @@ function buildConfigResponse(config: Config) {
     indexManager: config.indexManager,
     prowlarrUrl: config.prowlarrUrl,
     prowlarrApiKey: config.prowlarrApiKey,
+    prowlarrTimeoutEnabled: config.prowlarrTimeoutEnabled,
+    prowlarrTimeout: config.prowlarrTimeout,
     nzbhydraUrl: config.nzbhydraUrl,
     nzbhydraApiKey: config.nzbhydraApiKey,
     nzbhydraUsername: config.nzbhydraUsername,
     nzbhydraPassword: config.nzbhydraPassword,
+    nzbhydraTimeoutEnabled: config.nzbhydraTimeoutEnabled,
+    nzbhydraTimeout: config.nzbhydraTimeout,
     nzbdavUrl: config.nzbdavUrl,
     nzbdavApiKey: config.nzbdavApiKey,
     nzbdavWebdavUrl: config.nzbdavWebdavUrl,
@@ -62,17 +69,9 @@ function buildConfigResponse(config: Config) {
     nzbdavWebdavPassword: config.nzbdavWebdavPassword,
     nzbdavMoviesCategory: config.nzbdavMoviesCategory,
     nzbdavTvCategory: config.nzbdavTvCategory,
-    nzbdavFallbackEnabled: config.nzbdavFallbackEnabled,
-    nzbdavLibraryCheckEnabled: configData.nzbdavLibraryCheckEnabled !== false,
-    nzbdavMaxFallbacks: config.nzbdavMaxFallbacks,
-    nzbdavJobTimeoutSeconds: config.nzbdavJobTimeoutSeconds,
-    nzbdavMoviesTimeoutSeconds: config.nzbdavMoviesTimeoutSeconds,
-    nzbdavTvTimeoutSeconds: config.nzbdavTvTimeoutSeconds,
-    nzbdavSeasonPackTimeoutSeconds: config.nzbdavSeasonPackTimeoutSeconds,
-    nzbdavFallbackOrder: config.nzbdavFallbackOrder,
-    autoResolveOnSearch: config.autoResolveOnSearch,
     nzbdavStreamBufferMB: config.nzbdavStreamBufferMB,
-    nzbdavProxyEnabled: config.nzbdavProxyEnabled,
+    nzbdavPipeBufferMB: config.nzbdavPipeBufferMB,
+    nzbdavStreamingMethod: config.nzbdavStreamingMethod,
     nzbdavCacheTimeouts: config.nzbdavCacheTimeouts,
     healthyNzbDbMode: config.healthyNzbDbMode,
     healthyNzbDbTTL: config.healthyNzbDbTTL,
@@ -85,6 +84,8 @@ function buildConfigResponse(config: Config) {
     easynewsPassword: config.easynewsPassword,
     easynewsPagination: config.easynewsPagination,
     easynewsMaxPages: config.easynewsMaxPages,
+    easynewsTimeoutEnabled: config.easynewsTimeoutEnabled,
+    easynewsTimeout: config.easynewsTimeout,
     easynewsMode: config.easynewsMode,
     easynewsHealthCheck: config.easynewsHealthCheck,
     proxyMode: config.proxyMode,
@@ -99,6 +100,7 @@ function buildConfigResponse(config: Config) {
     movieFilters: config.movieFilters,
     tvFilters: config.tvFilters,
     healthChecks: config.healthChecks,
+    ultimateFallback: config.ultimateFallback,
     autoPlay: config.autoPlay,
     streamDisplayConfig: config.streamDisplayConfig,
     syncedIndexers: config.syncedIndexers,
@@ -119,7 +121,7 @@ export function createSettingsRoutes(deps: SettingsDeps): Router {
   // Shared handler for PUT and POST /settings
   function handleSettingsUpdate(req: any, res: any) {
     try {
-      const wasMultiEpAllowed = config.searchConfig?.allowMultiEpisodeFiles !== false;
+      const wasMultiEpAllowed = getTvAllowMultiEpisode(config);
       const wasCacheTimeoutsEnabled = config.nzbdavCacheTimeouts !== false;
       updateSettings(req.body);
       // Recalculate NZB database expirations when TTL, mode, or storage limit changes
@@ -128,8 +130,8 @@ export function createSettingsRoutes(deps: SettingsDeps): Router {
           req.body.healthyNzbDbMaxSizeMB !== undefined || req.body.deadNzbDbMaxSizeMB !== undefined) {
         recalculateTTLExpirations();
       }
-      // Flush dead NZB entries blocked for multi-episode files when the setting is enabled
-      if (!wasMultiEpAllowed && req.body.searchConfig?.allowMultiEpisodeFiles === true) {
+      // Flush dead NZB entries blocked for multi-episode files when the effective TV value transitions false → true
+      if (!wasMultiEpAllowed && getTvAllowMultiEpisode(config)) {
         clearMultiEpisodeDeadEntries();
       }
       // Flush timed-out dead NZB entries when "Include Timed-Out NZBs" is disabled

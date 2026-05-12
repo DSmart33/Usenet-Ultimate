@@ -7,15 +7,36 @@
  */
 
 import axios from 'axios';
-import { UsenetIndexer, NZBSearchResult } from '../types.js';
+import { UsenetIndexer, NZBSearchResult, DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { config } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
 import { getAxiosProxyConfig, logProxyExitIp } from '../proxy.js';
 import { parseNewznabXmlWithMeta } from './newznabClient.js';
-import { stripDiacritics, isTextSearchMatch } from './titleMatching.js';
+import { stripDiacritics, isTextSearchMatch, tagSeasonPack, normalizeTitle, extractTitleFromRelease, runSeriesPackQueries, buildSeriesPackPaginationMaxPages, buildSeasonPackPaginationMaxPages, extractSeasonTokens } from './titleMatching.js';
+import { slog, withSubBuffer } from './searchLogger.js';
 
 export class UsenetSearcher {
+  public timedOut = false;
+
   constructor(private indexer: UsenetIndexer) {}
+
+  // Resolved timeout in ms, or undefined when timeouts are disabled.
+  private getTimeoutMs(): number | undefined {
+    if (this.indexer.timeoutEnabled === false) return undefined;
+    return (this.indexer.timeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS) * 1000;
+  }
+
+  // Effective timeout in seconds (for log lines); undefined when disabled.
+  private getTimeoutSeconds(): number | undefined {
+    if (this.indexer.timeoutEnabled === false) return undefined;
+    return this.indexer.timeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
+  }
+
+  // Formatted `[timeout=Ns]` or `[timeout=disabled]` label for inline log lines.
+  private timeoutLabel(): string {
+    const s = this.getTimeoutSeconds();
+    return `[timeout=${s === undefined ? 'disabled' : `${s}s`}]`;
+  }
 
   /**
    * Compute the effective URL and extra params for this indexer.
@@ -54,7 +75,7 @@ export class UsenetSearcher {
       extraParams.single_ip = 'false';
     }
 
-    console.log(`🤖 Zyclops routing ${this.indexer.name}: ${this.indexer.url} → ${zyclopsUrl}`, extraParams);
+    slog(`🤖 Zyclops routing ${this.indexer.name}: ${this.indexer.url} → ${zyclopsUrl} ${JSON.stringify(extraParams)}`);
 
     return { url: zyclopsUrl, extraParams, isZyclops: true };
   }
@@ -75,8 +96,8 @@ export class UsenetSearcher {
         params.cat = category;
       }
 
-      console.log(`🔍 Searching ${this.indexer.name}: ${effectiveUrl}${isZyclops ? ' (via Zyclops)' : ''}`);
-      console.log(`   Query: "${query}", Category: ${category || 'all'}`);
+      slog(`🔍 Searching ${this.indexer.name}: ${effectiveUrl}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
+      slog(`   Query: "${query}", Category: ${category || 'all'}`);
 
       const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
 
@@ -86,22 +107,22 @@ export class UsenetSearcher {
       }
       const response = await axios.get(effectiveUrl, {
         params,
-        timeout: isZyclops ? 30000 : 10000,
+        timeout: this.getTimeoutMs(),
         headers: { 'User-Agent': userAgent },
         ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
       });
 
-      console.log(`✅ Response received (${response.status}), parsing...`);
+      slog(`✅ Response received (${response.status}), parsing...`);
 
       const { results, total } = await parseNewznabXmlWithMeta(response.data);
-      console.log(`   📦 Found ${results.length} results${total ? ` (total: ${total})` : ''}`);
+      slog(`   📦 Found ${results.length} results${total ? ` (total: ${total})` : ''}`);
 
       // Tag results from Zyclops as pre-verified healthy
       if (isZyclops) {
         for (const result of results) {
           result.zyclopsVerified = true;
         }
-        console.log(`🤖 Tagged ${results.length} result(s) as Zyclops-verified for ${this.indexer.name}`);
+        slog(`🤖 Tagged ${results.length} result(s) as Zyclops-verified for ${this.indexer.name}`);
       }
 
       // Pagination: fetch additional pages if enabled and more results available
@@ -111,11 +132,11 @@ export class UsenetSearcher {
         let currentOffset = results.length;
 
         for (let page = 2; page <= maxExtraPages + 1 && currentOffset < total; page++) {
-          console.log(`   📄 Fetching page ${page} (offset ${currentOffset})...`);
+          slog(`   📄 Fetching page ${page} (offset ${currentOffset})...`);
           try {
             const pageResponse = await axios.get(effectiveUrl, {
               params: { ...params, offset: currentOffset },
-              timeout: isZyclops ? 30000 : 10000,
+              timeout: this.getTimeoutMs(),
               headers: { 'User-Agent': userAgent },
               ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
             });
@@ -132,9 +153,13 @@ export class UsenetSearcher {
 
             results.push(...pageData.results);
             currentOffset += pageData.results.length;
-            console.log(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
+            slog(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
           } catch (pageError: any) {
-            console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+            if (pageError.code === 'ECONNABORTED') {
+              this.timedOut = true;
+              slog(`⏱️  ${this.indexer.name} pagination page ${page} timed out after ${this.getTimeoutSeconds()}s`);
+            }
+            slog(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
             break;
           }
         }
@@ -142,12 +167,17 @@ export class UsenetSearcher {
 
       return results;
     } catch (error: any) {
-      console.error(`❌ Search error for ${this.indexer.name}:`);
-      if (error.response) {
-        console.error(`   Status: ${error.response.status}`);
-        console.error(`   Data:`, error.response.data?.substring?.(0, 200));
+      if (error.code === 'ECONNABORTED') {
+        this.timedOut = true;
+        slog(`⏱️  ${this.indexer.name} timed out after ${this.getTimeoutSeconds()}s`);
       } else {
-        console.error(`   ${error.message}`);
+        console.error(`❌ Search error for ${this.indexer.name}:`);
+        if (error.response) {
+          console.error(`   Status: ${error.response.status}`);
+          console.error(`   Data:`, error.response.data?.substring?.(0, 200));
+        } else {
+          console.error(`   ${error.message}`);
+        }
       }
       return [];
     }
@@ -160,35 +190,22 @@ export class UsenetSearcher {
 
       // Text-based search
       if (method === 'text') {
-        console.log(`🎬 Movie text search for: ${title} ${year || ''}`);
+        slog(`🔍 Movie text search for: ${title} ${year || ''}`);
         const query = stripDiacritics(year ? `${title} ${year}` : title);
         const results = await this.search(query, '2000'); // Category 2000 = Movies
         const before = results.length;
         const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
         if (before !== filtered.length) {
           const removed = results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-          console.log(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
-          removed.forEach(r => console.log(`      ✂️  ${r.title}`));
+          slog(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
+          removed.forEach(r => slog(`      ✂️  ${r.title}`));
         }
         return filtered;
       }
 
-      // If method requires an external ID that wasn't resolved, fall back to text search
       if (method !== 'imdb' && method !== 'text' && !externalId) {
-        console.warn(`⚠️  ${method} ID unavailable for ${this.indexer.name}, falling back to text search`);
-        if (!title) {
-          console.warn(`⚠️  No title available for text fallback — skipping`);
-          return [];
-        }
-        const query = stripDiacritics(year ? `${title} ${year}` : title);
-        const results = await this.search(query, '2000');
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-        console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
-        if (results.length !== filtered.length) {
-          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-            .forEach(r => console.log(`      ✂️  ${r.title}`));
-        }
-        return filtered;
+        slog(`⚠️  ${method} ID unavailable for ${this.indexer.name} — skipping`);
+        return [];
       }
 
       // ID-based search (IMDB, TMDB, TVDB)
@@ -203,11 +220,12 @@ export class UsenetSearcher {
 
       if (externalId) {
         params[externalId.idParam] = externalId.idValue;
-        console.log(`🎬 Movie search for ${externalId.idParam}: ${externalId.idValue}${isZyclops ? ' (via Zyclops)' : ''}`);
+        slog(`🔍 Movie search for ${externalId.idParam}: ${externalId.idValue}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
       } else {
         params.imdbid = imdbId.replace('tt', '');  // Remove 'tt' prefix
-        console.log(`🎬 Movie search for IMDB: ${imdbId}${isZyclops ? ' (via Zyclops)' : ''}`);
+        slog(`🔍 Movie search for IMDB: ${imdbId}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
       }
+      slog(`🔍 Searching ${this.indexer.name}: ${effectiveUrl}`);
 
       const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
 
@@ -217,22 +235,22 @@ export class UsenetSearcher {
       }
       const response = await axios.get(effectiveUrl, {
         params,
-        timeout: isZyclops ? 30000 : 10000,
+        timeout: this.getTimeoutMs(),
         headers: { 'User-Agent': userAgent },
         ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
       });
 
-      console.log(`✅ Response received (${response.status}), parsing...`);
+      slog(`✅ Response received (${response.status}), parsing...`);
 
       const { results, total } = await parseNewznabXmlWithMeta(response.data);
-      console.log(`   📦 Found ${results.length} results${total ? ` (total: ${total})` : ''}`);
+      slog(`   📦 Found ${results.length} results${total ? ` (total: ${total})` : ''}`);
 
       // Tag results from Zyclops as pre-verified healthy
       if (isZyclops) {
         for (const result of results) {
           result.zyclopsVerified = true;
         }
-        console.log(`🤖 Tagged ${results.length} result(s) as Zyclops-verified for ${this.indexer.name}`);
+        slog(`🤖 Tagged ${results.length} result(s) as Zyclops-verified for ${this.indexer.name}`);
       }
 
       // Pagination: fetch additional pages if enabled and more results available
@@ -242,11 +260,11 @@ export class UsenetSearcher {
         let currentOffset = results.length;
 
         for (let page = 2; page <= maxExtraPages + 1 && currentOffset < total; page++) {
-          console.log(`   📄 Fetching page ${page} (offset ${currentOffset})...`);
+          slog(`   📄 Fetching page ${page} (offset ${currentOffset})...`);
           try {
             const pageResponse = await axios.get(effectiveUrl, {
               params: { ...params, offset: currentOffset },
-              timeout: isZyclops ? 30000 : 10000,
+              timeout: this.getTimeoutMs(),
               headers: { 'User-Agent': userAgent },
               ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
             });
@@ -262,9 +280,13 @@ export class UsenetSearcher {
 
             results.push(...pageData.results);
             currentOffset += pageData.results.length;
-            console.log(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
+            slog(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
           } catch (pageError: any) {
-            console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+            if (pageError.code === 'ECONNABORTED') {
+              this.timedOut = true;
+              slog(`⏱️  ${this.indexer.name} pagination page ${page} timed out after ${this.getTimeoutSeconds()}s`);
+            }
+            slog(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
             break;
           }
         }
@@ -272,11 +294,16 @@ export class UsenetSearcher {
 
       return results;
     } catch (error: any) {
-      console.error(`❌ Movie search error for ${this.indexer.name}:`);
-      if (error.response) {
-        console.error(`   Status: ${error.response.status}`);
+      if (error.code === 'ECONNABORTED') {
+        this.timedOut = true;
+        slog(`⏱️  ${this.indexer.name} timed out after ${this.getTimeoutSeconds()}s`);
       } else {
-        console.error(`   ${error.message}`);
+        console.error(`❌ Movie search error for ${this.indexer.name}:`);
+        if (error.response) {
+          console.error(`   Status: ${error.response.status}`);
+        } else {
+          console.error(`   ${error.message}`);
+        }
       }
       return [];
     }
@@ -294,6 +321,7 @@ export class UsenetSearcher {
     searchMethod?: string,
     additionalTitles?: string[],
     titleYear?: string,
+    options?: { numberingScheme?: 'seasonal' | 'absolute' | 'date'; absoluteEp?: number; airedDate?: string; includePacks?: boolean },
   ): Promise<NZBSearchResult[]> {
     try {
       const tvMethods = this.indexer.tvSearchMethod;
@@ -303,102 +331,165 @@ export class UsenetSearcher {
       if (method === 'text') {
         const s = season.toString().padStart(2, '0');
         const e = episode.toString().padStart(2, '0');
-        const query = stripDiacritics(`${title} S${s}E${e}`);
-        console.log(`📺 TV text search for: ${query}`);
-        const results = await this.search(query, '5000'); // Category 5000 = TV
-        const before = results.length;
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-        if (before !== filtered.length) {
-          const removed = results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-          console.log(`   🎯 Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
-          removed.forEach(r => console.log(`      ✂️  ${r.title}`));
-        }
+        const isAbsolute = options?.numberingScheme === 'absolute' && options.absoluteEp !== undefined;
+        // Date-numbered query: substitute YYYY.MM.DD for SxxExx. Used by the
+        // alias fallback when TVDB has an aired date and releases are dated
+        // rather than season/episode-numbered (e.g. daily talk shows).
+        const isDate = options?.numberingScheme === 'date' && typeof options.airedDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(options.airedDate);
+        const dateDotted = isDate ? options!.airedDate!.slice(0, 10).replace(/-/g, '.') : '';
+        const query = isAbsolute
+          ? stripDiacritics(`${title} E${options!.absoluteEp!.toString().padStart(2, '0')}`)
+          : isDate
+            ? stripDiacritics(`${title} ${dateDotted}`)
+            : stripDiacritics(`${title} S${s}E${e}`);
+        // On absolute-numbering retries, strip the bare E\d token before
+        // matching: extractTitleFromRelease only anchors on SxxExx, so a release
+        // like "Lady Of Law E23 1080p..." would extract as "Lady Of Law E23"
+        // and fail equality. The \b boundary leaves "S03E23" untouched.
+        // On date-numbered retries the same problem exists for embedded dates
+        // (`Show.2024.05.21` extracts as `Show 2024 05 21`), so strip
+        // `YYYY[.\s_-]MM[.\s_-]DD` runs from the candidate before matching.
+        const datePattern = /\b(?:19|20)\d{2}[.\s_-]?(?:0[1-9]|1[0-2])[.\s_-]?(?:0[1-9]|[12]\d|3[01])\b/g;
+        const matchTitle = isAbsolute
+          ? (s: string) => s.replace(/\bE\d{1,3}\b/i, ' ').replace(/\s+/g, ' ')
+          : isDate
+            ? (s: string) => s.replace(datePattern, ' ').replace(/\s+/g, ' ')
+            : (s: string) => s;
 
-        // Season pack search (only if enabled)
-        const includeSeasonPacks = config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks;
-        if (includeSeasonPacks) {
-          const spPaginationEnabled = config.searchConfig?.seasonPackPagination !== false;
-          const spAdditionalPages = config.searchConfig?.seasonPackAdditionalPages;
-          const seasonPackPagination = spPaginationEnabled && spAdditionalPages ? { enabled: true, maxPages: spAdditionalPages } : undefined;
-          const packQuery = stripDiacritics(`${title} S${s}`);
-          console.log(`📦 Season pack search for: ${packQuery}`);
-          const packResults = await this.search(packQuery, '5000', seasonPackPagination);
-          const packBefore = packResults.length;
-          // Must match title AND be a season pack (S## without E##)
-          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
-          const filteredPacks = packResults
-            .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-            .filter(r => seasonPackPattern.test(r.title));
-          if (packBefore !== filteredPacks.length) {
-            const removedPacks = packResults.filter(r =>
-              !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear) ||
-              !seasonPackPattern.test(r.title)
-            );
-            console.log(`   📦 Season pack filter: ${packBefore} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
-            removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
-          }
-          // Mark as season pack and estimate per-episode size
-          filteredPacks.forEach(r => {
-            r.isSeasonPack = true;
-            if (episodesInSeason) {
-              r.estimatedEpisodeSize = Math.round(r.size / episodesInSeason);
+        const wantPacks = options?.includePacks !== false;
+        const includeSeasonPacks = wantPacks && !isAbsolute && !isDate && (config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks);
+        const includeMultiSeasonPacks = wantPacks && !isAbsolute && !isDate && (config.searchConfig?.includeMultiSeasonPacks ?? true);
+
+        const tasks: Promise<NZBSearchResult[]>[] = [];
+
+        // Primary episode fetch + filter, run as a parallel task alongside
+        // pack queries. Wrapped in withSubBuffer so its filter logs render in
+        // a contiguous block even though pack-task logs are interleaved.
+        tasks.push(withSubBuffer(`TV text search [${this.indexer.name}] "${query}"`, async () => {
+          slog(`🔍 [${this.indexer.name}] TV text search for: ${query}`);
+          const results = await this.search(query, '5000'); // Category 5000 = TV
+          const before = results.length;
+          let filtered: NZBSearchResult[];
+          let removed: NZBSearchResult[];
+          if (isDate) {
+            // Date-numbered match runs in two passes so each rejection cause
+            // shows up in its own log block, matching the convention used by
+            // the title / remake / multi-episode / disabled-encodes filters.
+            //
+            // Pass 1: date filter. The indexer treats the date tokens as fuzzy
+            // keywords and returns releases dated any day that share the title
+            // (e.g. a query for `Stephen Colbert 2025.09.02` brings back hits
+            // dated 2025.09.16, 2025.12.09, etc). Re-verify the requested air
+            // date is present in the release title.
+            const [y, mo, d] = options!.airedDate!.slice(0, 10).split('-');
+            const requestedDate = new RegExp(`\\b${y}[.\\s_-]?${mo}[.\\s_-]?${d}\\b`);
+            const dateOk = (r: NZBSearchResult) => requestedDate.test(r.title);
+            const dateFiltered = results.filter(dateOk);
+            if (before !== dateFiltered.length) {
+              const wrongDate = results.filter(r => !dateOk(r));
+              slog(`   🎯 [${this.indexer.name}] Date filter: ${before} → ${dateFiltered.length} (removed ${wrongDate.length} wrong date${wrongDate.length === 1 ? '' : 's'})`);
+              wrongDate.forEach(r => slog(`      ✂️  ${r.title}`));
             }
-          });
-          if (filteredPacks.length > 0) {
-            console.log(`   📦 Found ${filteredPacks.length} season packs${episodesInSeason ? ` (${episodesInSeason} eps/season, est. size per ep)` : ' (full pack size, episode count unknown)'}`);
+
+            // Pass 2: title filter. Daily/talk-show releases append the guest
+            // name after the air date, so the extracted title for
+            // `Show.<date>.Guest...` is `Show Guest` rather than `Show`.
+            // Standard exact-title equality fails; require the alias to be a
+            // prefix of the extracted release title instead.
+            const normExpected = normalizeTitle(title);
+            const titleOk = (r: NZBSearchResult): boolean => {
+              const cleaned = matchTitle(r.title);
+              const extractedNorm = normalizeTitle(extractTitleFromRelease(cleaned));
+              return normExpected.length > 0 && extractedNorm.startsWith(normExpected);
+            };
+            filtered = dateFiltered.filter(titleOk);
+            removed = dateFiltered.filter(r => !titleOk(r));
+            if (dateFiltered.length !== filtered.length) {
+              slog(`   🎯 [${this.indexer.name}] Title filter: ${dateFiltered.length} → ${filtered.length} (removed ${removed.length} mismatches)`);
+              removed.forEach(r => slog(`      ✂️  ${r.title}`));
+            }
+          } else {
+            // On absolute-numbering retries, also reject results whose title carries
+            // an Sxx token that doesn't match the requested season. Catches
+            // non-absolute shows whose absolute query accidentally surfaced
+            // wrong-season episodes. Releases without any Sxx token (anime
+            // "Show E150" form) still pass.
+            const seasonOk = (resultTitle: string): boolean => {
+              if (!isAbsolute) return true;
+              const seasonTokens = extractSeasonTokens(resultTitle);
+              return seasonTokens.length === 0 || seasonTokens.includes(season);
+            };
+            const matches = (r: NZBSearchResult) =>
+              isTextSearchMatch(title, matchTitle(r.title), year, country, additionalTitles, titleYear)
+              && seasonOk(r.title);
+            filtered = results.filter(matches);
+            removed = results.filter(r => !matches(r));
+            if (before !== filtered.length) {
+              slog(`   🎯 [${this.indexer.name}] Title filter: ${before} → ${filtered.length} (removed ${removed.length} mismatches)`);
+              removed.forEach(r => slog(`      ✂️  ${r.title}`));
+            }
           }
-          filtered.push(...filteredPacks);
+          return filtered;
+        }));
+
+        if (includeSeasonPacks) {
+          const seasonPackPagination = buildSeasonPackPaginationMaxPages(config.searchConfig);
+          const packQuery = stripDiacritics(`${title} S${s}`);
+          tasks.push(withSubBuffer(`Season pack [${this.indexer.name}]: ${packQuery}`, async () => {
+            slog(`🔍 [${this.indexer.name}] Season pack search for: ${packQuery}`);
+            const packResults = await this.search(packQuery, '5000', seasonPackPagination);
+            const packBefore = packResults.length;
+            const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+            const filteredPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
+            if (packBefore !== filteredPacks.length) {
+              const keptLinks = new Set(filteredPacks.map(p => p.link));
+              const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
+              slog(`   📦 [${this.indexer.name}] Season pack filter: ${packBefore} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
+              removedPacks.forEach(r => slog(`      ✂️  ${r.title}`));
+            }
+            if (filteredPacks.length > 0) {
+              slog(`   📦 [${this.indexer.name}] Found ${filteredPacks.length} season packs${episodesInSeason ? ` (${episodesInSeason} eps/season, est. size per ep)` : ' (full pack size, episode count unknown)'}`);
+            }
+            return filteredPacks;
+          }));
         }
 
-        return filtered;
+        if (season > 1 && includeMultiSeasonPacks) {
+          const fanoutPagination = buildSeriesPackPaginationMaxPages(config.searchConfig);
+          const fanoutQuery = stripDiacritics(`${title} S01`);
+          tasks.push(withSubBuffer(`Multi-season fanout [${this.indexer.name}]: ${fanoutQuery}`, async () => {
+            slog(`🔍 [${this.indexer.name}] Multi-season fanout query: ${fanoutQuery}`);
+            const fanoutResults = await this.search(fanoutQuery, '5000', fanoutPagination);
+            const fanoutMatched = fanoutResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+            const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
+            if (fanoutResults.length !== fanoutPacks.length) {
+              slog(`   📦 [${this.indexer.name}] Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
+            }
+            if (fanoutPacks.length > 0) {
+              slog(`   📦 [${this.indexer.name}] Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
+            }
+            return fanoutPacks;
+          }));
+        }
+
+        if (includeMultiSeasonPacks) {
+          const seriesPagination = buildSeriesPackPaginationMaxPages(config.searchConfig);
+          tasks.push(withSubBuffer(`Series-pack keyword queries [${this.indexer.name}]`, () => runSeriesPackQueries({
+            searchFn: (q) => this.search(q, '5000', seriesPagination),
+            title, season, episodesInSeason,
+            isTitleMatch: (rt) => isTextSearchMatch(title, rt, year, country, additionalTitles, titleYear),
+            searchConfig: config.searchConfig,
+            logPrefix: this.indexer.name,
+          })));
+        }
+
+        const allArrays = await Promise.all(tasks);
+        return allArrays.flat();
       }
 
-      // If method requires an external ID that wasn't resolved, fall back to text search
       if (method !== 'imdb' && method !== 'text' && !externalId) {
-        console.warn(`⚠️  ${method} ID unavailable for ${this.indexer.name}, falling back to text search`);
-        if (!title) {
-          console.warn(`⚠️  No title available for text fallback — skipping`);
-          return [];
-        }
-        const s2 = season.toString().padStart(2, '0');
-        const e2 = episode.toString().padStart(2, '0');
-        const query = stripDiacritics(`${title} S${s2}E${e2}`);
-        const results = await this.search(query, '5000');
-        const filtered = results.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
-        console.log(`   🎯 Text fallback filter: ${results.length} → ${filtered.length}`);
-        if (results.length !== filtered.length) {
-          results.filter(r => !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-            .forEach(r => console.log(`      ✂️  ${r.title}`));
-        }
-
-        const includeSeasonPacks = config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks;
-        if (includeSeasonPacks && episodesInSeason) {
-          const spPaginationEnabled2 = config.searchConfig?.seasonPackPagination !== false;
-          const spAdditionalPages2 = config.searchConfig?.seasonPackAdditionalPages;
-          const seasonPackPagination2 = spPaginationEnabled2 && spAdditionalPages2 ? { enabled: true, maxPages: spAdditionalPages2 } : undefined;
-          const packQuery = stripDiacritics(`${title} S${s2}`);
-          const packResults = await this.search(packQuery, '5000', seasonPackPagination2);
-          const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
-          const filteredPacks = packResults
-            .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-            .filter(r => seasonPackPattern.test(r.title));
-          if (packResults.length !== filteredPacks.length) {
-            const removedPacks = packResults.filter(r =>
-              !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear) ||
-              !seasonPackPattern.test(r.title)
-            );
-            console.log(`   📦 Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
-            removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
-          }
-          filteredPacks.forEach(r => {
-            r.isSeasonPack = true;
-            if (episodesInSeason) r.estimatedEpisodeSize = Math.round(r.size / episodesInSeason);
-          });
-          if (filteredPacks.length > 0) console.log(`   📦 Found ${filteredPacks.length} season packs (text fallback)`);
-          filtered.push(...filteredPacks);
-        }
-
-        return filtered;
+        slog(`⚠️  ${method} ID unavailable for ${this.indexer.name} — skipping`);
+        return [];
       }
 
       // ID-based search (IMDB, TVDB, TVmaze)
@@ -415,11 +506,12 @@ export class UsenetSearcher {
 
       if (externalId) {
         params[externalId.idParam] = externalId.idValue;
-        console.log(`📺 TV search for ${externalId.idParam}: ${externalId.idValue} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops)' : ''}`);
+        slog(`🔍 TV search for ${externalId.idParam}: ${externalId.idValue} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
       } else {
         params.imdbid = imdbId.replace('tt', '');  // Remove 'tt' prefix
-        console.log(`📺 TV search for IMDB: ${imdbId} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops)' : ''}`);
+        slog(`🔍 TV search for IMDB: ${imdbId} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
       }
+      slog(`🔍 Searching ${this.indexer.name}: ${effectiveUrl}`);
 
       const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
 
@@ -427,24 +519,43 @@ export class UsenetSearcher {
       if (!isZyclops) {
         await logProxyExitIp(this.indexer.url, 'tv-search');
       }
-      const response = await axios.get(effectiveUrl, {
-        params,
-        timeout: isZyclops ? 30000 : 10000,
-        headers: { 'User-Agent': userAgent },
-        ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
-      });
 
-      console.log(`✅ Response received (${response.status}), parsing...`);
+      // Absorb timeout on the main request so the outer flow still reaches the
+      // season-pack block below. A season-pack query is semantically a different
+      // search (`S01` vs `S01E01`), not a retry — it deserves its own attempt
+      // even when the episode search timed out.
+      let results: NZBSearchResult[] = [];
+      let total: number | undefined;
+      try {
+        const response = await axios.get(effectiveUrl, {
+          params,
+          timeout: this.getTimeoutMs(),
+          headers: { 'User-Agent': userAgent },
+          ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
+        });
 
-      const { results, total } = await parseNewznabXmlWithMeta(response.data);
-      console.log(`   📦 Found ${results.length} results${total ? ` (total: ${total})` : ''}`);
+        slog(`✅ Response received (${response.status}), parsing...`);
 
-      // Tag results from Zyclops as pre-verified healthy
-      if (isZyclops) {
-        for (const result of results) {
-          result.zyclopsVerified = true;
+        const parsed = await parseNewznabXmlWithMeta(response.data);
+        results = parsed.results;
+        total = parsed.total;
+        slog(`   📦 Found ${results.length} results${total ? ` (total: ${total})` : ''}`);
+
+        // Tag results from Zyclops as pre-verified healthy
+        if (isZyclops) {
+          for (const result of results) {
+            result.zyclopsVerified = true;
+          }
+          slog(`🤖 Tagged ${results.length} result(s) as Zyclops-verified for ${this.indexer.name}`);
         }
-        console.log(`🤖 Tagged ${results.length} result(s) as Zyclops-verified for ${this.indexer.name}`);
+      } catch (error: any) {
+        if (error.code === 'ECONNABORTED') {
+          this.timedOut = true;
+          slog(`⏱️  ${this.indexer.name} timed out after ${this.getTimeoutSeconds()}s`);
+          // results stays []; outer flow continues to pagination + season-pack
+        } else {
+          throw error; // bubble non-timeout errors to the outer catch
+        }
       }
 
       // Pagination: fetch additional pages if enabled and more results available
@@ -454,11 +565,11 @@ export class UsenetSearcher {
         let currentOffset = results.length;
 
         for (let page = 2; page <= maxExtraPages + 1 && currentOffset < total; page++) {
-          console.log(`   📄 Fetching page ${page} (offset ${currentOffset})...`);
+          slog(`   📄 Fetching page ${page} (offset ${currentOffset})...`);
           try {
             const pageResponse = await axios.get(effectiveUrl, {
               params: { ...params, offset: currentOffset },
-              timeout: isZyclops ? 30000 : 10000,
+              timeout: this.getTimeoutMs(),
               headers: { 'User-Agent': userAgent },
               ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
             });
@@ -474,53 +585,159 @@ export class UsenetSearcher {
 
             results.push(...pageData.results);
             currentOffset += pageData.results.length;
-            console.log(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
+            slog(`   📄 Page ${page}: +${pageData.results.length} (total so far: ${results.length})`);
           } catch (pageError: any) {
-            console.warn(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
+            if (pageError.code === 'ECONNABORTED') {
+              this.timedOut = true;
+              slog(`⏱️  ${this.indexer.name} pagination page ${page} timed out after ${this.getTimeoutSeconds()}s`);
+            }
+            slog(`   ⚠️  Pagination page ${page} failed: ${pageError.message}`);
             break;
           }
         }
       }
 
-      // Season pack search for ID-based TV searches (text search handles this inline above)
-      const includeSeasonPacks = config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks;
+      const packTasks: Promise<NZBSearchResult[]>[] = [];
+      const wantPacks = options?.includePacks !== false;
+
+      const includeSeasonPacks = wantPacks && (config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks);
       if (includeSeasonPacks && episodesInSeason && title) {
-        const spPaginationEnabled3 = config.searchConfig?.seasonPackPagination !== false;
-        const spAdditionalPages3 = config.searchConfig?.seasonPackAdditionalPages;
-        const seasonPackPagination3 = spPaginationEnabled3 && spAdditionalPages3 ? { enabled: true, maxPages: spAdditionalPages3 } : undefined;
+        const seasonPackPagination = buildSeasonPackPaginationMaxPages(config.searchConfig);
         const sp = season.toString().padStart(2, '0');
         const packQuery = stripDiacritics(`${title} S${sp}`);
-        console.log(`📦 Season pack search for: ${packQuery}`);
-        const packResults = await this.search(packQuery, '5000', seasonPackPagination3);
-        const seasonPackPattern = new RegExp(`\\bS0?${season}\\b(?![._\\s-]?E\\d)`, 'i');
-        const filteredPacks = packResults
-          .filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear))
-          .filter(r => seasonPackPattern.test(r.title));
-        if (packResults.length !== filteredPacks.length) {
-          const removedPacks = packResults.filter(r =>
-            !isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear) ||
-            !seasonPackPattern.test(r.title)
-          );
-          console.log(`   📦 Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
-          removedPacks.forEach(r => console.log(`      ✂️  ${r.title}`));
-        }
-        filteredPacks.forEach(r => {
-          r.isSeasonPack = true;
-          if (episodesInSeason) r.estimatedEpisodeSize = Math.round(r.size / episodesInSeason);
-        });
-        if (filteredPacks.length > 0) console.log(`   📦 Found ${filteredPacks.length} season packs`);
-        results.push(...filteredPacks);
+        slog(`🔍 [${this.indexer.name}] Season pack search for: ${packQuery}`);
+        packTasks.push((async () => {
+          const packResults = await this.search(packQuery, '5000', seasonPackPagination);
+          const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          const filteredPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
+          if (packResults.length !== filteredPacks.length) {
+            const keptLinks = new Set(filteredPacks.map(p => p.link));
+            const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
+            slog(`   📦 [${this.indexer.name}] Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
+            removedPacks.forEach(r => slog(`      ✂️  ${r.title}`));
+          }
+          if (filteredPacks.length > 0) slog(`   📦 [${this.indexer.name}] Found ${filteredPacks.length} season packs`);
+          return filteredPacks;
+        })());
       }
+
+      const includeMultiSeasonPacks = wantPacks && (config.searchConfig?.includeMultiSeasonPacks ?? true);
+      if (season > 1 && includeMultiSeasonPacks && title) {
+        const fanoutPagination = buildSeriesPackPaginationMaxPages(config.searchConfig);
+        const fanoutQuery = stripDiacritics(`${title} S01`);
+        slog(`🔍 [${this.indexer.name}] Multi-season fanout query: ${fanoutQuery}`);
+        packTasks.push((async () => {
+          const fanoutResults = await this.search(fanoutQuery, '5000', fanoutPagination);
+          const fanoutMatched = fanoutResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+          const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
+          if (fanoutResults.length !== fanoutPacks.length) {
+            slog(`   📦 [${this.indexer.name}] Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
+          }
+          if (fanoutPacks.length > 0) slog(`   📦 [${this.indexer.name}] Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
+          return fanoutPacks;
+        })());
+      }
+
+      if (wantPacks && title && episodesInSeason) {
+        packTasks.push(runSeriesPackQueries({
+          searchFn: (q) => this.search(q, '5000', buildSeriesPackPaginationMaxPages(config.searchConfig)),
+          title, season, episodesInSeason,
+          isTitleMatch: (rt) => isTextSearchMatch(title, rt, year, country, additionalTitles, titleYear),
+          searchConfig: config.searchConfig,
+          logPrefix: this.indexer.name,
+        }));
+      }
+
+      const packResultsArrays = await Promise.all(packTasks);
+      for (const arr of packResultsArrays) results.push(...arr);
 
       return results;
     } catch (error: any) {
-      console.error(`❌ TV search error for ${this.indexer.name}:`);
-      if (error.response) {
-        console.error(`   Status: ${error.response.status}`);
+      if (error.code === 'ECONNABORTED') {
+        this.timedOut = true;
+        slog(`⏱️  ${this.indexer.name} timed out after ${this.getTimeoutSeconds()}s`);
       } else {
-        console.error(`   ${error.message}`);
+        console.error(`❌ TV search error for ${this.indexer.name}:`);
+        if (error.response) {
+          console.error(`   Status: ${error.response.status}`);
+        } else {
+          console.error(`   ${error.message}`);
+        }
       }
       return [];
     }
+  }
+
+  /**
+   * Standalone pack-query runner (season pack + multi-season fanout +
+   * series-pack keyword queries). Used by callers that want pack queries to
+   * fire concurrently with episode-method searches rather than inline. Returns
+   * the union of all matching packs across the three pack-query types.
+   */
+  async searchTVShowPacks(
+    title: string,
+    season: number,
+    episodesInSeason: number | undefined,
+    year: string | undefined,
+    country: string | undefined,
+    additionalTitles: string[] | undefined,
+    titleYear: string | undefined,
+    options?: { numberingScheme?: 'seasonal' | 'absolute' | 'date' },
+  ): Promise<NZBSearchResult[]> {
+    if (!title) return [];
+    const isAbsolute = options?.numberingScheme === 'absolute';
+    const isDate = options?.numberingScheme === 'date';
+    if (isAbsolute || isDate) return [];
+
+    const s = season.toString().padStart(2, '0');
+    const packTasks: Promise<NZBSearchResult[]>[] = [];
+
+    const includeSeasonPacks = config.searchConfig?.includeSeasonPacks ?? config.includeSeasonPacks;
+    if (includeSeasonPacks && episodesInSeason) {
+      const seasonPackPagination = buildSeasonPackPaginationMaxPages(config.searchConfig);
+      const packQuery = stripDiacritics(`${title} S${s}`);
+      packTasks.push(withSubBuffer(`Season pack: ${packQuery}`, async () => {
+        const packResults = await this.search(packQuery, '5000', seasonPackPagination);
+        const titleMatched = packResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+        const filteredPacks = tagSeasonPack(titleMatched, season, episodesInSeason);
+        if (packResults.length !== filteredPacks.length) {
+          const keptLinks = new Set(filteredPacks.map(p => p.link));
+          const removedPacks = packResults.filter(r => !keptLinks.has(r.link));
+          slog(`   📦 [${this.indexer.name}] Season pack filter: ${packResults.length} → ${filteredPacks.length} (removed ${removedPacks.length} mismatches)`);
+          removedPacks.forEach(r => slog(`      ✂️  ${r.title}`));
+        }
+        if (filteredPacks.length > 0) slog(`   📦 [${this.indexer.name}] Found ${filteredPacks.length} season packs`);
+        return filteredPacks;
+      }));
+    }
+
+    const includeMultiSeasonPacks = config.searchConfig?.includeMultiSeasonPacks ?? true;
+    if (season > 1 && includeMultiSeasonPacks) {
+      const fanoutPagination = buildSeriesPackPaginationMaxPages(config.searchConfig);
+      const fanoutQuery = stripDiacritics(`${title} S01`);
+      packTasks.push(withSubBuffer(`Multi-season fanout: ${fanoutQuery}`, async () => {
+        const fanoutResults = await this.search(fanoutQuery, '5000', fanoutPagination);
+        const fanoutMatched = fanoutResults.filter(r => isTextSearchMatch(title, r.title, year, country, additionalTitles, titleYear));
+        const fanoutPacks = tagSeasonPack(fanoutMatched, season, episodesInSeason);
+        if (fanoutResults.length !== fanoutPacks.length) {
+          slog(`   📦 [${this.indexer.name}] Multi-season fanout filter: ${fanoutResults.length} → ${fanoutPacks.length}`);
+        }
+        if (fanoutPacks.length > 0) slog(`   📦 [${this.indexer.name}] Found ${fanoutPacks.length} multi-season pack(s) covering S${season}`);
+        return fanoutPacks;
+      }));
+    }
+
+    if (episodesInSeason && includeMultiSeasonPacks) {
+      packTasks.push(withSubBuffer(`Series-pack keyword queries`, () => runSeriesPackQueries({
+        searchFn: (q) => this.search(q, '5000', buildSeriesPackPaginationMaxPages(config.searchConfig)),
+        title, season, episodesInSeason,
+        isTitleMatch: (rt) => isTextSearchMatch(title, rt, year, country, additionalTitles, titleYear),
+        searchConfig: config.searchConfig,
+        logPrefix: this.indexer.name,
+      })));
+    }
+
+    const arrays = await Promise.all(packTasks);
+    return arrays.flat();
   }
 }

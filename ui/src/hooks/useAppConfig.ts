@@ -24,6 +24,8 @@ import {
   DEFAULT_HEALTH_CHECKS,
   DEFAULT_FILTERS,
   DEFAULT_CARD_ORDER,
+  DEFAULT_ULTIMATE_FALLBACK,
+  DEFAULT_INDEXER_TIMEOUT_SECONDS,
 } from '../constants';
 import { normalizeLineGroups } from '../utils/streamPreview';
 import { formatTTL, decomposeTTL, composeTTL } from '../utils/ttl';
@@ -38,18 +40,50 @@ import type { ApiFetch } from '../types';
 
 const DEFAULT_CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
+// Push a history sentinel on each closed→open transition of a PWA layer.
+// The popstate handler in App.tsx consumes one sentinel per back press,
+// cascade-closing one layer at a time. No-op outside standalone PWA mode.
+function pushPwaSentinel(): void {
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    || (navigator as any).standalone === true;
+  if (isStandalone) window.history.pushState({ pwa: true }, '');
+}
+
+// Wrap a useState setter so it fires pushPwaSentinel() exactly when the next
+// value transitions from "closed" to "open" per the supplied predicate.
+// Stable identity; consumers don't churn re-renders.
+function useSentinelSetter<T>(
+  state: T,
+  rawSet: React.Dispatch<React.SetStateAction<T>>,
+  isOpen: (v: T) => boolean,
+): React.Dispatch<React.SetStateAction<T>> {
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const isOpenRef = useRef(isOpen);
+  isOpenRef.current = isOpen;
+  return useCallback((value) => {
+    const next = typeof value === 'function'
+      ? (value as (prev: T) => T)(stateRef.current)
+      : value;
+    if (isOpenRef.current(next) && !isOpenRef.current(stateRef.current)) {
+      pushPwaSentinel();
+    }
+    rawSet(next);
+  }, [rawSet]);
+}
+
 const DEFAULT_NEW_INDEXER: NewIndexerForm = {
   name: '', url: '', apiKey: '', website: '', logo: '',
   movieSearchMethod: ['text'], tvSearchMethod: ['text'],
   animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'],
-  caps: null, pagination: false, maxPages: 3,
+  caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: DEFAULT_INDEXER_TIMEOUT_SECONDS,
 };
 
 const DEFAULT_EDIT_FORM: EditIndexerForm = {
   name: '', url: '', apiKey: '', enabled: true, website: '', logo: '',
   movieSearchMethod: ['text'], tvSearchMethod: ['text'],
   animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'],
-  caps: null, pagination: false, maxPages: 3,
+  caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: DEFAULT_INDEXER_TIMEOUT_SECONDS,
 };
 
 export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
@@ -70,6 +104,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [testResults, setTestResults] = useState<Record<string, { loading: boolean; success?: boolean; message?: string; results?: number; titles?: string[] }>>({});
   const [testQuery, setTestQuery] = useState<Record<string, string>>({});
   const [deleteConfirmation, setDeleteConfirmation] = useState<{ show: boolean; indexerName: string }>({ show: false, indexerName: '' });
+  const [directModeWarning, setDirectModeWarning] = useState<{ show: boolean }>({ show: false });
+  const [libraryDeleteWarning, setLibraryDeleteWarning] = useState<{ show: boolean; toggleType: 'all' | 'perStream' | null }>({ show: false, toggleType: null });
   const [activeOverlay, setActiveOverlay] = useState<OverlayType>(null);
   const [failedLogos, setFailedLogos] = useState<Set<string>>(new Set());
   const [showApiKey, setShowApiKey] = useState<{ new: boolean; edit: boolean }>({ new: false, edit: false });
@@ -93,12 +129,30 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [tmdbApiKey, setTmdbApiKey] = useState('');
   const [tvdbApiKey, setTvdbApiKey] = useState('');
   const [includeSeasonPacks, setIncludeSeasonPacks] = useState(true);
+  const [includeMultiSeasonPacks, setIncludeMultiSeasonPacks] = useState(true);
   const [seasonPackPagination, setSeasonPackPagination] = useState(true);
   const [seasonPackAdditionalPages, setSeasonPackAdditionalPages] = useState(1);
+  const [seriesPackKeywords, setSeriesPackKeywords] = useState<string[]>([]);
+  const [seriesPackPagination, setSeriesPackPagination] = useState(true);
+  const [seriesPackAdditionalPages, setSeriesPackAdditionalPages] = useState(1);
   const [indexerPriorityDedup, setIndexerPriorityDedup] = useState(false);
-  const [enableRemakeFiltering, setEnableRemakeFiltering] = useState(true);
-  const [allowMultiEpisodeFiles, setAllowMultiEpisodeFiles] = useState(true);
   const [urlDedup, setUrlDedup] = useState(true);
+  const [junkFilter, setJunkFilter] = useState(true);
+  const [librarySearchThreshold, setLibrarySearchThreshold] = useState(0);
+  const [libraryApplyToMovies, setLibraryApplyToMovies] = useState(true);
+  const [libraryApplyToSeries, setLibraryApplyToSeries] = useState(true);
+  const [librarySearchScanUncategorized, setLibrarySearchScanUncategorized] = useState(true);
+  const [libraryRunOnCacheHit, setLibraryRunOnCacheHit] = useState(false);
+  const [cacheEmptyResults, setCacheEmptyResults] = useState(true);
+  const [displayLibraryInResults, setDisplayLibraryInResults] = useState(true);
+  const [libraryDeleteAllTile, setLibraryDeleteAllTile] = useState(false);
+  const [libraryDeletePerStreamTile, setLibraryDeletePerStreamTile] = useState(false);
+  const [librarySkipTilePosition, setLibrarySkipTilePosition] = useState<'second' | 'last'>('second');
+  const [libraryDeleteAllPackScope, setLibraryDeleteAllPackScope] = useState<'episode' | 'pack'>('episode');
+  const [absoluteEpisodeFallback, setAbsoluteEpisodeFallback] = useState(true);
+  const [parallelAlternateTitleSearch, setParallelAlternateTitleSearch] = useState(false);
+  const [aliasTitleFallback, setAliasTitleFallback] = useState(true);
+  const [tvdbPreferEnglishTitle, setTvdbPreferEnglishTitle] = useState(true);
   const [indexerPriority, setIndexerPriority] = useState<string[]>([]);
   const [dedupDraggedItem, setDedupDraggedItem] = useState<string | null>(null);
   const [dedupDragOverItem, setDedupDragOverItem] = useState<string | null>(null);
@@ -114,12 +168,16 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // ─── Prowlarr / NZBHydra ───────────────────────────────────────────
   const [prowlarrUrl, setProwlarrUrl] = useState('http://localhost:9696');
   const [prowlarrApiKey, setProwlarrApiKey] = useState('');
+  const [prowlarrTimeoutEnabled, setProwlarrTimeoutEnabled] = useState(true);
+  const [prowlarrTimeout, setProwlarrTimeout] = useState(30);
   const [nzbhydraUrl, setNzbhydraUrl] = useState('http://localhost:5076');
   const [nzbhydraApiKey, setNzbhydraApiKey] = useState('');
   const [nzbhydraUsername, setNzbhydraUsername] = useState('');
   const [nzbhydraPassword, setNzbhydraPassword] = useState('');
+  const [nzbhydraTimeoutEnabled, setNzbhydraTimeoutEnabled] = useState(true);
+  const [nzbhydraTimeout, setNzbhydraTimeout] = useState(30);
 
-  // ─── NZBDav ─────────────────────────────────────────────────────────
+  // ─── NzbDAV ─────────────────────────────────────────────────────────
   const [nzbdavUrl, setNzbdavUrl] = useState('http://localhost:3000');
   const [nzbdavApiKey, setNzbdavApiKey] = useState('');
   const [nzbdavWebdavUrl, setNzbdavWebdavUrl] = useState('http://localhost:3000');
@@ -127,18 +185,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [nzbdavWebdavPassword, setNzbdavWebdavPassword] = useState('');
   const [nzbdavMoviesCategory, setNzbdavMoviesCategory] = useState('Usenet-Ultimate-Movies');
   const [nzbdavTvCategory, setNzbdavTvCategory] = useState('Usenet-Ultimate-TV');
-  const [nzbdavFallbackEnabled, setNzbdavFallbackEnabled] = useState(false);
-  const [nzbdavLibraryCheckEnabled, setNzbdavLibraryCheckEnabled] = useState(true);
-  const [nzbdavMaxFallbacks, setNzbdavMaxFallbacks] = useState(0);
-  const [nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds] = useState(30);
-  const [nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds] = useState(15);
-  const [nzbdavSeasonPackTimeoutSeconds, setNzbdavSeasonPackTimeoutSeconds] = useState(30);
-  const [nzbdavFallbackOrder, setNzbdavFallbackOrder] = useState<'selected' | 'top'>('top');
-  const [autoResolveOnSearch, setAutoResolveOnSearch] = useState(true);
   const [nzbdavCacheTimeouts, setNzbdavCacheTimeouts] = useState(true);
   const [filterDeadNzbs, setFilterDeadNzbs] = useState(true);
   const [nzbdavStreamBufferMB, setNzbdavStreamBufferMB] = useState(128);
-  const [nzbdavProxyEnabled, setNzbdavProxyEnabled] = useState(true);
+  const [nzbdavPipeBufferMB, setNzbdavPipeBufferMB] = useState(8);
+  const [nzbdavStreamingMethod, setNzbdavStreamingMethod] = useState<'pipe' | 'proxy' | 'direct'>('proxy');
   const [healthyNzbDbMode, setHealthyNzbDbMode] = useState<'time' | 'storage'>('time');
   const [healthyNzbDbTTL, setHealthyNzbDbTTL] = useState(259200);
   const [healthyNzbDbMaxSizeMB, setHealthyNzbDbMaxSizeMB] = useState(50);
@@ -155,6 +206,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [easynewsPassword, setEasynewsPassword] = useState('');
   const [easynewsPagination, setEasynewsPagination] = useState(false);
   const [easynewsMaxPages, setEasynewsMaxPages] = useState(3);
+  const [easynewsTimeoutEnabled, setEasynewsTimeoutEnabled] = useState(true);
+  const [easynewsTimeout, setEasynewsTimeout] = useState(30);
   const [easynewsMode, setEasynewsMode] = useState<'ddl' | 'nzb'>('nzb');
   const [easynewsHealthCheck, setEasynewsHealthCheck] = useState(true);
   const [showEasynewsPassword, setShowEasynewsPassword] = useState(false);
@@ -190,6 +243,9 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [statsSortBy, setStatsSortBy] = useState<'score' | 'successRate' | 'avgResponseTime' | 'avgResultsPerQuery' | 'totalGrabs'>('score');
   const [statsSortDir, setStatsSortDir] = useState<'asc' | 'desc'>('desc');
   const [statsExpandedIndexer, setStatsExpandedIndexer] = useState<string | null>(null);
+
+  // ─── Ultimate-Fallback ───────────────────────────────────────────────
+  const [ultimateFallback, setUltimateFallback] = useState({ ...DEFAULT_ULTIMATE_FALLBACK });
 
   // ─── Health Checks ──────────────────────────────────────────────────
   const [healthChecks, setHealthChecks] = useState<HealthChecksState>({ ...DEFAULT_HEALTH_CHECKS });
@@ -235,6 +291,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         if (response.ok) {
           const data = await response.json();
           setConfig(data);
+        } else {
+          // Server rejected the save (413 payload too large, 400 validation, 5xx).
+          // Log it; leave local React state alone so the user's in-flight edits
+          // aren't stomped and the next edit re-triggers the save naturally.
+          console.error(`Failed to auto-save settings (HTTP ${response.status} ${response.statusText})`);
         }
       } catch (error) {
         console.error('Failed to auto-save settings:', error);
@@ -282,7 +343,15 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     const timer = setTimeout(() => saveSettings({ healthChecks: { ...healthCheckSettings, providers: undefined } }), 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [healthChecks.enabled, healthChecks.archiveInspection, healthChecks.sampleCount, healthChecks.nzbsToInspect, healthChecks.inspectionMethod, healthChecks.smartBatchSize, healthChecks.smartAdditionalRuns, healthChecks.maxConnections, healthChecks.autoQueueMode, healthChecks.hideBlocked, healthChecks.libraryPreCheck, healthChecks.healthCheckIndexers, saveSettings]);
+  }, [healthChecks.enabled, healthChecks.archiveInspection, healthChecks.sampleCount, healthChecks.nzbsToInspect, healthChecks.inspectionMethod, healthChecks.smartBatchSize, healthChecks.smartAdditionalRuns, healthChecks.smartMinHealthy, healthChecks.maxConnections, healthChecks.autoQueueMode, healthChecks.hideBlocked, healthChecks.libraryPreCheck, healthChecks.healthCheckIndexers, saveSettings]);
+
+  // Auto-save: Ultimate-Fallback settings
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    const timer = setTimeout(() => saveSettings({ ultimateFallback }), 500);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ultimateFallback.enabled, ultimateFallback.healthCheckEnabled, ultimateFallback.whenToResolve, ultimateFallback.userPickFallback, ultimateFallback.candidateCount, ultimateFallback.preferenceMode, ultimateFallback.archiveInspection, ultimateFallback.sampleCount, ultimateFallback.maxAttempts, ultimateFallback.desiredBackups, ultimateFallback.backupProcessingLimit, ultimateFallback.priorityMoviesTimeoutSeconds, ultimateFallback.priorityTvTimeoutSeconds, ultimateFallback.prioritySeasonPackTimeoutSeconds, ultimateFallback.speedMoviesTimeoutSeconds, ultimateFallback.speedTvTimeoutSeconds, ultimateFallback.speedSeasonPackTimeoutSeconds, ultimateFallback.healthCheckIndexers, saveSettings]);
 
   // Auto-save: addon enabled/disabled
   useEffect(() => {
@@ -295,20 +364,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   useEffect(() => {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(() => saveSettings({
-      streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB
+      streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, nzbdavPipeBufferMB, nzbdavStreamingMethod,
     }), 500);
     return () => clearTimeout(timer);
-  }, [streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, saveSettings]);
-
-  // Auto-save: NZB fallback settings
-  useEffect(() => {
-    if (!initialLoadDone.current) return;
-    const timer = setTimeout(() => saveSettings({
-      nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder,
-      nzbdavMaxFallbacks, nzbdavProxyEnabled, autoResolveOnSearch,
-    }), 500);
-    return () => clearTimeout(timer);
-  }, [nzbdavFallbackEnabled, nzbdavLibraryCheckEnabled, nzbdavMoviesTimeoutSeconds, nzbdavTvTimeoutSeconds, nzbdavSeasonPackTimeoutSeconds, nzbdavFallbackOrder, nzbdavMaxFallbacks, nzbdavProxyEnabled, autoResolveOnSearch, saveSettings]);
+  }, [streamingMode, nzbdavUrl, nzbdavApiKey, nzbdavWebdavUrl, nzbdavWebdavUser, nzbdavWebdavPassword, nzbdavMoviesCategory, nzbdavTvCategory, nzbdavStreamBufferMB, nzbdavPipeBufferMB, nzbdavStreamingMethod, saveSettings]);
 
   // Auto-save: NZB database settings
   useEffect(() => {
@@ -330,9 +389,9 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // Auto-save: easynews settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
-    const timer = setTimeout(() => saveSettings({ easynewsEnabled, easynewsUsername, easynewsPassword, easynewsPagination, easynewsMaxPages: easynewsPagination ? easynewsMaxPages : undefined, easynewsMode, easynewsHealthCheck }), 500);
+    const timer = setTimeout(() => saveSettings({ easynewsEnabled, easynewsUsername, easynewsPassword, easynewsPagination, easynewsMaxPages: easynewsPagination ? easynewsMaxPages : undefined, easynewsTimeoutEnabled, easynewsTimeout, easynewsMode, easynewsHealthCheck }), 500);
     return () => clearTimeout(timer);
-  }, [easynewsEnabled, easynewsUsername, easynewsPassword, easynewsPagination, easynewsMaxPages, easynewsMode, easynewsHealthCheck, saveSettings]);
+  }, [easynewsEnabled, easynewsUsername, easynewsPassword, easynewsPagination, easynewsMaxPages, easynewsTimeoutEnabled, easynewsTimeout, easynewsMode, easynewsHealthCheck, saveSettings]);
 
   // Auto-save: zyclops endpoint
   useEffect(() => {
@@ -349,17 +408,38 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         tmdbApiKey: tmdbApiKey || undefined,
         tvdbApiKey: tvdbApiKey || undefined,
         includeSeasonPacks,
+        includeMultiSeasonPacks,
         seasonPackPagination: includeSeasonPacks ? seasonPackPagination : undefined,
         seasonPackAdditionalPages: includeSeasonPacks && seasonPackPagination ? seasonPackAdditionalPages : undefined,
+        // Persist the array as-is when master is on, even if empty, so the user's
+        // intent to disable keyword queries (deselect every chip) survives reload.
+        // Drop the field entirely only when the master toggle is off.
+        seriesPackKeywords: includeMultiSeasonPacks ? seriesPackKeywords : undefined,
+        seriesPackPagination: includeMultiSeasonPacks ? seriesPackPagination : undefined,
+        seriesPackAdditionalPages: includeMultiSeasonPacks && seriesPackPagination ? seriesPackAdditionalPages : undefined,
         indexerPriorityDedup,
-        enableRemakeFiltering,
-        allowMultiEpisodeFiles,
         urlDedup,
+        junkFilter,
+        librarySearchThreshold,
+        libraryApplyToMovies,
+        libraryApplyToSeries,
+        librarySearchScanUncategorized,
+        libraryRunOnCacheHit,
+        displayLibraryInResults,
+        libraryDeleteAllTile,
+        libraryDeletePerStreamTile,
+        librarySkipTilePosition,
+        libraryDeleteAllPackScope,
+        absoluteEpisodeFallback,
+        parallelAlternateTitleSearch,
+        aliasTitleFallback,
+        tvdbPreferEnglishTitle,
+        cacheEmptyResults,
       },
       indexerPriority: indexerPriorityDedup ? indexerPriority : undefined,
     }), 300);
     return () => clearTimeout(timer);
-  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, indexerPriorityDedup, enableRemakeFiltering, allowMultiEpisodeFiles, urlDedup, indexerPriority, saveSettings]);
+  }, [tmdbApiKey, tvdbApiKey, includeSeasonPacks, includeMultiSeasonPacks, seasonPackPagination, seasonPackAdditionalPages, seriesPackKeywords, seriesPackPagination, seriesPackAdditionalPages, indexerPriorityDedup, urlDedup, junkFilter, librarySearchThreshold, libraryApplyToMovies, libraryApplyToSeries, librarySearchScanUncategorized, libraryRunOnCacheHit, displayLibraryInResults, libraryDeleteAllTile, libraryDeletePerStreamTile, librarySkipTilePosition, libraryDeleteAllPackScope, absoluteEpisodeFallback, parallelAlternateTitleSearch, aliasTitleFallback, tvdbPreferEnglishTitle, cacheEmptyResults, indexerPriority, saveSettings]);
 
   // Keep indexer priority list in sync when indexers or EasyNews change
   useEffect(() => {
@@ -412,16 +492,16 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // Auto-save: prowlarr settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
-    const timer = setTimeout(() => saveSettings({ indexManager, prowlarrUrl, prowlarrApiKey }), 500);
+    const timer = setTimeout(() => saveSettings({ indexManager, prowlarrUrl, prowlarrApiKey, prowlarrTimeoutEnabled, prowlarrTimeout }), 500);
     return () => clearTimeout(timer);
-  }, [indexManager, prowlarrUrl, prowlarrApiKey, saveSettings]);
+  }, [indexManager, prowlarrUrl, prowlarrApiKey, prowlarrTimeoutEnabled, prowlarrTimeout, saveSettings]);
 
   // Auto-save: nzbhydra settings
   useEffect(() => {
     if (!initialLoadDone.current) return;
-    const timer = setTimeout(() => saveSettings({ indexManager, nzbhydraUrl, nzbhydraApiKey, nzbhydraUsername, nzbhydraPassword }), 500);
+    const timer = setTimeout(() => saveSettings({ indexManager, nzbhydraUrl, nzbhydraApiKey, nzbhydraUsername, nzbhydraPassword, nzbhydraTimeoutEnabled, nzbhydraTimeout }), 500);
     return () => clearTimeout(timer);
-  }, [indexManager, nzbhydraUrl, nzbhydraApiKey, nzbhydraUsername, nzbhydraPassword, saveSettings]);
+  }, [indexManager, nzbhydraUrl, nzbhydraApiKey, nzbhydraUsername, nzbhydraPassword, nzbhydraTimeoutEnabled, nzbhydraTimeout, saveSettings]);
 
   // Auto-save: synced indexers (Prowlarr/NZBHydra per-indexer settings)
   useEffect(() => {
@@ -458,9 +538,9 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     }, 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editForm.name, editForm.url, editForm.apiKey, editForm.enabled, JSON.stringify(editForm.movieSearchMethod), JSON.stringify(editForm.tvSearchMethod), JSON.stringify(editForm.animeMovieSearchMethod), JSON.stringify(editForm.animeTvSearchMethod), editForm.caps, editForm.website, editForm.logo, editForm.pagination, editForm.maxPages, expandedIndexer]);
+  }, [editForm.name, editForm.url, editForm.apiKey, editForm.enabled, JSON.stringify(editForm.movieSearchMethod), JSON.stringify(editForm.tvSearchMethod), JSON.stringify(editForm.animeMovieSearchMethod), JSON.stringify(editForm.animeTvSearchMethod), editForm.caps, editForm.website, editForm.logo, editForm.pagination, editForm.maxPages, editForm.timeoutEnabled, editForm.timeout, expandedIndexer]);
 
-  // Reset NZBDav connection status when fields change after initial load
+  // Reset NzbDAV connection status when fields change after initial load
   useEffect(() => {
     if (!initialLoadDone.current) return;
     if (!nzbdavFieldsChanged.current) {
@@ -507,24 +587,46 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setTmdbApiKey(sc?.tmdbApiKey || '');
       setTvdbApiKey(sc?.tvdbApiKey || '');
       setIncludeSeasonPacks(sc?.includeSeasonPacks ?? data.includeSeasonPacks ?? true);
+      setIncludeMultiSeasonPacks(sc?.includeMultiSeasonPacks ?? true);
+      setSeriesPackKeywords(Array.isArray(sc?.seriesPackKeywords) ? sc.seriesPackKeywords : []);
+      setSeriesPackPagination(sc?.seriesPackPagination ?? true);
+      setSeriesPackAdditionalPages(sc?.seriesPackAdditionalPages ?? 1);
       setSeasonPackPagination(sc?.seasonPackPagination ?? true);
       setSeasonPackAdditionalPages(sc?.seasonPackAdditionalPages || 1);
       setIndexerPriorityDedup(sc?.indexerPriorityDedup ?? false);
-      setEnableRemakeFiltering(sc?.enableRemakeFiltering !== false);
-      setAllowMultiEpisodeFiles(sc?.allowMultiEpisodeFiles !== false);
       setUrlDedup(sc?.urlDedup !== false);
+      setJunkFilter(sc?.junkFilter !== false);
+      setLibrarySearchThreshold(Math.max(0, Math.min(10, sc?.librarySearchThreshold ?? 0)));
+      setLibraryApplyToMovies(sc?.libraryApplyToMovies !== false);
+      setLibraryApplyToSeries(sc?.libraryApplyToSeries !== false);
+      setLibrarySearchScanUncategorized(sc?.librarySearchScanUncategorized !== false);
+      setLibraryRunOnCacheHit(sc?.libraryRunOnCacheHit === true);
+      setDisplayLibraryInResults(sc?.displayLibraryInResults !== false);
+      setLibraryDeleteAllTile(sc?.libraryDeleteAllTile === true);
+      setLibraryDeletePerStreamTile(sc?.libraryDeletePerStreamTile === true);
+      setLibrarySkipTilePosition(sc?.librarySkipTilePosition === 'last' ? 'last' : 'second');
+      setLibraryDeleteAllPackScope(sc?.libraryDeleteAllPackScope === 'pack' ? 'pack' : 'episode');
+      setAbsoluteEpisodeFallback(sc?.absoluteEpisodeFallback !== false);
+      setParallelAlternateTitleSearch(sc?.parallelAlternateTitleSearch === true);
+      setAliasTitleFallback(sc?.aliasTitleFallback !== false);
+      setTvdbPreferEnglishTitle(sc?.tvdbPreferEnglishTitle !== false);
+      setCacheEmptyResults(sc?.cacheEmptyResults !== false);
       setIndexerPriority(data.indexerPriority || []);
       setEasynewsEnabled(data.easynewsEnabled || false);
       setEasynewsUsername(data.easynewsUsername || '');
       setEasynewsPassword(data.easynewsPassword || '');
       setEasynewsPagination(data.easynewsPagination || false);
       setEasynewsMaxPages(data.easynewsMaxPages || 3);
+      setEasynewsTimeoutEnabled(data.easynewsTimeoutEnabled !== false);
+      setEasynewsTimeout(data.easynewsTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS);
       setEasynewsMode(data.easynewsMode || 'nzb');
       setEasynewsHealthCheck(data.easynewsHealthCheck ?? true);
       setZyclopsEndpoint(data.zyclopsEndpoint || 'https://zyclops.elfhosted.com');
 
       // Ensure all cards are in cardOrder (backward compat)
       let order = data.cardOrder || [...DEFAULT_CARD_ORDER];
+      // Strip removed cards from saved orders so the dashboard doesn't render phantom slots
+      order = order.filter((c: string) => c !== 'fallback');
       if (!order.includes('userAgent')) {
         const cacheIndex = order.indexOf('cache');
         if (cacheIndex !== -1) {
@@ -584,17 +686,17 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
           order = [...order, 'zyclops'];
         }
       }
-      if (!order.includes('fallback')) {
-        const zyclopsIdx = order.indexOf('zyclops');
-        order = zyclopsIdx !== -1
-          ? [...order.slice(0, zyclopsIdx + 1), 'fallback', ...order.slice(zyclopsIdx + 1)]
-          : [...order, 'fallback'];
-      }
       if (!order.includes('nzbDatabase')) {
         const healthIdx = order.indexOf('healthChecks');
         order = healthIdx !== -1
           ? [...order.slice(0, healthIdx + 1), 'nzbDatabase', ...order.slice(healthIdx + 1)]
           : [...order, 'nzbDatabase'];
+      }
+      if (!order.includes('ultimateFallback')) {
+        const zyclopsIdx = order.indexOf('zyclops');
+        order = zyclopsIdx !== -1
+          ? [...order.slice(0, zyclopsIdx + 1), 'ultimateFallback', ...order.slice(zyclopsIdx + 1)]
+          : [...order, 'ultimateFallback'];
       }
       setCardOrder(order);
 
@@ -657,10 +759,10 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         maxStreamsPerResolution: undefined,
         maxStreamsPerQuality: undefined,
         resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'],
-        videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'],
-        encodePriority: ['av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'],
+        videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'DCP', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'],
+        encodePriority: ['vvc', 'av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'],
         visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'],
-        audioTagPriority: ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'],
+        audioTagPriority: ['Atmos (TrueHD)', 'DTS:X', 'Atmos (DD+)', 'TrueHD', 'DTS-HD MA', 'FLAC', 'DTS-HD', 'DD+', 'DTS-ES', 'DTS', 'AAC', 'DD', 'Opus', 'PCM', 'MP3', 'Unknown'],
         languagePriority: ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'],
         editionPriority: ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard']
       };
@@ -721,6 +823,23 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         filterConfig.enabledSorts.bitrate = false;
       }
 
+      // Ensure seScore / regexScore sort methods are available for existing configs.
+      // Append at end only if missing — never reposition, so the user's saved order
+      // is preserved across reloads. Both stay disabled by default; users opt in by
+      // checking them in the sort list.
+      if (filterConfig.sortOrder && !filterConfig.sortOrder.includes('seScore')) {
+        filterConfig.sortOrder = [...filterConfig.sortOrder, 'seScore'];
+      }
+      if (filterConfig.enabledSorts && filterConfig.enabledSorts.seScore === undefined) {
+        filterConfig.enabledSorts.seScore = false;
+      }
+      if (filterConfig.sortOrder && !filterConfig.sortOrder.includes('regexScore')) {
+        filterConfig.sortOrder = [...filterConfig.sortOrder, 'regexScore'];
+      }
+      if (filterConfig.enabledSorts && filterConfig.enabledSorts.regexScore === undefined) {
+        filterConfig.enabledSorts.regexScore = false;
+      }
+
       // Ensure sortDirections exists for existing configs
       if (!filterConfig.sortDirections) {
         filterConfig.sortDirections = {};
@@ -741,15 +860,24 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
         ...(data.healthChecks || {})
       });
 
+      setUltimateFallback({
+        ...DEFAULT_ULTIMATE_FALLBACK,
+        ...(data.ultimateFallback || {})
+      });
+
       // Load synced indexers from config
       setSyncedIndexers(data.syncedIndexers || []);
 
       setProwlarrUrl(data.prowlarrUrl || 'http://localhost:9696');
       setProwlarrApiKey(data.prowlarrApiKey || '');
+      setProwlarrTimeoutEnabled(data.prowlarrTimeoutEnabled !== false);
+      setProwlarrTimeout(data.prowlarrTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS);
       setNzbhydraUrl(data.nzbhydraUrl || 'http://localhost:5076');
       setNzbhydraApiKey(data.nzbhydraApiKey || '');
       setNzbhydraUsername(data.nzbhydraUsername || '');
       setNzbhydraPassword(data.nzbhydraPassword || '');
+      setNzbhydraTimeoutEnabled(data.nzbhydraTimeoutEnabled !== false);
+      setNzbhydraTimeout(data.nzbhydraTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS);
       setNzbdavUrl(data.nzbdavUrl || 'http://localhost:3000');
       setNzbdavApiKey(data.nzbdavApiKey || '');
       setNzbdavWebdavUrl(data.nzbdavWebdavUrl || 'http://localhost:3000');
@@ -757,20 +885,16 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setNzbdavWebdavPassword(data.nzbdavWebdavPassword || '');
       setNzbdavMoviesCategory(data.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies');
       setNzbdavTvCategory(data.nzbdavTvCategory || 'Usenet-Ultimate-TV');
-      setNzbdavFallbackEnabled(data.nzbdavFallbackEnabled === true);
-      setNzbdavLibraryCheckEnabled(data.nzbdavLibraryCheckEnabled !== false);
-      setNzbdavMaxFallbacks(data.nzbdavMaxFallbacks ?? 0);
-      // Legacy: nzbdavJobTimeoutSeconds is used as a fallback seed for per-type timeouts on old configs
-      const legacyTimeout = data.nzbdavJobTimeoutSeconds;
-      setNzbdavMoviesTimeoutSeconds(data.nzbdavMoviesTimeoutSeconds ?? legacyTimeout ?? 30);
-      setNzbdavTvTimeoutSeconds(data.nzbdavTvTimeoutSeconds ?? legacyTimeout ?? 15);
-      setNzbdavSeasonPackTimeoutSeconds(data.nzbdavSeasonPackTimeoutSeconds ?? legacyTimeout ?? 30);
-      setNzbdavFallbackOrder(data.nzbdavFallbackOrder || 'top');
-      setAutoResolveOnSearch(data.autoResolveOnSearch !== false);
       setNzbdavCacheTimeouts(data.nzbdavCacheTimeouts !== false);
       setFilterDeadNzbs(data.filterDeadNzbs !== false);
       setNzbdavStreamBufferMB(data.nzbdavStreamBufferMB ?? 128);
-      setNzbdavProxyEnabled(data.nzbdavProxyEnabled !== false);
+      setNzbdavPipeBufferMB(data.nzbdavPipeBufferMB ?? 8);
+      // Belt-and-braces: backend accessor already migrates, but fall back to legacy field if the API response
+      // somehow lacks nzbdavStreamingMethod (very old server, hand-edited config, etc.)
+      setNzbdavStreamingMethod(
+        data.nzbdavStreamingMethod
+          ?? (data.nzbdavProxyEnabled === false ? 'direct' : data.nzbdavProxyEnabled === true ? 'proxy' : 'proxy')
+      );
       setHealthyNzbDbMode(data.healthyNzbDbMode || 'time');
       setHealthyNzbDbTTL(data.healthyNzbDbTTL ?? 259200);
       setHealthyNzbDbMaxSizeMB(data.healthyNzbDbMaxSizeMB ?? 50);
@@ -780,7 +904,7 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       // Mark initial load as done so auto-save hooks don't fire on load.
       // setTimeout defers past React's useEffect cycle — effects from the setState
       // batch above see initialLoadDone.current === false and skip the save.
-      // Also auto-test NZBDav connection on startup (inline to avoid stale closure)
+      // Also auto-test NzbDAV connection on startup (inline to avoid stale closure)
       setTimeout(async () => {
         initialLoadDone.current = true;
         if ((data.streamingMode || 'nzbdav') === 'nzbdav' && data.nzbdavUrl) {
@@ -1130,6 +1254,24 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   }, [rankedIndexers]);
 
   // ═══════════════════════════════════════════════════════════════════
+  // PWA back-button sentinel-pushing setters
+  // ═══════════════════════════════════════════════════════════════════
+  // Each opened layer pushes one history sentinel at open-time so popstate
+  // can cascade-close one layer per back press without an in-handler push
+  // (which raced on mobile WebViews under rapid back presses).
+
+  const setActiveOverlayWithSentinel = useSentinelSetter(activeOverlay, setActiveOverlay, v => v !== null);
+  const setShowAddIndexerWithSentinel = useSentinelSetter(showAddIndexer, setShowAddIndexer, v => v === true);
+  const setExpandedIndexerWithSentinel = useSentinelSetter(expandedIndexer, setExpandedIndexer, v => v !== null);
+  const setSelectedSyncedIndexerWithSentinel = useSentinelSetter(selectedSyncedIndexer, setSelectedSyncedIndexer, v => v !== null);
+  const setDeleteConfirmationWithSentinel = useSentinelSetter(deleteConfirmation, setDeleteConfirmation, v => v.show);
+  const setZyclopsConfirmDialogWithSentinel = useSentinelSetter(zyclopsConfirmDialog, setZyclopsConfirmDialog, v => v.show);
+  const setSingleIpConfirmDialogWithSentinel = useSentinelSetter(singleIpConfirmDialog, setSingleIpConfirmDialog, v => v.show);
+  const setDirectModeWarningWithSentinel = useSentinelSetter(directModeWarning, setDirectModeWarning, v => v.show);
+  const setLibraryDeleteWarningWithSentinel = useSentinelSetter(libraryDeleteWarning, setLibraryDeleteWarning, v => v.show);
+  const setActiveTabWithSentinel = useSentinelSetter(activeTab, setActiveTab, v => v !== 'dashboard');
+
+  // ═══════════════════════════════════════════════════════════════════
   // Return everything the UI needs
   // ═══════════════════════════════════════════════════════════════════
 
@@ -1138,22 +1280,24 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     config, setConfig,
     loading, setLoading,
     addonEnabled, setAddonEnabled,
-    activeTab, setActiveTab,
+    activeTab, setActiveTab: setActiveTabWithSentinel,
 
     // Indexer management
-    showAddIndexer, setShowAddIndexer,
+    showAddIndexer, setShowAddIndexer: setShowAddIndexerWithSentinel,
     newIndexer, setNewIndexer,
     selectedPreset, setSelectedPreset,
     editForm, setEditForm,
     capsLoading, setCapsLoading,
-    expandedIndexer, setExpandedIndexer,
+    expandedIndexer, setExpandedIndexer: setExpandedIndexerWithSentinel,
     draggedIndexer, setDraggedIndexer,
     dragOverIndexer, setDragOverIndexer,
     pendingSave, setPendingSave,
     testResults, setTestResults,
     testQuery, setTestQuery,
-    deleteConfirmation, setDeleteConfirmation,
-    activeOverlay, setActiveOverlay,
+    deleteConfirmation, setDeleteConfirmation: setDeleteConfirmationWithSentinel,
+    directModeWarning, setDirectModeWarning: setDirectModeWarningWithSentinel,
+    libraryDeleteWarning, setLibraryDeleteWarning: setLibraryDeleteWarningWithSentinel,
+    activeOverlay, setActiveOverlay: setActiveOverlayWithSentinel,
     failedLogos, setFailedLogos,
     showApiKey, setShowApiKey,
 
@@ -1176,12 +1320,30 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     tmdbApiKey, setTmdbApiKey,
     tvdbApiKey, setTvdbApiKey,
     includeSeasonPacks, setIncludeSeasonPacks,
+    includeMultiSeasonPacks, setIncludeMultiSeasonPacks,
+    seriesPackKeywords, setSeriesPackKeywords,
+    seriesPackPagination, setSeriesPackPagination,
+    seriesPackAdditionalPages, setSeriesPackAdditionalPages,
     seasonPackPagination, setSeasonPackPagination,
     seasonPackAdditionalPages, setSeasonPackAdditionalPages,
     indexerPriorityDedup, setIndexerPriorityDedup,
-    enableRemakeFiltering, setEnableRemakeFiltering,
-    allowMultiEpisodeFiles, setAllowMultiEpisodeFiles,
     urlDedup, setUrlDedup,
+    junkFilter, setJunkFilter,
+    librarySearchThreshold, setLibrarySearchThreshold,
+    libraryApplyToMovies, setLibraryApplyToMovies,
+    libraryApplyToSeries, setLibraryApplyToSeries,
+    librarySearchScanUncategorized, setLibrarySearchScanUncategorized,
+    libraryRunOnCacheHit, setLibraryRunOnCacheHit,
+    displayLibraryInResults, setDisplayLibraryInResults,
+    libraryDeleteAllTile, setLibraryDeleteAllTile,
+    libraryDeletePerStreamTile, setLibraryDeletePerStreamTile,
+    librarySkipTilePosition, setLibrarySkipTilePosition,
+    libraryDeleteAllPackScope, setLibraryDeleteAllPackScope,
+    absoluteEpisodeFallback, setAbsoluteEpisodeFallback,
+    parallelAlternateTitleSearch, setParallelAlternateTitleSearch,
+    aliasTitleFallback, setAliasTitleFallback,
+    tvdbPreferEnglishTitle, setTvdbPreferEnglishTitle,
+    cacheEmptyResults, setCacheEmptyResults,
     indexerPriority, setIndexerPriority,
     dedupDraggedItem, setDedupDraggedItem,
     dedupDragOverItem, setDedupDragOverItem,
@@ -1196,12 +1358,16 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     // Prowlarr / NZBHydra
     prowlarrUrl, setProwlarrUrl,
     prowlarrApiKey, setProwlarrApiKey,
+    prowlarrTimeoutEnabled, setProwlarrTimeoutEnabled,
+    prowlarrTimeout, setProwlarrTimeout,
     nzbhydraUrl, setNzbhydraUrl,
     nzbhydraApiKey, setNzbhydraApiKey,
     nzbhydraUsername, setNzbhydraUsername,
     nzbhydraPassword, setNzbhydraPassword,
+    nzbhydraTimeoutEnabled, setNzbhydraTimeoutEnabled,
+    nzbhydraTimeout, setNzbhydraTimeout,
 
-    // NZBDav
+    // NzbDAV
     nzbdavUrl, setNzbdavUrl,
     nzbdavApiKey, setNzbdavApiKey,
     nzbdavWebdavUrl, setNzbdavWebdavUrl,
@@ -1209,18 +1375,11 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     nzbdavWebdavPassword, setNzbdavWebdavPassword,
     nzbdavMoviesCategory, setNzbdavMoviesCategory,
     nzbdavTvCategory, setNzbdavTvCategory,
-    nzbdavFallbackEnabled, setNzbdavFallbackEnabled,
-    nzbdavLibraryCheckEnabled, setNzbdavLibraryCheckEnabled,
-    nzbdavMaxFallbacks, setNzbdavMaxFallbacks,
-    nzbdavMoviesTimeoutSeconds, setNzbdavMoviesTimeoutSeconds,
-    nzbdavTvTimeoutSeconds, setNzbdavTvTimeoutSeconds,
-    nzbdavSeasonPackTimeoutSeconds, setNzbdavSeasonPackTimeoutSeconds,
-    nzbdavFallbackOrder, setNzbdavFallbackOrder,
-    autoResolveOnSearch, setAutoResolveOnSearch,
     nzbdavCacheTimeouts, setNzbdavCacheTimeouts,
     filterDeadNzbs, setFilterDeadNzbs,
     nzbdavStreamBufferMB, setNzbdavStreamBufferMB,
-    nzbdavProxyEnabled, setNzbdavProxyEnabled,
+    nzbdavPipeBufferMB, setNzbdavPipeBufferMB,
+    nzbdavStreamingMethod, setNzbdavStreamingMethod,
     healthyNzbDbMode, setHealthyNzbDbMode,
     healthyNzbDbTTL, setHealthyNzbDbTTL,
     healthyNzbDbMaxSizeMB, setHealthyNzbDbMaxSizeMB,
@@ -1237,6 +1396,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     easynewsPassword, setEasynewsPassword,
     easynewsPagination, setEasynewsPagination,
     easynewsMaxPages, setEasynewsMaxPages,
+    easynewsTimeoutEnabled, setEasynewsTimeoutEnabled,
+    easynewsTimeout, setEasynewsTimeout,
     easynewsMode, setEasynewsMode,
     easynewsHealthCheck, setEasynewsHealthCheck,
     showEasynewsPassword, setShowEasynewsPassword,
@@ -1247,8 +1408,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     zyclopsEndpoint, setZyclopsEndpoint,
     zyclopsTestStatus, setZyclopsTestStatus,
     zyclopsTestMessage, setZyclopsTestMessage,
-    zyclopsConfirmDialog, setZyclopsConfirmDialog,
-    singleIpConfirmDialog, setSingleIpConfirmDialog,
+    zyclopsConfirmDialog, setZyclopsConfirmDialog: setZyclopsConfirmDialogWithSentinel,
+    singleIpConfirmDialog, setSingleIpConfirmDialog: setSingleIpConfirmDialogWithSentinel,
     zyclopsInflightToggle, setZyclopsInflightToggle,
 
     // User agents
@@ -1267,12 +1428,15 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     statsSortDir, setStatsSortDir,
     statsExpandedIndexer, setStatsExpandedIndexer,
 
+    // Ultimate-Fallback
+    ultimateFallback, setUltimateFallback,
+
     // Health checks
     healthChecks, setHealthChecks,
     syncedIndexers, setSyncedIndexers,
     syncStatus, setSyncStatus,
     syncMessage, setSyncMessage,
-    selectedSyncedIndexer, setSelectedSyncedIndexer,
+    selectedSyncedIndexer, setSelectedSyncedIndexer: setSelectedSyncedIndexerWithSentinel,
 
     // Auto play
     autoPlay, setAutoPlay,

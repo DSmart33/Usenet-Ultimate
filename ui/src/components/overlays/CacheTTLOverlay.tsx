@@ -8,6 +8,8 @@ interface CacheTTLOverlayProps {
   onClose: () => void;
   cacheTTL: number;
   setCacheTTL: React.Dispatch<React.SetStateAction<number>>;
+  cacheEmptyResults: boolean;
+  setCacheEmptyResults: React.Dispatch<React.SetStateAction<boolean>>;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
   autoPlayEnabled: boolean;
 }
@@ -16,6 +18,8 @@ export function CacheTTLOverlay({
   onClose,
   cacheTTL,
   setCacheTTL,
+  cacheEmptyResults,
+  setCacheEmptyResults,
   apiFetch,
   autoPlayEnabled,
 }: CacheTTLOverlayProps) {
@@ -93,9 +97,27 @@ export function CacheTTLOverlay({
                 </p>
               )}
             </div>
+            <div className="pt-4 border-t border-slate-700">
+              <div className="flex items-center justify-between gap-3">
+                <label htmlFor="cache-empty-results" className="flex-1 cursor-pointer">
+                  <div className="text-sm font-medium text-slate-300">Cache 0 result searches</div>
+                  <div className="text-xs text-slate-500 mt-0.5">When enabled, searches that return no results are cached for the full TTL above. Disable to retry every empty search live, useful when adding new indexers or fixing misconfigurations.</div>
+                </label>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    id="cache-empty-results"
+                    checked={cacheEmptyResults}
+                    onChange={(e) => setCacheEmptyResults(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-yellow-500"></div>
+                </label>
+              </div>
+            </div>
             <div className="pt-4 border-t border-slate-700 space-y-2">
               <button
-                onClick={() => setCacheTTL(9000)}
+                onClick={() => { setCacheTTL(9000); setCacheEmptyResults(true); }}
                 className="btn-secondary w-full"
               >
                 Reset to Default (2.5 Hours)

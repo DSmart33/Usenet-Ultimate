@@ -53,16 +53,14 @@
     overflow: hidden;
   }
 
-  /* GPU-accelerated scroll containers — avoid translateZ and will-change on mobile
-     as they can cause tiles/cards to disappear during scroll repaints */
+  /* Modern Blink/WebKit auto-promote scrolling layers; the legacy translateZ
+     hack kept every overflow container in a permanent GPU layer and held the
+     compositor hot. Mobile remains untouched (was never promoted there). */
   @media (min-width: 769px) {
     [class*="overflow-y-auto"],
     [class*="overflow-x-auto"],
     [class*="overflow-auto"] {
       will-change: scroll-position;
-      transform: translateZ(0);
-      -webkit-backface-visibility: hidden;
-      backface-visibility: hidden;
     }
   }
 
@@ -102,8 +100,8 @@
 
 @layer components {
   .card {
-    @apply bg-slate-800/40 backdrop-blur-xl rounded-xl border border-slate-700/50 shadow-2xl;
-    @apply hover:border-primary-500/50 active:border-primary-500/50 transition-all duration-300;
+    @apply bg-gradient-to-br from-slate-800/50 to-slate-900/40 rounded-xl border border-slate-700/50 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06),_0_10px_15px_-3px_rgba(0,0,0,0.1),_0_4px_6px_-4px_rgba(0,0,0,0.1)];
+    @apply hover:border-primary-500/50 active:border-primary-500/50 transition-[transform,border-color,box-shadow] duration-300;
     @apply hover:shadow-primary-500/20 hover:shadow-xl active:shadow-primary-500/20 active:shadow-xl;
     @apply hover:-translate-y-1 active:-translate-y-1;
   }

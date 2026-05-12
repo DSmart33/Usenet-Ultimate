@@ -38,12 +38,14 @@ export function extractFilename(subject: string): string {
   return cleaned;
 }
 
+/** Supported video container extensions (shared across health check and archive inspection). */
+export const VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.m4v', '.ts', '.m2ts', '.wmv', '.webm', '.mov', '.mpg', '.mpeg'];
+
 /**
  * Check if a file is a video file based on extension
  * Excludes sample files which are preview clips, not the actual content
  */
 export function isVideoFile(subject: string): boolean {
-  const videoExtensions = ['.mkv', '.mp4', '.avi', '.m4v', '.ts', '.m2ts', '.wmv', '.webm', '.mov', '.mpg', '.mpeg'];
   const filename = extractFilename(subject).toLowerCase();
 
   // Skip sample files - these are preview clips, not the actual episode/movie
@@ -52,7 +54,35 @@ export function isVideoFile(subject: string): boolean {
   }
 
   // Check if filename ends with a video extension
-  return videoExtensions.some(ext => filename.endsWith(ext));
+  return VIDEO_EXTENSIONS.some(ext => filename.endsWith(ext));
+}
+
+/**
+ * Extract the video container type from an NZB subject line.
+ * Returns the extension uppercased (e.g. 'MKV', 'MP4') or undefined if not a video file.
+ */
+export function getVideoContainerType(subject: string): string | undefined {
+  const filename = extractFilename(subject).toLowerCase();
+  if (filename.includes('sample')) return undefined;
+  for (const ext of VIDEO_EXTENSIONS) {
+    if (filename.endsWith(ext)) return ext.slice(1).toUpperCase();
+  }
+  return undefined;
+}
+
+/**
+ * Extract the video container type from archive file listings.
+ * Returns the first video file's extension uppercased, or undefined if none found.
+ */
+export function getContainerFromArchiveFiles(files: { name: string }[]): string | undefined {
+  for (const file of files) {
+    const lower = file.name.toLowerCase();
+    if (lower.includes('sample')) continue;
+    for (const ext of VIDEO_EXTENSIONS) {
+      if (lower.endsWith(ext)) return ext.slice(1).toUpperCase();
+    }
+  }
+  return undefined;
 }
 
 /**

@@ -17,7 +17,7 @@ export type { ConfigData } from './schema.js';
 import './migrations.js';
 
 // 3. Accessors — the main `config` object consumed by the app
-export { config } from './accessors.js';
+export { config, getTvRemakeFiltering, getTvAllowMultiEpisode } from './accessors.js';
 
 // 4. Indexer CRUD
 export { getIndexers, addIndexer, updateIndexer, deleteIndexer, reorderIndexers, reorderSyncedIndexers } from './indexerCrud.js';

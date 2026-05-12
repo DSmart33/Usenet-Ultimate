@@ -7,6 +7,7 @@ import { LayoutDashboard, Download, Crown, LogOut } from 'lucide-react';
 import clsx from 'clsx';
 import indexerPresets from './indexerPresets.json';
 import type { Tab, IndexerPreset, Indexer, IndexerCaps } from './types';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from './constants';
 
 // Hooks
 import { useAuth } from './hooks/useAuth';
@@ -24,18 +25,20 @@ import { ProxyOverlay } from './components/overlays/ProxyOverlay';
 import { CacheTTLOverlay } from './components/overlays/CacheTTLOverlay';
 import { UserAgentOverlay } from './components/overlays/UserAgentOverlay';
 import { StreamingOverlay } from './components/overlays/StreamingOverlay';
-import { FallbackOverlay } from './components/overlays/FallbackOverlay';
 import { NzbDatabaseOverlay } from './components/overlays/NzbDatabaseOverlay';
 import { AutoPlayOverlay } from './components/overlays/AutoPlayOverlay';
 import { StatsOverlay } from './components/overlays/StatsOverlay';
 import FiltersOverlay from './components/overlays/FiltersOverlay';
 import HealthChecksOverlay from './components/overlays/HealthChecksOverlay';
+import { UltimateFallbackOverlay } from './components/overlays/UltimateFallbackOverlay';
 import { StreamDisplayOverlay } from './components/overlays/StreamDisplayOverlay';
 import { ZyclopsOverlay } from './components/overlays/ZyclopsOverlay';
 import { LogsOverlay } from './components/overlays/LogsOverlay';
 
 // Modals
 import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
+import { DirectModeWarningModal } from './components/modals/DirectModeWarningModal';
+import { LibraryDeleteWarningModal } from './components/modals/LibraryDeleteWarningModal';
 import { AddIndexerModal } from './components/modals/AddIndexerModal';
 import { EditIndexerModal } from './components/modals/EditIndexerModal';
 
@@ -81,11 +84,14 @@ function App() {
   }, [auth.authStatus]);
 
   // ── PWA back button handling — prevent back from exiting the app ───────
-  // Use a ref so the popstate handler always reads the latest state without
-  // needing to tear down / re-register (which caused stale-closure bugs and
-  // extra history entries that broke multi-level back navigation).
+  // Each opened layer pushes its own history sentinel at open-time (via
+  // useAppConfig's wrapped setters). Popstate cascade-closes one layer per
+  // back press without pushing in-handler — pushes happen on the open
+  // transition so they aren't subject to the in-handler pushState race that
+  // affected mobile WebViews under rapid back presses.
   const pwaStateRef = useRef({
     deleteConfirmation: ac.deleteConfirmation,
+    directModeWarning: ac.directModeWarning,
     zyclopsConfirmDialog: ac.zyclopsConfirmDialog,
     singleIpConfirmDialog: ac.singleIpConfirmDialog,
     showAddIndexer: ac.showAddIndexer,
@@ -96,6 +102,7 @@ function App() {
   });
   pwaStateRef.current = {
     deleteConfirmation: ac.deleteConfirmation,
+    directModeWarning: ac.directModeWarning,
     zyclopsConfirmDialog: ac.zyclopsConfirmDialog,
     singleIpConfirmDialog: ac.singleIpConfirmDialog,
     showAddIndexer: ac.showAddIndexer,
@@ -114,7 +121,9 @@ function App() {
 
     const handlePopState = () => {
       const s = pwaStateRef.current;
-      if (s.deleteConfirmation.show) {
+      if (s.directModeWarning.show) {
+        ac.setDirectModeWarning({ show: false });
+      } else if (s.deleteConfirmation.show) {
         ac.setDeleteConfirmation({ show: false, indexerName: '' });
       } else if (s.zyclopsConfirmDialog.show) {
         ac.setZyclopsConfirmDialog({ show: false, indexerName: '' });
@@ -131,7 +140,6 @@ function App() {
       } else if (s.activeTab !== 'dashboard') {
         ac.setActiveTab('dashboard');
       }
-      window.history.pushState({ pwa: true }, '');
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -241,6 +249,8 @@ function App() {
         caps: null,
         pagination: false,
         maxPages: 3,
+        timeoutEnabled: true,
+        timeout: DEFAULT_INDEXER_TIMEOUT_SECONDS,
       });
     }
   };
@@ -271,7 +281,7 @@ function App() {
         body: JSON.stringify(ac.newIndexer),
       });
       if (response.ok) {
-        ac.setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+        ac.setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: DEFAULT_INDEXER_TIMEOUT_SECONDS });
         ac.setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
         ac.setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
         ac.setShowAddIndexer(false);
@@ -302,6 +312,8 @@ function App() {
       caps: indexer.caps || null,
       pagination: indexer.pagination === true,
       maxPages: indexer.maxPages ?? 3,
+      timeoutEnabled: indexer.timeoutEnabled !== false,
+      timeout: indexer.timeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS,
     });
   };
 
@@ -477,7 +489,7 @@ function App() {
 
   // ── Main render ───────────────────────────────────────────────────────
   return (
-    <div className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 animate-gradient relative" style={{ padding: 'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)' }}>
+    <div className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative" style={{ padding: 'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)' }}>
 
       {/* Delete Confirmation Modal */}
       {ac.deleteConfirmation.show && (
@@ -485,6 +497,31 @@ function App() {
           deleteConfirmation={ac.deleteConfirmation}
           setDeleteConfirmation={ac.setDeleteConfirmation}
           handleDeleteIndexer={handleDeleteIndexer}
+        />
+      )}
+
+      {/* Direct Mode Warning Modal */}
+      {ac.directModeWarning.show && (
+        <DirectModeWarningModal
+          directModeWarning={ac.directModeWarning}
+          setDirectModeWarning={ac.setDirectModeWarning}
+          handleEnableDirectMode={() => {
+            ac.setNzbdavStreamingMethod('direct');
+            ac.setDirectModeWarning({ show: false });
+          }}
+        />
+      )}
+
+      {/* Library Delete Warning Modal */}
+      {ac.libraryDeleteWarning.show && (
+        <LibraryDeleteWarningModal
+          libraryDeleteWarning={ac.libraryDeleteWarning}
+          setLibraryDeleteWarning={ac.setLibraryDeleteWarning}
+          handleEnableLibraryDelete={() => {
+            if (ac.libraryDeleteWarning.toggleType === 'all') ac.setLibraryDeleteAllTile(true);
+            else if (ac.libraryDeleteWarning.toggleType === 'perStream') ac.setLibraryDeletePerStreamTile(true);
+            ac.setLibraryDeleteWarning({ show: false, toggleType: null });
+          }}
         />
       )}
 
@@ -569,16 +606,49 @@ function App() {
           testTvdbKey={ac.testTvdbKey}
           includeSeasonPacks={ac.includeSeasonPacks}
           setIncludeSeasonPacks={ac.setIncludeSeasonPacks}
+          includeMultiSeasonPacks={ac.includeMultiSeasonPacks}
+          setIncludeMultiSeasonPacks={ac.setIncludeMultiSeasonPacks}
+          seriesPackKeywords={ac.seriesPackKeywords}
+          setSeriesPackKeywords={ac.setSeriesPackKeywords}
           seasonPackPagination={ac.seasonPackPagination}
           setSeasonPackPagination={ac.setSeasonPackPagination}
           seasonPackAdditionalPages={ac.seasonPackAdditionalPages}
           setSeasonPackAdditionalPages={ac.setSeasonPackAdditionalPages}
-          enableRemakeFiltering={ac.enableRemakeFiltering}
-          setEnableRemakeFiltering={ac.setEnableRemakeFiltering}
-          allowMultiEpisodeFiles={ac.allowMultiEpisodeFiles}
-          setAllowMultiEpisodeFiles={ac.setAllowMultiEpisodeFiles}
+          seriesPackPagination={ac.seriesPackPagination}
+          setSeriesPackPagination={ac.setSeriesPackPagination}
+          seriesPackAdditionalPages={ac.seriesPackAdditionalPages}
+          setSeriesPackAdditionalPages={ac.setSeriesPackAdditionalPages}
           urlDedup={ac.urlDedup}
           setUrlDedup={ac.setUrlDedup}
+          librarySearchThreshold={ac.librarySearchThreshold}
+          setLibrarySearchThreshold={ac.setLibrarySearchThreshold}
+          libraryApplyToMovies={ac.libraryApplyToMovies}
+          setLibraryApplyToMovies={ac.setLibraryApplyToMovies}
+          libraryApplyToSeries={ac.libraryApplyToSeries}
+          setLibraryApplyToSeries={ac.setLibraryApplyToSeries}
+          librarySearchScanUncategorized={ac.librarySearchScanUncategorized}
+          setLibrarySearchScanUncategorized={ac.setLibrarySearchScanUncategorized}
+          libraryRunOnCacheHit={ac.libraryRunOnCacheHit}
+          setLibraryRunOnCacheHit={ac.setLibraryRunOnCacheHit}
+          displayLibraryInResults={ac.displayLibraryInResults}
+          setDisplayLibraryInResults={ac.setDisplayLibraryInResults}
+          libraryDeleteAllTile={ac.libraryDeleteAllTile}
+          setLibraryDeleteAllTile={ac.setLibraryDeleteAllTile}
+          libraryDeletePerStreamTile={ac.libraryDeletePerStreamTile}
+          setLibraryDeletePerStreamTile={ac.setLibraryDeletePerStreamTile}
+          setLibraryDeleteWarning={ac.setLibraryDeleteWarning}
+          librarySkipTilePosition={ac.librarySkipTilePosition}
+          setLibrarySkipTilePosition={ac.setLibrarySkipTilePosition}
+          libraryDeleteAllPackScope={ac.libraryDeleteAllPackScope}
+          setLibraryDeleteAllPackScope={ac.setLibraryDeleteAllPackScope}
+          absoluteEpisodeFallback={ac.absoluteEpisodeFallback}
+          setAbsoluteEpisodeFallback={ac.setAbsoluteEpisodeFallback}
+          parallelAlternateTitleSearch={ac.parallelAlternateTitleSearch}
+          setParallelAlternateTitleSearch={ac.setParallelAlternateTitleSearch}
+          aliasTitleFallback={ac.aliasTitleFallback}
+          setAliasTitleFallback={ac.setAliasTitleFallback}
+          tvdbPreferEnglishTitle={ac.tvdbPreferEnglishTitle}
+          setTvdbPreferEnglishTitle={ac.setTvdbPreferEnglishTitle}
           indexerPriorityDedup={ac.indexerPriorityDedup}
           setIndexerPriorityDedup={ac.setIndexerPriorityDedup}
           indexerPriority={ac.indexerPriority}
@@ -597,6 +667,10 @@ function App() {
           setEasynewsPagination={ac.setEasynewsPagination}
           easynewsMaxPages={ac.easynewsMaxPages}
           setEasynewsMaxPages={ac.setEasynewsMaxPages}
+          easynewsTimeoutEnabled={ac.easynewsTimeoutEnabled}
+          setEasynewsTimeoutEnabled={ac.setEasynewsTimeoutEnabled}
+          easynewsTimeout={ac.easynewsTimeout}
+          setEasynewsTimeout={ac.setEasynewsTimeout}
           easynewsMode={ac.easynewsMode}
           setEasynewsMode={ac.setEasynewsMode}
           showEasynewsPassword={ac.showEasynewsPassword}
@@ -611,6 +685,10 @@ function App() {
           setProwlarrApiKey={ac.setProwlarrApiKey}
           showProwlarrKey={ac.showProwlarrKey}
           setShowProwlarrKey={ac.setShowProwlarrKey}
+          prowlarrTimeoutEnabled={ac.prowlarrTimeoutEnabled}
+          setProwlarrTimeoutEnabled={ac.setProwlarrTimeoutEnabled}
+          prowlarrTimeout={ac.prowlarrTimeout}
+          setProwlarrTimeout={ac.setProwlarrTimeout}
           nzbhydraUrl={ac.nzbhydraUrl}
           setNzbhydraUrl={ac.setNzbhydraUrl}
           nzbhydraApiKey={ac.nzbhydraApiKey}
@@ -623,6 +701,10 @@ function App() {
           setNzbhydraPassword={ac.setNzbhydraPassword}
           showNzbhydraPassword={ac.showNzbhydraPassword}
           setShowNzbhydraPassword={ac.setShowNzbhydraPassword}
+          nzbhydraTimeoutEnabled={ac.nzbhydraTimeoutEnabled}
+          setNzbhydraTimeoutEnabled={ac.setNzbhydraTimeoutEnabled}
+          nzbhydraTimeout={ac.nzbhydraTimeout}
+          setNzbhydraTimeout={ac.setNzbhydraTimeout}
           syncedIndexers={ac.syncedIndexers}
           setSyncedIndexers={ac.setSyncedIndexers}
           syncStatus={ac.syncStatus}
@@ -683,33 +765,12 @@ function App() {
           nzbdavTestNzbMessage={ac.nzbdavTestNzbMessage}
           nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
           setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
+          nzbdavPipeBufferMB={ac.nzbdavPipeBufferMB}
+          setNzbdavPipeBufferMB={ac.setNzbdavPipeBufferMB}
+          nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
+          ultimateFallbackEnabled={ac.ultimateFallback.enabled}
           checkNzbdavConnection={ac.checkNzbdavConnection}
           sendNzbdavTestNzb={ac.sendNzbdavTestNzb}
-        />
-      )}
-
-      {/* NZB Fallback Overlay */}
-      {ac.activeOverlay === 'fallback' && (
-        <FallbackOverlay
-          onClose={() => ac.setActiveOverlay(null)}
-          nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
-          setNzbdavFallbackEnabled={ac.setNzbdavFallbackEnabled}
-          nzbdavLibraryCheckEnabled={ac.nzbdavLibraryCheckEnabled}
-          setNzbdavLibraryCheckEnabled={ac.setNzbdavLibraryCheckEnabled}
-          nzbdavMoviesTimeoutSeconds={ac.nzbdavMoviesTimeoutSeconds}
-          setNzbdavMoviesTimeoutSeconds={ac.setNzbdavMoviesTimeoutSeconds}
-          nzbdavTvTimeoutSeconds={ac.nzbdavTvTimeoutSeconds}
-          setNzbdavTvTimeoutSeconds={ac.setNzbdavTvTimeoutSeconds}
-          nzbdavSeasonPackTimeoutSeconds={ac.nzbdavSeasonPackTimeoutSeconds}
-          setNzbdavSeasonPackTimeoutSeconds={ac.setNzbdavSeasonPackTimeoutSeconds}
-          nzbdavFallbackOrder={ac.nzbdavFallbackOrder}
-          setNzbdavFallbackOrder={ac.setNzbdavFallbackOrder}
-          nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
-          setNzbdavMaxFallbacks={ac.setNzbdavMaxFallbacks}
-          nzbdavProxyEnabled={ac.nzbdavProxyEnabled}
-          setNzbdavProxyEnabled={ac.setNzbdavProxyEnabled}
-          autoResolveOnSearch={ac.autoResolveOnSearch}
-          setAutoResolveOnSearch={ac.setAutoResolveOnSearch}
         />
       )}
 
@@ -743,6 +804,8 @@ function App() {
           onClose={() => ac.setActiveOverlay(null)}
           cacheTTL={ac.cacheTTL}
           setCacheTTL={ac.setCacheTTL}
+          cacheEmptyResults={ac.cacheEmptyResults}
+          setCacheEmptyResults={ac.setCacheEmptyResults}
           apiFetch={apiFetch}
           autoPlayEnabled={ac.autoPlay.enabled}
         />
@@ -787,6 +850,9 @@ function App() {
           setMovieFilters={ac.setMovieFilters}
           tvFilters={ac.tvFilters}
           setTvFilters={ac.setTvFilters}
+          junkFilter={ac.junkFilter}
+          setJunkFilter={ac.setJunkFilter}
+          apiFetch={apiFetch}
         />
       )}
 
@@ -805,6 +871,28 @@ function App() {
           apiFetch={apiFetch}
           easynewsHealthCheck={ac.easynewsHealthCheck}
           setEasynewsHealthCheck={ac.setEasynewsHealthCheck}
+        />
+      )}
+
+      {/* Ultimate-Fallback Overlay */}
+      {ac.activeOverlay === 'ultimateFallback' && (
+        <UltimateFallbackOverlay
+          onClose={() => {
+            ac.setDirectModeWarning({ show: false });
+            ac.setActiveOverlay(null);
+          }}
+          ultimateFallback={ac.ultimateFallback}
+          setUltimateFallback={ac.setUltimateFallback}
+          healthChecks={ac.healthChecks}
+          setHealthChecks={ac.setHealthChecks}
+          nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
+          setNzbdavStreamingMethod={ac.setNzbdavStreamingMethod}
+          setDirectModeWarning={ac.setDirectModeWarning}
+          nzbdavStreamBufferMB={ac.nzbdavStreamBufferMB}
+          setNzbdavStreamBufferMB={ac.setNzbdavStreamBufferMB}
+          nzbdavPipeBufferMB={ac.nzbdavPipeBufferMB}
+          setNzbdavPipeBufferMB={ac.setNzbdavPipeBufferMB}
+          apiFetch={apiFetch}
         />
       )}
 
@@ -909,12 +997,8 @@ function App() {
           {/* Gradient accent line */}
           <div className="h-[3px] bg-gradient-to-r from-amber-600 via-yellow-500 to-amber-600" />
 
-          {/* Ambient glow */}
-          <div className="absolute top-0 left-1/4 w-80 h-20 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute top-0 right-1/4 w-80 h-20 bg-yellow-500/5 rounded-full blur-3xl pointer-events-none" />
-
           {/* Brand Row */}
-          <div className="relative flex items-center px-4 md:px-6 pt-4 pb-3 bg-gradient-to-b from-slate-900/95 to-slate-900/80 backdrop-blur-xl">
+          <div className="relative flex items-center px-4 md:px-6 pt-4 pb-3 bg-gradient-to-b from-slate-900 to-slate-900/95">
             <div className="flex items-center gap-3 md:gap-4">
               {/* Icon Mark */}
               <div className="relative group">
@@ -945,7 +1029,7 @@ function App() {
           </div>
 
           {/* Navigation Row */}
-          <div className="flex items-center justify-between px-3 md:px-5 py-2 bg-slate-900/60 backdrop-blur-sm border-b border-slate-700/50">
+          <div className="flex items-center justify-between px-3 md:px-5 py-2 bg-slate-900/90 border-b border-slate-700/50">
             <div className="flex items-center gap-1">
               {[
                 { id: 'dashboard' as Tab, icon: LayoutDashboard, label: 'Dashboard' },
@@ -994,10 +1078,7 @@ function App() {
             enabledIndexersCount={enabledIndexersCount}
             syncedIndexers={ac.syncedIndexers}
             nzbdavConnectionStatus={ac.nzbdavConnectionStatus}
-            nzbdavFallbackEnabled={ac.nzbdavFallbackEnabled}
-            nzbdavFallbackOrder={ac.nzbdavFallbackOrder}
-            autoResolveOnSearch={ac.autoResolveOnSearch}
-            nzbdavMaxFallbacks={ac.nzbdavMaxFallbacks}
+            nzbdavStreamingMethod={ac.nzbdavStreamingMethod}
             streamingMode={ac.streamingMode}
             proxyMode={ac.proxyMode}
             proxyStatus={ac.proxyStatus}
@@ -1006,6 +1087,7 @@ function App() {
             autoPlay={ac.autoPlay}
             streamDisplayConfig={ac.streamDisplayConfig}
             healthChecks={ac.healthChecks}
+            ultimateFallback={ac.ultimateFallback}
             statsData={ac.statsData}
             fetchStats={ac.fetchStats}
             hasIndexers={!!hasIndexers}

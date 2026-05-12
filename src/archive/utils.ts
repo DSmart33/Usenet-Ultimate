@@ -6,6 +6,7 @@
  */
 
 import type { ArchiveInfo } from './types.js';
+import { VIDEO_EXTENSIONS } from '../health/fileClassifier.js';
 
 /**
  * Read variable-length integer (RAR5 vint encoding)
@@ -101,8 +102,6 @@ export function hasVideoContent(info: ArchiveInfo): boolean {
     return true;
   }
 
-  const videoExtensions = ['.mkv', '.mp4', '.avi', '.m4v', '.ts', '.m2ts', '.wmv', '.webm', '.mov', '.mpg', '.mpeg'];
-
   for (const file of info.files) {
     const lowerName = file.name.toLowerCase();
 
@@ -110,7 +109,7 @@ export function hasVideoContent(info: ArchiveInfo): boolean {
     if (lowerName.includes('sample')) continue;
 
     // Check for video extension
-    if (videoExtensions.some(ext => lowerName.endsWith(ext))) {
+    if (VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext))) {
       return true;
     }
   }

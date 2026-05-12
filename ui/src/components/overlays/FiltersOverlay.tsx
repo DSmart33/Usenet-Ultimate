@@ -1,12 +1,15 @@
 // What this does:
-//   Filters & Sorting overlay with resolution priority, quality filtering, sort order,
-//   per-type (Movie/TV) overrides, and drag-to-reorder priority lists
+//   Filters, Rules & Sorting overlay with resolution priority, quality filtering,
+//   ranked regex/SEL rules, sort order, per-type (Movie/TV) overrides, and
+//   drag-to-reorder priority lists
 
 import { useState, useCallback, useRef } from 'react';
 import { Filter, X, Check, GripVertical, ChevronDown, ArrowUpDown } from 'lucide-react';
 import clsx from 'clsx';
 import type { FiltersState } from '../../types';
+import { DEFAULT_FILTERS } from '../../constants';
 import { useHoldRepeat } from '../../hooks/useHoldRepeat';
+import RulesSection from './rules/RulesSection';
 
 interface StreamFilterFieldConfig {
   label: string;
@@ -118,39 +121,45 @@ function StreamFilterField({ config: field, value: rawValue, onChange }: {
 }
 
 const MIN_SIZE_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
-  { key: 'minFileSize', config: { label: 'Episode File Size', description: 'Filters out individual episode files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true } },
-  { key: 'minSeasonPackEpisodeSize', config: { label: 'Season Pack Per-Episode Size', description: 'Minimum estimated per-episode size within season packs', unit: 'GB', defaultValue: 0.1, step: 0.1, min: 0.01, isFloat: true } },
-  { key: 'minSeasonPackSize', config: { label: 'Season Pack Total Size', description: 'Minimum total size for full season packs', unit: 'GB', defaultValue: 1, step: 1, min: 0.1, isFloat: true } },
+  { key: 'minFileSize', config: { label: 'Movie / Episode File Size', description: 'Filters out individual movie or episode files smaller than this size', unit: 'GB', defaultValue: 0.1, step: 1, min: 0.01, isFloat: true } },
+  { key: 'minSeasonPackEpisodeSize', config: { label: 'Series / Season Pack Per-Episode Size', description: 'Minimum estimated per-episode size within series / season packs', unit: 'GB', defaultValue: 0.1, step: 0.1, min: 0.01, isFloat: true } },
+  { key: 'minSeasonPackSize', config: { label: 'Series / Season Pack Total Size', description: 'Minimum total size for full series / season packs', unit: 'GB', defaultValue: 1, step: 1, min: 0.1, isFloat: true } },
 ];
 
 const MAX_SIZE_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
-  { key: 'maxFileSize', config: { label: 'Episode File Size', description: 'Filters out individual episode files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
-  { key: 'maxSeasonPackEpisodeSize', config: { label: 'Season Pack Per-Episode Size', description: 'Maximum estimated per-episode size within season packs', unit: 'GB', defaultValue: 50, step: 1, min: 0.1, isFloat: true } },
-  { key: 'maxSeasonPackSize', config: { label: 'Season Pack Total Size', description: 'Maximum total size for full season packs', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
+  { key: 'maxFileSize', config: { label: 'Movie / Episode File Size', description: 'Filters out individual movie or episode files larger than this size', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
+  { key: 'maxSeasonPackEpisodeSize', config: { label: 'Series / Season Pack Per-Episode Size', description: 'Maximum estimated per-episode size within series / season packs', unit: 'GB', defaultValue: 50, step: 1, min: 0.1, isFloat: true } },
+  { key: 'maxSeasonPackSize', config: { label: 'Series / Season Pack Total Size', description: 'Maximum total size for full series / season packs', unit: 'GB', defaultValue: 50, step: 1, min: 1, isFloat: true } },
 ];
 
 const STREAM_LIMIT_FIELDS: { key: keyof FiltersState; config: StreamFilterFieldConfig }[] = [
   { key: 'maxStreams', config: { label: 'Max Total Streams', description: 'Maximum total streams to display overall', defaultValue: 25, step: 1, min: 1 } },
   { key: 'maxStreamsPerResolution', config: { label: 'Max Streams Per Resolution', description: 'Limit streams per resolution level (4K, 1080p, etc.)', defaultValue: 10, step: 1, min: 1 } },
   { key: 'maxStreamsPerQuality', config: { label: 'Max Streams Per Quality', description: 'Limit streams per source quality (BluRay, WEB-DL, etc.)', defaultValue: 10, step: 1, min: 1 } },
+  { key: 'maxSeasonPacks', config: { label: 'Max Series / Season Packs', description: 'Limits the number of series / season packs, in priority order, in the results list.', defaultValue: 5, step: 1, min: 1 } },
 ];
 
 const SORT_DIRECTION_LABELS: Record<string, Record<string, string>> = {
   size: { desc: 'Largest first', asc: 'Smallest first' },
   age: { asc: 'Newest first', desc: 'Oldest first' },
   bitrate: { desc: 'Highest first', asc: 'Lowest first' },
+  regexScore: { desc: 'Highest first', asc: 'Lowest first' },
+  seScore: { desc: 'Highest first', asc: 'Lowest first' },
 };
 
 const SORT_DIRECTION_DEFAULTS: Record<string, 'asc' | 'desc'> = {
   size: 'desc',
   age: 'asc',
   bitrate: 'desc',
+  regexScore: 'desc',
+  seScore: 'desc',
 };
 
 const DISPLAY_LABELS: Record<string, string> = {
   '4k': '4K',
   'hevc': 'HEVC (h265 / x265)',
   'avc': 'AVC (h264 / x264)',
+  'vvc': 'VVC (h266 / x266)',
   'xvid': 'XviD (DivX)',
   'av1': 'AV1',
   'vp9': 'VP9',
@@ -170,6 +179,9 @@ interface FiltersOverlayProps {
   setMovieFilters: React.Dispatch<React.SetStateAction<FiltersState | null>>;
   tvFilters: FiltersState | null;
   setTvFilters: React.Dispatch<React.SetStateAction<FiltersState | null>>;
+  junkFilter: boolean;
+  setJunkFilter: React.Dispatch<React.SetStateAction<boolean>>;
+  apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
 export default function FiltersOverlay({
@@ -180,6 +192,9 @@ export default function FiltersOverlay({
   setMovieFilters,
   tvFilters,
   setTvFilters,
+  junkFilter,
+  setJunkFilter,
+  apiFetch,
 }: FiltersOverlayProps) {
   // Local drag states for sort order
   const [draggedSortItem, setDraggedSortItem] = useState<string | null>(null);
@@ -213,30 +228,62 @@ export default function FiltersOverlay({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Filter className="w-6 h-6 text-purple-400" />
-                <h3 className="text-xl font-semibold text-slate-200">Filters & Sorting</h3>
+                <h3 className="text-xl font-semibold text-slate-200">Filters, Rules & Sorting</h3>
               </div>
               <button onClick={() => onClose()} className="text-slate-400 hover:text-slate-200 transition-colors">
                 <X className="w-6 h-6" />
               </button>
             </div>
           </div>
-          {/* Movie/TV Tab Bar */}
-          <div className="flex gap-1 px-4 md:px-6 pt-4 pb-0">
-            {([['all', 'Global'], ['movie', 'Movies'], ['tv', 'TV Shows']] as const).map(([tab, label]) => (
+        </div>
+
+        {/* Baseline Filters — global section above the per-type tab bar.
+            Card-in-card layout matches the Prefer Season Packs pattern.
+            Keep labels in sync with src/addon/junkFilter.ts JUNK_LABELS. */}
+        <div className="px-4 md:px-6 pt-4">
+          <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4">
+            <div className="text-xs font-medium text-slate-400 mb-3">Baseline Filters</div>
+            <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700/50 bg-slate-800/30">
+              <div>
+                <div className="text-sm font-medium text-slate-300">Junk Filter</div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Strips <span className="text-slate-400">par2 · nzb · rar · r01–r99 · 001–999</span> from results before ranking. Typically stray entries from older indexer databases that never represent valid releases.
+                </div>
+              </div>
               <button
-                key={tab}
-                onClick={() => setFilterTab(tab)}
+                aria-label="Junk Filter"
+                aria-pressed={junkFilter}
+                onClick={() => setJunkFilter(!junkFilter)}
                 className={clsx(
-                  "px-4 py-2 text-sm font-medium rounded-t-lg transition-colors",
-                  filterTab === tab
-                    ? "bg-slate-800 text-purple-400 border border-slate-700/50 border-b-0"
-                    : "text-slate-400 hover:text-slate-300 hover:bg-slate-800/50"
+                  "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                  junkFilter ? "bg-purple-500" : "bg-slate-600"
                 )}
               >
-                {label}
+                <div className={clsx(
+                  "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                  junkFilter ? "left-5" : "left-1"
+                )} />
               </button>
-            ))}
+            </div>
           </div>
+        </div>
+
+        {/* Movie/TV Tab Bar */}
+        <div className="flex gap-1 px-4 md:px-6 pt-4 pb-0">
+          {([['all', 'Global'], ['movie', 'Movies'], ['tv', 'TV Shows']] as const).map(([tab, label]) => (
+            <button
+              key={tab}
+              onClick={() => setFilterTab(tab)}
+              className={clsx(
+                "px-4 py-2 text-sm font-medium rounded-t-lg transition-colors",
+                filterTab === tab
+                  ? "bg-slate-800 text-purple-400 border border-slate-700/50 border-b-0"
+                  : "text-slate-400 hover:text-slate-300 hover:bg-slate-800/50"
+              )}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* Per-type override toggle */}
@@ -310,8 +357,10 @@ export default function FiltersOverlay({
                   <StreamFilterField
                     key={key}
                     config={filterTab === 'movie'
-                      ? { ...config, label: 'Minimum Movie File Size', description: config.description.replace('individual episode files', 'movie files') }
-                      : config}
+                      ? { ...config, label: 'Movie File Size', description: config.description.replace('individual movie or episode files', 'movie files') }
+                      : filterTab === 'tv' && key === 'minFileSize'
+                        ? { ...config, label: 'Episode File Size', description: config.description.replace('individual movie or episode files', 'individual episode files') }
+                        : config}
                     value={activeFilters[key] as number | undefined}
                     onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
                   />
@@ -327,24 +376,148 @@ export default function FiltersOverlay({
                   <StreamFilterField
                     key={key}
                     config={filterTab === 'movie'
-                      ? { ...config, label: 'Maximum Movie File Size', description: config.description.replace('individual episode files', 'movie files') }
-                      : config}
+                      ? { ...config, label: 'Movie File Size', description: config.description.replace('individual movie or episode files', 'movie files') }
+                      : filterTab === 'tv' && key === 'maxFileSize'
+                        ? { ...config, label: 'Episode File Size', description: config.description.replace('individual movie or episode files', 'individual episode files') }
+                        : config}
                     value={activeFilters[key] as number | undefined}
                     onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
                   />
                 ))}
             </div>
 
-            {/* Stream Limits */}
-            {STREAM_LIMIT_FIELDS.map(({ key, config }) => (
-              <StreamFilterField
-                key={key}
-                config={config}
-                value={activeFilters[key] as number | undefined}
-                onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
-              />
-            ))}
+            {/* Max Streams */}
+            <div className="bg-slate-800/30 rounded-lg border border-slate-700/20 p-3 space-y-4">
+              <div className="text-xs font-medium text-slate-400">Max Streams</div>
+              {STREAM_LIMIT_FIELDS
+                .filter(({ key }) => key !== 'maxSeasonPacks' || filterTab !== 'movie')
+                .map(({ key, config }) => (
+                  <StreamFilterField
+                    key={key}
+                    config={config}
+                    value={activeFilters[key] as number | undefined}
+                    onChange={(v) => updateActiveFilters({ ...activeFilters, [key]: v })}
+                  />
+                ))}
+            </div>
+
+            {/* TV-only result filters (hidden on Movies tab) */}
+            {filterTab !== 'movie' && (() => {
+              const enableRemake = activeFilters.enableRemakeFiltering ?? true;
+              const allowMultiEp = activeFilters.allowMultiEpisodeFiles ?? true;
+              return (
+                <>
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700/50 bg-slate-800/30">
+                    <div>
+                      <div className="text-sm font-medium text-slate-300">Remake / Reboot Detection</div>
+                      <div className="text-xs text-slate-500 mt-0.5">For TV shows with known remakes or reboots, filter out results from the wrong version by cross-referencing year or episode name via TVDB. Applies to all search methods.</div>
+                    </div>
+                    <button
+                      aria-label="Remake / Reboot Detection"
+                      aria-pressed={enableRemake}
+                      onClick={() => updateActiveFilters(prev => ({ ...prev, enableRemakeFiltering: !(prev.enableRemakeFiltering ?? true) }))}
+                      className={clsx(
+                        "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                        enableRemake ? "bg-purple-500" : "bg-slate-600"
+                      )}
+                    >
+                      <div className={clsx(
+                        "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                        enableRemake ? "left-5" : "left-1"
+                      )} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700/50 bg-slate-800/30">
+                    <div>
+                      <div className="text-sm font-medium text-slate-300">Allow Multi-Episode Files</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Allow results that contain multiple episodes (e.g. S01E01E02.mkv). When disabled, multi-episode results are filtered out and won't appear in results. Enabling this option will flush previously blocked multi-episode NZBs from the dead NZB database.</div>
+                    </div>
+                    <button
+                      aria-label="Allow Multi-Episode Files"
+                      aria-pressed={allowMultiEp}
+                      onClick={() => updateActiveFilters(prev => ({ ...prev, allowMultiEpisodeFiles: !(prev.allowMultiEpisodeFiles ?? true) }))}
+                      className={clsx(
+                        "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                        allowMultiEp ? "bg-purple-500" : "bg-slate-600"
+                      )}
+                    >
+                      <div className={clsx(
+                        "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                        allowMultiEp ? "left-5" : "left-1"
+                      )} />
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
+
+          {/* Ranked Rules */}
+          <RulesSection
+            rules={(activeFilters as any).rules}
+            onChange={(nextRules) => updateActiveFilters({ ...activeFilters, rules: nextRules } as FiltersState)}
+            apiFetch={apiFetch}
+            disabled={isReadOnly}
+          />
+
+          {/* Prefer Season Packs (hidden on Movies tab) */}
+          {filterTab !== 'movie' && (() => {
+            const preferPacks = activeFilters.preferSeasonPacks ?? false;
+            return (
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4">
+                <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700/50 bg-slate-800/30">
+                  <div>
+                    <div className="text-sm font-medium text-slate-300">Prefer Series / Season Packs</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Sort series / season packs to the top of the results list in priority order.</div>
+                    <div className="text-xs text-slate-500 italic mt-1">Note: series / season packs deprioritized by Remake Detection remain at the end of the results list.</div>
+                  </div>
+                  <button
+                    aria-label="Prefer Series / Season Packs"
+                    aria-pressed={preferPacks}
+                    onClick={() => updateActiveFilters(prev => ({ ...prev, preferSeasonPacks: !(prev.preferSeasonPacks ?? false) }))}
+                    className={clsx(
+                      "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                      preferPacks ? "bg-purple-500" : "bg-slate-600"
+                    )}
+                  >
+                    <div className={clsx(
+                      "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                      preferPacks ? "left-5" : "left-1"
+                    )} />
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Prefer Library Results (rendered on all tabs since the library covers both content types) */}
+          {(() => {
+            const preferLibrary = activeFilters.preferLibraryResults ?? false;
+            return (
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4">
+                <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700/50 bg-slate-800/30">
+                  <div>
+                    <div className="text-sm font-medium text-slate-300">Prefer Library Results</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Sort indexer results that are already in your WebDAV library to the top of the list in priority order. Requires Display Library In Results to be enabled.</div>
+                  </div>
+                  <button
+                    aria-label="Prefer Library Results"
+                    aria-pressed={preferLibrary}
+                    onClick={() => updateActiveFilters(prev => ({ ...prev, preferLibraryResults: !(prev.preferLibraryResults ?? false) }))}
+                    className={clsx(
+                      "relative w-10 h-6 rounded-full transition-colors flex-shrink-0",
+                      preferLibrary ? "bg-purple-500" : "bg-slate-600"
+                    )}
+                  >
+                    <div className={clsx(
+                      "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
+                      preferLibrary ? "left-5" : "left-1"
+                    )} />
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Sort Order Priority */}
           <div>
@@ -367,6 +540,8 @@ export default function FiltersOverlay({
                   edition: 'Edition',
                   age: 'Age',
                   bitrate: 'Bitrate',
+                  regexScore: 'Ranked Regex Score',
+                  seScore: 'Ranked SEL Score',
                 };
                 const hasDirection = method in SORT_DIRECTION_LABELS;
                 const currentDir = activeFilters.sortDirections?.[method] ?? SORT_DIRECTION_DEFAULTS[method];
@@ -472,10 +647,10 @@ export default function FiltersOverlay({
             // Map sort method to priority section config
             const prioritySections: Record<string, { expandKey: string; title: string; subtitle: string; items: string[]; filterKey: keyof typeof activeFilters; priorityKey: string; dragState: [string | null, (v: string | null) => void]; dragOverState: [string | null, (v: string | null) => void] }> = {
               quality: { expandKey: 'resolution', title: 'Resolution Filters & Priorities', subtitle: 'Drag to reorder your preferred resolutions', items: activeFilters.resolutionPriority || ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'], filterKey: 'resolutionPriority' as keyof typeof activeFilters, priorityKey: 'resolution', dragState: [draggedResolution, setDraggedResolution], dragOverState: [dragOverResolution, setDragOverResolution] },
-              videoTag: { expandKey: 'video', title: 'Quality Filters & Priorities', subtitle: 'Drag to reorder your preferred quality sources', items: activeFilters.videoPriority || ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'], filterKey: 'videoPriority' as keyof typeof activeFilters, priorityKey: 'video', dragState: [draggedVideoTag, setDraggedVideoTag], dragOverState: [dragOverVideoTag, setDragOverVideoTag] },
-              encode: { expandKey: 'encode', title: 'Encode Filters & Priorities', subtitle: 'Drag to reorder your preferred encodes', items: activeFilters.encodePriority || ['av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'], filterKey: 'encodePriority' as keyof typeof activeFilters, priorityKey: 'encode', dragState: [draggedEncode, setDraggedEncode], dragOverState: [dragOverEncode, setDragOverEncode] },
+              videoTag: { expandKey: 'video', title: 'Quality Filters & Priorities', subtitle: 'Drag to reorder your preferred quality sources', items: activeFilters.videoPriority || ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'DCP', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'], filterKey: 'videoPriority' as keyof typeof activeFilters, priorityKey: 'video', dragState: [draggedVideoTag, setDraggedVideoTag], dragOverState: [dragOverVideoTag, setDragOverVideoTag] },
+              encode: { expandKey: 'encode', title: 'Encode Filters & Priorities', subtitle: 'Drag to reorder your preferred encodes', items: activeFilters.encodePriority || ['vvc', 'av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'], filterKey: 'encodePriority' as keyof typeof activeFilters, priorityKey: 'encode', dragState: [draggedEncode, setDraggedEncode], dragOverState: [dragOverEncode, setDragOverEncode] },
               visualTag: { expandKey: 'visualTag', title: 'Visual Tag Filters & Priorities', subtitle: 'Drag to reorder your preferred visual tags', items: activeFilters.visualTagPriority || ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'], filterKey: 'visualTagPriority' as keyof typeof activeFilters, priorityKey: 'visualTag', dragState: [draggedVisualTag, setDraggedVisualTag], dragOverState: [dragOverVisualTag, setDragOverVisualTag] },
-              audioTag: { expandKey: 'audioTag', title: 'Audio Tag Filters & Priorities', subtitle: 'Drag to reorder your preferred audio tags', items: activeFilters.audioTagPriority || ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'], filterKey: 'audioTagPriority' as keyof typeof activeFilters, priorityKey: 'audioTag', dragState: [draggedAudioTag, setDraggedAudioTag], dragOverState: [dragOverAudioTag, setDragOverAudioTag] },
+              audioTag: { expandKey: 'audioTag', title: 'Audio Tag Filters & Priorities', subtitle: 'Drag to reorder your preferred audio tags', items: activeFilters.audioTagPriority || ['Atmos (TrueHD)', 'DTS:X', 'Atmos (DD+)', 'TrueHD', 'DTS-HD MA', 'FLAC', 'DTS-HD', 'DD+', 'DTS-ES', 'DTS', 'AAC', 'DD', 'Opus', 'PCM', 'MP3', 'Unknown'], filterKey: 'audioTagPriority' as keyof typeof activeFilters, priorityKey: 'audioTag', dragState: [draggedAudioTag, setDraggedAudioTag], dragOverState: [dragOverAudioTag, setDragOverAudioTag] },
               language: { expandKey: 'language', title: 'Language Filters & Priorities', subtitle: 'Drag to reorder your preferred languages', items: activeFilters.languagePriority || ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'], filterKey: 'languagePriority' as keyof typeof activeFilters, priorityKey: 'language', dragState: [draggedLanguage, setDraggedLanguage], dragOverState: [dragOverLanguage, setDragOverLanguage] },
               edition: { expandKey: 'edition', title: 'Edition Filters & Priorities', subtitle: 'Drag to reorder preferred editions (Extended, Director\'s Cut, etc.)', items: activeFilters.editionPriority || ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'], filterKey: 'editionPriority' as keyof typeof activeFilters, priorityKey: 'edition', dragState: [draggedEdition, setDraggedEdition], dragOverState: [dragOverEdition, setDragOverEdition] },
             };
@@ -654,49 +829,7 @@ export default function FiltersOverlay({
           <div className="flex gap-3">
             <button
               onClick={() => {
-                const defaults: FiltersState = {
-                  sortOrder: ['quality', 'videoTag', 'size', 'encode', 'visualTag', 'audioTag', 'language', 'edition', 'age', 'bitrate'],
-                  enabledSorts: {
-                    quality: true,
-                    videoTag: true,
-                    size: true,
-                    encode: true,
-                    visualTag: true,
-                    audioTag: true,
-                    language: false,
-                    edition: false,
-                    age: false,
-                    bitrate: false,
-                  },
-                  sortDirections: {},
-                  enabledPriorities: {
-                    resolution: {},
-                    video: {},
-                    encode: {},
-                    visualTag: { '3D': false },
-                    audioTag: {},
-                    language: {},
-                    edition: {}
-                  },
-                  minFileSize: undefined,
-                  maxFileSize: undefined,
-                  minSeasonPackSize: undefined,
-                  maxSeasonPackSize: undefined,
-                  minSeasonPackEpisodeSize: undefined,
-                  maxSeasonPackEpisodeSize: undefined,
-                  maxStreams: undefined,
-                  maxStreamsPerResolution: undefined,
-                  maxStreamsPerQuality: undefined,
-                  resolutionPriority: ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'],
-                  videoPriority: ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'],
-                  encodePriority: ['av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'],
-                  visualTagPriority: ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'],
-                  audioTagPriority: ['Atmos (TrueHD)', 'DTS Lossless', 'TrueHD', 'Atmos (DDP)', 'DTS Lossy', 'DDP', 'DD', 'FLAC', 'PCM', 'AAC', 'OPUS', 'MP3', 'Unknown'],
-                  languagePriority: ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'],
-                  editionPriority: ['Extended Edition', "Director's Cut", 'Superfan', 'Unrated', 'Uncensored', 'Uncut', 'Theatrical', 'IMAX', 'Special Edition', "Collector's Edition", 'Criterion Collection', 'Ultimate Edition', 'Anniversary Edition', 'Diamond Edition', 'Dragon Box', 'Color Corrected', 'Remastered', 'Standard'],
-                  preferNonStandardEdition: false
-                };
-                updateActiveFilters(defaults);
+                updateActiveFilters({ ...DEFAULT_FILTERS, sortDirections: {} } as FiltersState);
                 setMovieFilters(null);
                 setTvFilters(null);
               }}

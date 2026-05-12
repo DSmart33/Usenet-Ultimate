@@ -22,9 +22,14 @@ import {
   Settings,
   ChevronDown,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import clsx from 'clsx';
 import type { Config, Indexer, SyncedIndexer, IndexerCaps } from '../../types';
+import { SERIES_PACK_KEYWORDS } from '../../types';
+import { useHoldRepeat } from '../../hooks/useHoldRepeat';
+import { TimeoutStepper } from '../shared/TimeoutStepper';
+import { PagesStepper } from '../shared/PagesStepper';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../../constants';
 
 interface IndexManagerOverlayProps {
   onClose: () => void;
@@ -53,22 +58,72 @@ interface IndexManagerOverlayProps {
   // Season packs
   includeSeasonPacks: boolean;
   setIncludeSeasonPacks: React.Dispatch<React.SetStateAction<boolean>>;
+  includeMultiSeasonPacks: boolean;
+  setIncludeMultiSeasonPacks: React.Dispatch<React.SetStateAction<boolean>>;
+
+  // Series-pack indexer search (advanced; keyword-only releases without Sxx tokens).
+  // Empty array means feature is off; selecting a chip enables that keyword's query.
+  seriesPackKeywords: string[];
+  setSeriesPackKeywords: React.Dispatch<React.SetStateAction<string[]>>;
   seasonPackPagination: boolean;
   setSeasonPackPagination: React.Dispatch<React.SetStateAction<boolean>>;
   seasonPackAdditionalPages: number;
   setSeasonPackAdditionalPages: React.Dispatch<React.SetStateAction<number>>;
-
-  // Remake detection
-  enableRemakeFiltering: boolean;
-  setEnableRemakeFiltering: React.Dispatch<React.SetStateAction<boolean>>;
-
-  // Multi-episode files
-  allowMultiEpisodeFiles: boolean;
-  setAllowMultiEpisodeFiles: React.Dispatch<React.SetStateAction<boolean>>;
+  seriesPackPagination: boolean;
+  setSeriesPackPagination: React.Dispatch<React.SetStateAction<boolean>>;
+  seriesPackAdditionalPages: number;
+  setSeriesPackAdditionalPages: React.Dispatch<React.SetStateAction<number>>;
 
   // URL dedup
   urlDedup: boolean;
   setUrlDedup: React.Dispatch<React.SetStateAction<boolean>>;
+
+  // Library short-circuit threshold (0 = off, 1-10 = active)
+  librarySearchThreshold: number;
+  setLibrarySearchThreshold: React.Dispatch<React.SetStateAction<number>>;
+
+  // Per-type apply toggles for Ultimate Library (default true each)
+  libraryApplyToMovies: boolean;
+  setLibraryApplyToMovies: React.Dispatch<React.SetStateAction<boolean>>;
+  libraryApplyToSeries: boolean;
+  setLibraryApplyToSeries: React.Dispatch<React.SetStateAction<boolean>>;
+
+  // Include /content/uncategorized as a second scan root
+  librarySearchScanUncategorized: boolean;
+  setLibrarySearchScanUncategorized: React.Dispatch<React.SetStateAction<boolean>>;
+
+  // Run Ultimate Library on cache hit (default false)
+  libraryRunOnCacheHit: boolean;
+  setLibraryRunOnCacheHit: React.Dispatch<React.SetStateAction<boolean>>;
+
+  // Display library in results
+  displayLibraryInResults: boolean;
+  setDisplayLibraryInResults: React.Dispatch<React.SetStateAction<boolean>>;
+  // Library delete tiles (two toggles, both default false). Two-step
+  // click-confirm enforced server-side. Tiles are spliced into the streams
+  // array post-build and never enter fallbackCandidates so UF skips them.
+  libraryDeleteAllTile: boolean;
+  setLibraryDeleteAllTile: React.Dispatch<React.SetStateAction<boolean>>;
+  libraryDeletePerStreamTile: boolean;
+  setLibraryDeletePerStreamTile: React.Dispatch<React.SetStateAction<boolean>>;
+  // Opens the best-practices modal when the user enables either delete tile.
+  // Toggling off bypasses the modal and flips the toggle directly.
+  setLibraryDeleteWarning: React.Dispatch<React.SetStateAction<{ show: boolean; toggleType: 'all' | 'perStream' | null }>>;
+  // Position of the "Skip Ultimate Library" stream tile in the results list.
+  librarySkipTilePosition: 'second' | 'last';
+  setLibrarySkipTilePosition: React.Dispatch<React.SetStateAction<'second' | 'last'>>;
+  // For series/season pack results, the "Delete All" tile deletes either the
+  // per-episode file ('episode', default) or the entire release folder ('pack').
+  libraryDeleteAllPackScope: 'episode' | 'pack';
+  setLibraryDeleteAllPackScope: React.Dispatch<React.SetStateAction<'episode' | 'pack'>>;
+  absoluteEpisodeFallback: boolean;
+  setAbsoluteEpisodeFallback: React.Dispatch<React.SetStateAction<boolean>>;
+  parallelAlternateTitleSearch: boolean;
+  setParallelAlternateTitleSearch: React.Dispatch<React.SetStateAction<boolean>>;
+  aliasTitleFallback: boolean;
+  setAliasTitleFallback: React.Dispatch<React.SetStateAction<boolean>>;
+  tvdbPreferEnglishTitle: boolean;
+  setTvdbPreferEnglishTitle: React.Dispatch<React.SetStateAction<boolean>>;
 
   // Indexer priority dedup
   indexerPriorityDedup: boolean;
@@ -91,6 +146,10 @@ interface IndexManagerOverlayProps {
   setEasynewsPagination: React.Dispatch<React.SetStateAction<boolean>>;
   easynewsMaxPages: number;
   setEasynewsMaxPages: React.Dispatch<React.SetStateAction<number>>;
+  easynewsTimeoutEnabled: boolean;
+  setEasynewsTimeoutEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  easynewsTimeout: number;
+  setEasynewsTimeout: React.Dispatch<React.SetStateAction<number>>;
   easynewsMode: 'ddl' | 'nzb';
   setEasynewsMode: React.Dispatch<React.SetStateAction<'ddl' | 'nzb'>>;
   showEasynewsPassword: boolean;
@@ -107,6 +166,10 @@ interface IndexManagerOverlayProps {
   setProwlarrApiKey: React.Dispatch<React.SetStateAction<string>>;
   showProwlarrKey: boolean;
   setShowProwlarrKey: React.Dispatch<React.SetStateAction<boolean>>;
+  prowlarrTimeoutEnabled: boolean;
+  setProwlarrTimeoutEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  prowlarrTimeout: number;
+  setProwlarrTimeout: React.Dispatch<React.SetStateAction<number>>;
 
   // NZBHydra
   nzbhydraUrl: string;
@@ -121,6 +184,10 @@ interface IndexManagerOverlayProps {
   setNzbhydraPassword: React.Dispatch<React.SetStateAction<string>>;
   showNzbhydraPassword: boolean;
   setShowNzbhydraPassword: React.Dispatch<React.SetStateAction<boolean>>;
+  nzbhydraTimeoutEnabled: boolean;
+  setNzbhydraTimeoutEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  nzbhydraTimeout: number;
+  setNzbhydraTimeout: React.Dispatch<React.SetStateAction<number>>;
 
   // Sync state
   syncedIndexers: SyncedIndexer[];
@@ -184,16 +251,49 @@ export function IndexManagerOverlay({
   testTvdbKey,
   includeSeasonPacks,
   setIncludeSeasonPacks,
+  includeMultiSeasonPacks,
+  setIncludeMultiSeasonPacks,
+  seriesPackKeywords,
+  setSeriesPackKeywords,
   seasonPackPagination,
   setSeasonPackPagination,
   seasonPackAdditionalPages,
   setSeasonPackAdditionalPages,
-  enableRemakeFiltering,
-  setEnableRemakeFiltering,
-  allowMultiEpisodeFiles,
-  setAllowMultiEpisodeFiles,
+  seriesPackPagination,
+  setSeriesPackPagination,
+  seriesPackAdditionalPages,
+  setSeriesPackAdditionalPages,
   urlDedup,
   setUrlDedup,
+  librarySearchThreshold,
+  setLibrarySearchThreshold,
+  libraryApplyToMovies,
+  setLibraryApplyToMovies,
+  libraryApplyToSeries,
+  setLibraryApplyToSeries,
+  librarySearchScanUncategorized,
+  setLibrarySearchScanUncategorized,
+  libraryRunOnCacheHit,
+  setLibraryRunOnCacheHit,
+  displayLibraryInResults,
+  setDisplayLibraryInResults,
+  libraryDeleteAllTile,
+  setLibraryDeleteAllTile,
+  libraryDeletePerStreamTile,
+  setLibraryDeletePerStreamTile,
+  setLibraryDeleteWarning,
+  librarySkipTilePosition,
+  setLibrarySkipTilePosition,
+  libraryDeleteAllPackScope,
+  setLibraryDeleteAllPackScope,
+  absoluteEpisodeFallback,
+  setAbsoluteEpisodeFallback,
+  parallelAlternateTitleSearch,
+  setParallelAlternateTitleSearch,
+  aliasTitleFallback,
+  setAliasTitleFallback,
+  tvdbPreferEnglishTitle,
+  setTvdbPreferEnglishTitle,
   indexerPriorityDedup,
   setIndexerPriorityDedup,
   indexerPriority,
@@ -212,6 +312,10 @@ export function IndexManagerOverlay({
   setEasynewsPagination,
   easynewsMaxPages,
   setEasynewsMaxPages,
+  easynewsTimeoutEnabled,
+  setEasynewsTimeoutEnabled,
+  easynewsTimeout,
+  setEasynewsTimeout,
   easynewsMode,
   setEasynewsMode,
   showEasynewsPassword,
@@ -226,6 +330,10 @@ export function IndexManagerOverlay({
   setProwlarrApiKey,
   showProwlarrKey,
   setShowProwlarrKey,
+  prowlarrTimeoutEnabled,
+  setProwlarrTimeoutEnabled,
+  prowlarrTimeout,
+  setProwlarrTimeout,
   nzbhydraUrl,
   setNzbhydraUrl,
   nzbhydraApiKey,
@@ -238,6 +346,10 @@ export function IndexManagerOverlay({
   setNzbhydraPassword,
   showNzbhydraPassword,
   setShowNzbhydraPassword,
+  nzbhydraTimeoutEnabled,
+  setNzbhydraTimeoutEnabled,
+  nzbhydraTimeout,
+  setNzbhydraTimeout,
   syncedIndexers,
   setSyncedIndexers,
   syncStatus,
@@ -270,6 +382,23 @@ export function IndexManagerOverlay({
   fetchIndexers,
 }: IndexManagerOverlayProps) {
   const [showNzbhydraAdvanced, setShowNzbhydraAdvanced] = useState(false);
+
+  // Hold-to-accelerate +/− handlers for the 3 top-level searcher timeouts.
+  // Mirrors the wait-time stepper pattern from UltimateFallbackOverlay.
+  const prowlarrTimeoutDec = useHoldRepeat(useCallback(() => setProwlarrTimeout(p => Math.max(1, p - 1)), [setProwlarrTimeout]));
+  const prowlarrTimeoutInc = useHoldRepeat(useCallback(() => setProwlarrTimeout(p => Math.min(45, p + 1)), [setProwlarrTimeout]));
+  const nzbhydraTimeoutDec = useHoldRepeat(useCallback(() => setNzbhydraTimeout(p => Math.max(1, p - 1)), [setNzbhydraTimeout]));
+  const nzbhydraTimeoutInc = useHoldRepeat(useCallback(() => setNzbhydraTimeout(p => Math.min(45, p + 1)), [setNzbhydraTimeout]));
+  const easynewsTimeoutDec = useHoldRepeat(useCallback(() => setEasynewsTimeout(p => Math.max(1, p - 1)), [setEasynewsTimeout]));
+  const easynewsTimeoutInc = useHoldRepeat(useCallback(() => setEasynewsTimeout(p => Math.min(45, p + 1)), [setEasynewsTimeout]));
+  const libraryThresholdDec = useHoldRepeat(useCallback(() => setLibrarySearchThreshold(p => Math.max(1, p - 1)), [setLibrarySearchThreshold]));
+  const libraryThresholdInc = useHoldRepeat(useCallback(() => setLibrarySearchThreshold(p => Math.min(10, p + 1)), [setLibrarySearchThreshold]));
+  const seasonPackPagesDec = useHoldRepeat(useCallback(() => setSeasonPackAdditionalPages(p => Math.max(1, p - 1)), [setSeasonPackAdditionalPages]));
+  const seasonPackPagesInc = useHoldRepeat(useCallback(() => setSeasonPackAdditionalPages(p => Math.min(10, p + 1)), [setSeasonPackAdditionalPages]));
+  const seriesPackPagesDec = useHoldRepeat(useCallback(() => setSeriesPackAdditionalPages(p => Math.max(1, p - 1)), [setSeriesPackAdditionalPages]));
+  const seriesPackPagesInc = useHoldRepeat(useCallback(() => setSeriesPackAdditionalPages(p => Math.min(10, p + 1)), [setSeriesPackAdditionalPages]));
+  const easynewsPagesDec = useHoldRepeat(useCallback(() => setEasynewsMaxPages(p => Math.max(1, p - 1)), [setEasynewsMaxPages]));
+  const easynewsPagesInc = useHoldRepeat(useCallback(() => setEasynewsMaxPages(p => Math.min(10, p + 1)), [setEasynewsMaxPages]));
 
   /** Reset all sync-related UI state (called when credentials change or manager switches) */
   const resetSyncState = () => {
@@ -403,6 +532,78 @@ export function IndexManagerOverlay({
                   </div>
                 </div>
 
+                {/* Absolute episode fallback (Ultimate Text Search retry on zero-result series queries) */}
+                <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-slate-300">Absolute Episode Fallback</div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="absolute-episode-fallback"
+                        checked={absoluteEpisodeFallback}
+                        onChange={(e) => setAbsoluteEpisodeFallback(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                    </label>
+                  </div>
+                  <div className="text-xs text-slate-500">When a series text-search returns zero results for a SxxExx query, retry with absolute episode numbering (Title E31 instead of S03E07). Applies to Ultimate Text Search only.</div>
+                </div>
+
+                {/* Alias Title Fallback (zero-result UTS retry with TVDB substring aliases) */}
+                <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-slate-300">Alias Title Fallback</div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="alias-title-fallback"
+                        checked={aliasTitleFallback}
+                        onChange={(e) => setAliasTitleFallback(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                    </label>
+                  </div>
+                  <div className="text-xs text-slate-500">When a search returns zero results, retry once per English alias from TVDB whose normalized form is a strict substring of the canonical title and substantially shorter. Helps shows whose release groups publish under a shortened name rather than the full canonical title. Applies to Ultimate Text Search only.</div>
+                </div>
+
+                {/* TVDB English title preference (substitute non-English canonical names with the English translation) */}
+                <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-slate-300">Always Resolve TVDB Title in English</div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="tvdb-prefer-english-title"
+                        checked={tvdbPreferEnglishTitle}
+                        onChange={(e) => setTvdbPreferEnglishTitle(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                    </label>
+                  </div>
+                  <div className="text-xs text-slate-500">When TVDB's canonical title is in a non-English language, substitute the English translation when one exists. Improves indexer match rates for English release groups. Toggling clears the TVDB title cache so the change applies on your next search. Applies to Ultimate Text Search only.</div>
+                </div>
+
+                {/* Parallel alternate-title search (Ultimate Text Search dual-title concurrency) */}
+                <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-slate-300">Always Search Alternate Titles In Parallel</div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="parallel-alternate-title-search"
+                        checked={parallelAlternateTitleSearch}
+                        onChange={(e) => setParallelAlternateTitleSearch(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                    </label>
+                  </div>
+                  <div className="text-xs text-slate-500">When alternate titles are available (Cinemeta vs TVDB/TMDB mismatch, or TVDB's native title vs its English translation when "Always Resolve TVDB Title in English" is on), query them in parallel with the primary instead of as a zero-result fallback. Doubles indexer load for shows with title mismatches. Applies to Ultimate Text Search only.</div>
+                </div>
+
                 {/* TMDB API Key */}
                 <div>
                   <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 mb-1 hover:text-primary-400 transition-colors">
@@ -487,148 +688,466 @@ export function IndexManagerOverlay({
                   </div>
                 </div>
 
-                {/* Include Season Packs */}
-                <div className="pt-3 border-t border-slate-700/30 space-y-2">
-                  <div className="flex items-center gap-3">
+              </div>
+
+              {/* Anime — own card */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                <div className="text-sm font-medium text-slate-300">Anime</div>
+                <div className="text-xs text-slate-500">Anime is detected automatically via the Fribb anime database or Cinemeta metadata. Configure anime search methods per-indexer below.</div>
+                <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
+                  <div className="text-xs font-medium text-slate-400 mb-1">Supported Anime IDs</div>
+                  <div className="text-xs text-slate-500">Kitsu · MAL · AniList · AniDB</div>
+                  <div className="text-xs text-slate-500 mt-1">Incoming anime IDs from metadata addons like AIOMetadata or Anime Kitsu are automatically resolved and mapped to the search methods configured per-indexer below.</div>
+                </div>
+              </div>
+
+              {/* Display Library in Results — own card */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-medium text-slate-300">Display library in results</div>
+                  <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      id="include-season-packs"
-                      checked={includeSeasonPacks}
-                      onChange={(e) => setIncludeSeasonPacks(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                      id="display-library-in-results"
+                      checked={displayLibraryInResults}
+                      onChange={(e) => setDisplayLibraryInResults(e.target.checked)}
+                      className="sr-only peer"
                     />
-                    <label htmlFor="include-season-packs" className="flex-1 cursor-pointer">
-                      <div className="text-sm font-medium text-slate-300">Include season packs</div>
-                      <div className="text-xs text-slate-500 mt-0.5">Include full-season downloads in episode results (size estimated per episode for sorting).</div>
+                    <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                  </label>
+                </div>
+                <div className="text-xs text-slate-500">Mark search results that already exist in your library with the 📚 icon. Adds a quick WebDAV check to each result before sending to Stremio.</div>
+              </div>
+
+              {/* Ultimate Library — primary search source */}
+              <div className="relative overflow-hidden rounded-xl border border-amber-500/30 bg-gradient-to-br from-amber-500/5 via-yellow-500/5 to-amber-500/5">
+                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-transparent to-yellow-500/5 animate-pulse" style={{ animationDuration: '4s' }} />
+                <div className="relative p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 to-yellow-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                        <Crown className="w-3.5 h-3.5 text-white" />
+                      </div>
+                      <h3 className="text-sm font-bold bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent">Ultimate Library</h3>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={librarySearchThreshold > 0}
+                        onChange={(e) => setLibrarySearchThreshold(e.target.checked ? 1 : 0)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
                     </label>
                   </div>
-                  {includeSeasonPacks && (
-                    <div className="pl-7 space-y-2">
-                      <div className="flex items-center gap-3">
+                  <div className="space-y-2 text-xs text-slate-300 leading-relaxed">
+                    <p>Scan your WebDAV library before any indexer is queried.</p>
+                    <p>When Ultimate Library returns at least the configured number of results after filtering, indexer searches are skipped entirely.</p>
+                    <p>Supports <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent font-semibold">Ultimate Fallback</span> and is powered by <span className="bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent font-semibold">Ultimate Text Search</span>.</p>
+                  </div>
+                  <p className="text-xs text-amber-400/60 italic">Pairs best with Season and Series Packs enabled.</p>
+
+                  {librarySearchThreshold > 0 && (
+                    <div className="space-y-3 pt-2 border-t border-amber-500/20">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs text-slate-300 font-medium">Result Threshold</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            {...libraryThresholdDec}
+                            aria-label="Decrease library threshold"
+                            className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                          >−</button>
+                          <span className="text-lg font-bold text-amber-400/90 tabular-nums w-10 text-center">{librarySearchThreshold}</span>
+                          <button
+                            {...libraryThresholdInc}
+                            aria-label="Increase library threshold"
+                            className="w-7 h-7 rounded-full bg-slate-700/60 border border-slate-600/40 text-slate-400 hover:text-slate-100 hover:bg-slate-600/80 hover:border-slate-500/60 active:scale-90 transition-all text-sm font-medium flex items-center justify-center select-none"
+                          >+</button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-amber-400/60 italic">Skip indexer queries when the library returns as least this many results after filtering · NzbDAV streaming mode only</p>
+
+                      <div className="space-y-3 pt-3 border-t border-amber-500/20">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs text-slate-300 font-medium">Apply to Movies</span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={libraryApplyToMovies}
+                              onChange={(e) => setLibraryApplyToMovies(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                          </label>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs text-slate-300 font-medium">Apply to TV</span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={libraryApplyToSeries}
+                              onChange={(e) => setLibraryApplyToSeries(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                          </label>
+                        </div>
+                        <p className="text-xs text-amber-400/60 italic">Scope which content types Ultimate Library applies to.</p>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 pt-3 border-t border-amber-500/20">
+                        <span className="text-xs text-slate-300 font-medium">Scan Uncategorized</span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={librarySearchScanUncategorized}
+                            onChange={(e) => setLibrarySearchScanUncategorized(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
+                      </div>
+                      <p className="text-xs text-amber-400/60 italic">Scan <code className="text-amber-300/80">/content/uncategorized</code>, in additon to the default categories, for content that's been manually uploaded to the default location in NzbDAV.</p>
+
+                      <div className="flex items-center justify-between gap-3 pt-3 border-t border-amber-500/20">
+                        <span className="text-xs text-slate-300 font-medium">Run on Cache Hit</span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={libraryRunOnCacheHit}
+                            onChange={(e) => setLibraryRunOnCacheHit(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
+                      </div>
+                      <div className="text-xs text-amber-400/60 italic space-y-1">
+                        <p>When enabled, Ultimate Library runs on every request, including when cached results exist.</p>
+                        <p>If the post-filter Ultimate Library scan meets your threshold, library results replace the cached results for that request.</p>
+                        <p>Otherwise, the cached results are returned.</p>
+                        <p>The "Skip Ultimate Library" stream tile will bypass Ultimate Library and return cached results, if they exist, on the next request.</p>
+                      </div>
+
+                      <div className="space-y-3 pt-3 border-t border-amber-500/20">
+                        <div className="text-sm font-semibold text-slate-200 py-2">Skip Ultimate Library Stream Tile</div>
+
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs text-slate-300 font-medium">Tile Position</span>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setLibrarySkipTilePosition('second')}
+                              className={clsx(
+                                "px-3 py-1 rounded-md text-xs font-medium border transition-colors",
+                                librarySkipTilePosition === 'second'
+                                  ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                                  : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                              )}
+                            >First</button>
+                            <button
+                              onClick={() => setLibrarySkipTilePosition('last')}
+                              className={clsx(
+                                "px-3 py-1 rounded-md text-xs font-medium border transition-colors",
+                                librarySkipTilePosition === 'last'
+                                  ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                                  : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                              )}
+                            >Last</button>
+                          </div>
+                        </div>
+                        <div className="text-xs text-amber-400/60 italic space-y-1">
+                          <p>A "Skip Ultimate Library" stream tile is added to the results list when Ultimate Library displays results.</p>
+                          <p>Clicking the tile arms a one-time bypass.</p>
+                          <p>Your next search for the same content skips Ultimate Library and queries your indexers instead.</p>
+                          <p>This allows you to fetch new content from your enabled indexers.</p>
+                          <p>Use the position selector to pin the tile to the top slot (or second if Ultimate Fallback is enabled) or to the end of the results list.</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 pt-3 border-t border-amber-500/20">
+                        <div className="text-sm font-semibold text-slate-200 py-2">Manage your WebDAV library from the Ultimate Library results list</div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs text-slate-300 font-medium">Stream Tile: Delete All Results From WebDAV</span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={libraryDeleteAllTile}
+                              onChange={(e) => {
+                                if (e.target.checked && !libraryDeleteAllTile) {
+                                  setLibraryDeleteWarning({ show: true, toggleType: 'all' });
+                                } else {
+                                  setLibraryDeleteAllTile(e.target.checked);
+                                }
+                              }}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                          </label>
+                        </div>
+                        <div className="text-xs text-amber-400/60 italic space-y-1">
+                          <p>Enabling this toggle adds a "Delete All Results From WebDAV" stream tile to the results list.</p>
+                          <p>The tile is placed immediately after the "Skip Ultimate Library" tile, so its position follows whichever slot you chose above (top or last).</p>
+                          <p>Clicking the tile deletes all Ultimate Library results for the current request from your WebDAV mount.</p>
+                          <p>For series / season pack results, the pack-scope selector below decides whether the tile deletes the per-episode file or the entire release pack.</p>
+                        </div>
+
+                        {libraryDeleteAllTile && (
+                          <div className="flex items-center justify-between gap-3 pt-1">
+                            <span className="text-xs text-slate-300 font-medium">Pack scope</span>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setLibraryDeleteAllPackScope('episode')}
+                                className={clsx(
+                                  "px-3 py-1 rounded-md text-xs font-medium border transition-colors",
+                                  libraryDeleteAllPackScope === 'episode'
+                                    ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                                    : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                                )}
+                              >Episode</button>
+                              <button
+                                onClick={() => setLibraryDeleteAllPackScope('pack')}
+                                className={clsx(
+                                  "px-3 py-1 rounded-md text-xs font-medium border transition-colors",
+                                  libraryDeleteAllPackScope === 'pack'
+                                    ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                                    : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                                )}
+                              >Pack</button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between gap-3 pt-2">
+                          <span className="text-xs text-slate-300 font-medium">Stream Tile: Delete Result From WebDAV</span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={libraryDeletePerStreamTile}
+                              onChange={(e) => {
+                                if (e.target.checked && !libraryDeletePerStreamTile) {
+                                  setLibraryDeleteWarning({ show: true, toggleType: 'perStream' });
+                                } else {
+                                  setLibraryDeletePerStreamTile(e.target.checked);
+                                }
+                              }}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                          </label>
+                        </div>
+                        <div className="text-xs text-amber-400/60 italic space-y-1">
+                          <p>Enabling this toggle adds a "Delete The (Above / Left) Result From WebDAV" stream tile to the results list.</p>
+                          <p>The stream tile is placed after the stream it deletes in the results list.</p>
+                          <p>Clicking the tile deletes the individual result from your WebDAV mount.</p>
+                          <p>For season / series pack results, an additional tile is placed next in the results list that allows you to delete the entire season / series pack for that result.</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Season Packs — own card, separate from Search Settings */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium text-slate-300">Season Packs</div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeSeasonPacks}
+                      onChange={(e) => setIncludeSeasonPacks(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Requests an extra <code className="text-slate-400">Show Title Sxx</code> query (e.g., <code className="text-slate-400">Show Title S03</code>) per enabled indexer to catch full-season releases (size estimated per episode for sorting). Adds one query per indexer per search.
+                </p>
+
+                {includeSeasonPacks && (
+                  <div className="space-y-3 pt-2 border-t border-slate-700/30">
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="season-pack-pagination" className="flex-1 cursor-pointer text-xs text-slate-400">
+                        Enable pagination for season pack searches
+                      </label>
+                      <label className="relative inline-flex items-center cursor-pointer">
                         <input
                           type="checkbox"
                           id="season-pack-pagination"
                           checked={seasonPackPagination}
                           onChange={(e) => setSeasonPackPagination(e.target.checked)}
-                          className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                          className="sr-only peer"
                         />
-                        <label htmlFor="season-pack-pagination" className="flex-1 cursor-pointer">
-                          <div className="text-xs text-slate-400">Enable pagination for season pack searches</div>
+                        <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                      </label>
+                    </div>
+                    {seasonPackPagination && (
+                      <div className="flex items-center gap-3">
+                        <TimeoutStepper
+                          value={seasonPackAdditionalPages}
+                          defaultValue={1}
+                          min={1}
+                          max={10}
+                          decProps={seasonPackPagesDec}
+                          incProps={seasonPackPagesInc}
+                          onChange={setSeasonPackAdditionalPages}
+                          unit="pages"
+                          ariaLabel="additional pages"
+                          compact
+                        />
+                        <span className="text-xs text-slate-500">Extra pages for season pack searches</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              </div>
+
+              {/* Series Packs (own card) */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium text-slate-300">Series Packs</div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeMultiSeasonPacks}
+                      onChange={(e) => setIncludeMultiSeasonPacks(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Requests an extra <code className="text-slate-400">Show Title S01</code> query for non-S01 searches to catch starts-at-S01 multi-season packs (S01-S06, etc.). Adds one query per indexer per search when season &gt; 1.
+                </p>
+                {includeMultiSeasonPacks && (
+                  <>
+                    <div className="pt-3 border-t border-slate-700/30 space-y-2">
+                      <div className="text-xs font-medium text-slate-300">Keyword queries</div>
+                      <p className="text-xs text-slate-500">
+                        Each selected keyword requests a <code className="text-slate-400">Show Title &lt;keyword&gt;</code> query. Adds value for keyword-only releases without Sxx tokens. Click a chip to enable; deselect all to disable the feature.
+                      </p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {SERIES_PACK_KEYWORDS.map((kw) => {
+                          const checked = seriesPackKeywords.includes(kw);
+                          return (
+                            <button
+                              key={kw}
+                              type="button"
+                              onClick={() => {
+                                if (checked) {
+                                  setSeriesPackKeywords(seriesPackKeywords.filter(k => k !== kw));
+                                } else {
+                                  setSeriesPackKeywords([...seriesPackKeywords, kw]);
+                                }
+                              }}
+                              className={clsx(
+                                "px-3 py-1 rounded-md text-xs font-medium border transition-colors",
+                                checked
+                                  ? "bg-primary-500/20 border-primary-500/50 text-primary-300"
+                                  : "bg-slate-700/50 border-slate-600 text-slate-400 hover:text-slate-300"
+                              )}
+                            >{kw}</button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-slate-500">Each enabled keyword adds one query per indexer per search.</p>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-700/30 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <label htmlFor="series-pack-pagination" className="flex-1 cursor-pointer text-xs text-slate-400">
+                          Enable pagination for series pack searches
+                        </label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            id="series-pack-pagination"
+                            checked={seriesPackPagination}
+                            onChange={(e) => setSeriesPackPagination(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
                         </label>
                       </div>
-                      {seasonPackPagination && (
-                        <div className="pl-7 flex items-center gap-2">
-                          <label className="text-xs text-slate-400">Additional pages</label>
-                          <input
-                            type="number"
+                      {seriesPackPagination && (
+                        <div className="flex items-center gap-3">
+                          <TimeoutStepper
+                            value={seriesPackAdditionalPages}
+                            defaultValue={1}
                             min={1}
                             max={10}
-                            value={seasonPackAdditionalPages}
-                            onChange={(e) => setSeasonPackAdditionalPages(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-                            onFocus={(e) => e.target.select()}
-                            className="input w-20 text-sm"
+                            decProps={seriesPackPagesDec}
+                            incProps={seriesPackPagesInc}
+                            onChange={setSeriesPackAdditionalPages}
+                            unit="pages"
+                            ariaLabel="additional pages"
+                            compact
                           />
-                          <span className="text-xs text-slate-500">Extra pages for season pack searches</span>
+                          <span className="text-xs text-slate-500">Extra pages for series pack searches</span>
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
+                  </>
+                )}
+              </div>
 
-                {/* Anime Settings */}
-                <div className="pt-3 border-t border-slate-700/30">
-                  <div className="text-sm font-medium text-slate-300 mb-2">Anime</div>
-                  <div className="text-xs text-slate-500 mb-3">Anime is detected automatically via the Fribb anime database or Cinemeta metadata. Configure anime search methods per-indexer below.</div>
-                  <div className="mt-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
-                    <div className="text-xs font-medium text-slate-400 mb-1">Supported Anime IDs</div>
-                    <div className="text-xs text-slate-500">Kitsu · MAL · AniList · AniDB</div>
-                    <div className="text-xs text-slate-500 mt-1">Incoming anime IDs from metadata addons like AIOMetadata or Anime Kitsu are automatically resolved and mapped to the search methods configured per-indexer below.</div>
-                  </div>
-                </div>
-
-                {/* Remake / Reboot Detection */}
-                <div className="pt-3 border-t border-slate-700/30">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="enable-remake-filtering"
-                      checked={enableRemakeFiltering}
-                      onChange={(e) => setEnableRemakeFiltering(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
-                    />
-                    <label htmlFor="enable-remake-filtering" className="flex-1 cursor-pointer">
-                      <div className="text-sm font-medium text-slate-300">Remake / Reboot Detection</div>
-                      <div className="text-xs text-slate-500 mt-0.5">For TV shows with known remakes or reboots, filter out results from the wrong version by cross-referencing year or episode name via TVDB. Applies to all search methods.</div>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Multi-Episode Files */}
-                <div className="pt-3 border-t border-slate-700/30">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="allow-multi-episode-files"
-                      checked={allowMultiEpisodeFiles}
-                      onChange={(e) => setAllowMultiEpisodeFiles(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
-                    />
-                    <label htmlFor="allow-multi-episode-files" className="flex-1 cursor-pointer">
-                      <div className="text-sm font-medium text-slate-300">Allow Multi-Episode Files</div>
-                      <div className="text-xs text-slate-500 mt-0.5">Allow results that contain multiple episodes (e.g. S01E01E02.mkv). When disabled, multi-episode results are filtered out and won't appear in results. Enabling this option will flush previously blocked multi-episode NZBs from the dead NZB database.</div>
-                    </label>
-                  </div>
-                </div>
+              {/* Results Deduplication — own card */}
+              <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-4">
+                <div className="text-sm font-medium text-slate-300">Results Deduplication</div>
 
                 {/* URL Deduplication */}
-                <div className="pt-3 border-t border-slate-700/30">
-                  <div className="flex items-center gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <label htmlFor="url-dedup" className="flex-1 cursor-pointer">
+                    <div className="text-sm font-medium text-slate-300">URL Deduplication</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Remove duplicate results that share the same download URL. These NZBs always reference the same articles, so keeping only the first occurrence has no effect on results.</div>
+                  </label>
+                  <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
                       id="url-dedup"
                       checked={urlDedup}
                       onChange={(e) => setUrlDedup(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                      className="sr-only peer"
                     />
-                    <label htmlFor="url-dedup" className="flex-1 cursor-pointer">
-                      <div className="text-sm font-medium text-slate-300">URL Deduplication</div>
-                      <div className="text-xs text-slate-500 mt-0.5">Remove duplicate results that share the same download URL. These NZBs always reference the same articles, so keeping only the first occurrence has no effect on results.</div>
-                    </label>
-                  </div>
+                    <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                  </label>
                 </div>
 
                 {/* Indexer Priority Dedup */}
-                <div className="pt-3 border-t border-slate-700/30">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="indexer-priority-dedup"
-                      checked={indexerPriorityDedup}
-                      onChange={(e) => {
-                        const enabled = e.target.checked;
-                        setIndexerPriorityDedup(enabled);
-                        // Auto-populate priority list when first enabled and list is empty
-                        if (enabled && indexerPriority.length === 0) {
-                          const names: string[] = [];
-                          if (indexManager === 'newznab') {
-                            config?.indexers.filter(i => i.enabled).forEach(i => names.push(i.name));
-                          } else {
-                            (config?.syncedIndexers || []).filter(i => i.enabledForSearch).forEach(i => names.push(i.name));
-                          }
-                          if (easynewsEnabled) names.push('EasyNews');
-                          setIndexerPriority(names);
-                        }
-                      }}
-                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary-600 focus:ring-2 focus:ring-primary-500 cursor-pointer"
-                    />
+                <div className="pt-3 border-t border-slate-700/30 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
                     <label htmlFor="indexer-priority-dedup" className="flex-1 cursor-pointer">
                       <div className="text-sm font-medium text-slate-300">Indexer Priority Deduplication</div>
                       <div className="text-xs text-slate-500 mt-0.5">When duplicate NZBs are found across indexers (same title + size), keep only the copy from the highest-priority indexer. Note: even identical uploads may have different articles across indexers.</div>
                     </label>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="indexer-priority-dedup"
+                        checked={indexerPriorityDedup}
+                        onChange={(e) => {
+                          const enabled = e.target.checked;
+                          setIndexerPriorityDedup(enabled);
+                          if (enabled && indexerPriority.length === 0) {
+                            const names: string[] = [];
+                            if (indexManager === 'newznab') {
+                              config?.indexers.filter(i => i.enabled).forEach(i => names.push(i.name));
+                            } else {
+                              (config?.syncedIndexers || []).filter(i => i.enabledForSearch).forEach(i => names.push(i.name));
+                            }
+                            if (easynewsEnabled) names.push('EasyNews');
+                            setIndexerPriority(names);
+                          }
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                    </label>
                   </div>
 
                   {indexerPriorityDedup && indexerPriority.length > 0 && (
-                    <div className="mt-3 space-y-1.5">
+                    <div className="space-y-1.5">
                       <div className="text-xs text-slate-500">Drag to reorder indexer priority (top = highest priority):</div>
                       {indexerPriority.map((name, idx) => (
                         <div
@@ -753,30 +1272,64 @@ export function IndexManagerOverlay({
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          id="easynews-pagination"
-                          checked={easynewsPagination}
-                          onChange={(e) => setEasynewsPagination(e.target.checked)}
-                          className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-800"
-                        />
+                      <div className="flex items-center justify-between gap-3">
+                        <label htmlFor="easynews-timeout-enabled" className="flex-1 cursor-pointer">
+                          <span className="text-xs text-slate-400">Request timeout</span>
+                          <span className="text-[10px] text-slate-500 ml-1.5">Limit how long to wait for EasyNews responses</span>
+                        </label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            id="easynews-timeout-enabled"
+                            checked={easynewsTimeoutEnabled}
+                            onChange={(e) => setEasynewsTimeoutEnabled(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                        </label>
+                      </div>
+                      {easynewsTimeoutEnabled && (
+                        <div className="pl-6">
+                          <TimeoutStepper
+                            value={easynewsTimeout}
+                            defaultValue={DEFAULT_INDEXER_TIMEOUT_SECONDS}
+                            decProps={easynewsTimeoutDec}
+                            incProps={easynewsTimeoutInc}
+                            onChange={setEasynewsTimeout}
+                            inputId="easynews-timeout-seconds"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3">
                         <label htmlFor="easynews-pagination" className="flex-1 cursor-pointer">
                           <span className="text-xs text-slate-400">Paginated search</span>
                           <span className="text-[10px] text-slate-500 ml-1.5">Fetch additional pages of results (250 results/page)</span>
                         </label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            id="easynews-pagination"
+                            checked={easynewsPagination}
+                            onChange={(e) => setEasynewsPagination(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                        </label>
                       </div>
                       {easynewsPagination && (
-                        <div className="pl-6 flex items-center gap-2">
-                          <label className="text-xs text-slate-400">Additional pages</label>
-                          <input
-                            type="number"
+                        <div className="pl-6">
+                          <TimeoutStepper
+                            value={easynewsMaxPages}
+                            defaultValue={1}
                             min={1}
                             max={10}
-                            value={easynewsMaxPages}
-                            onChange={(e) => setEasynewsMaxPages(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-                            onFocus={(e) => e.target.select()}
-                            className="input w-20 text-sm"
+                            decProps={easynewsPagesDec}
+                            incProps={easynewsPagesInc}
+                            onChange={setEasynewsMaxPages}
+                            unit="pages"
+                            ariaLabel="additional pages"
                           />
                         </div>
                       )}
@@ -854,6 +1407,36 @@ export function IndexManagerOverlay({
                         </button>
                       )}
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="prowlarr-timeout-enabled" className="flex-1 cursor-pointer">
+                        <span className="text-sm text-slate-300">Request timeout</span>
+                        <span className="text-xs text-slate-500 ml-2">Limit how long to wait for Prowlarr responses</span>
+                      </label>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          id="prowlarr-timeout-enabled"
+                          checked={prowlarrTimeoutEnabled}
+                          onChange={(e) => setProwlarrTimeoutEnabled(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                      </label>
+                    </div>
+                    {prowlarrTimeoutEnabled && (
+                      <div className="pl-6">
+                        <TimeoutStepper
+                          value={prowlarrTimeout}
+                          defaultValue={DEFAULT_INDEXER_TIMEOUT_SECONDS}
+                          decProps={prowlarrTimeoutDec}
+                          incProps={prowlarrTimeoutInc}
+                          onChange={setProwlarrTimeout}
+                          inputId="prowlarr-timeout-seconds"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <button
@@ -1090,16 +1673,10 @@ export function IndexManagerOverlay({
                                 </label>
                               </div>
                               {indexer.pagination && (
-                                <div className="pl-6 flex items-center gap-2">
-                                  <label className="text-xs text-slate-400">Additional pages</label>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={10}
+                                <div className="pl-6">
+                                  <PagesStepper
                                     value={indexer.additionalPages ?? 3}
-                                    onChange={(e) => updateSynced({ additionalPages: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
-                                    onFocus={(e) => e.target.select()}
-                                    className="input w-20 text-sm"
+                                    onChange={(v) => updateSynced({ additionalPages: v })}
                                   />
                                 </div>
                               )}
@@ -1165,6 +1742,36 @@ export function IndexManagerOverlay({
                             )}
                           </div>
                         </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="nzbhydra-timeout-enabled" className="flex-1 cursor-pointer">
+                        <span className="text-sm text-slate-300">Request timeout</span>
+                        <span className="text-xs text-slate-500 ml-2">Limit how long to wait for NZBHydra responses</span>
+                      </label>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          id="nzbhydra-timeout-enabled"
+                          checked={nzbhydraTimeoutEnabled}
+                          onChange={(e) => setNzbhydraTimeoutEnabled(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                      </label>
+                    </div>
+                    {nzbhydraTimeoutEnabled && (
+                      <div className="pl-6">
+                        <TimeoutStepper
+                          value={nzbhydraTimeout}
+                          defaultValue={DEFAULT_INDEXER_TIMEOUT_SECONDS}
+                          decProps={nzbhydraTimeoutDec}
+                          incProps={nzbhydraTimeoutInc}
+                          onChange={setNzbhydraTimeout}
+                          inputId="nzbhydra-timeout-seconds"
+                        />
                       </div>
                     )}
                   </div>
@@ -1403,16 +2010,10 @@ export function IndexManagerOverlay({
                                 </label>
                               </div>
                               {indexer.pagination && (
-                                <div className="pl-6 flex items-center gap-2">
-                                  <label className="text-xs text-slate-400">Additional pages</label>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={10}
+                                <div className="pl-6">
+                                  <PagesStepper
                                     value={indexer.additionalPages ?? 3}
-                                    onChange={(e) => updateSynced({ additionalPages: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
-                                    onFocus={(e) => e.target.select()}
-                                    className="input w-20 text-sm"
+                                    onChange={(v) => updateSynced({ additionalPages: v })}
                                   />
                                 </div>
                               )}

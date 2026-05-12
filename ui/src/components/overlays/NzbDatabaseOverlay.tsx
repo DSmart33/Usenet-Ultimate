@@ -8,7 +8,7 @@ import clsx from 'clsx';
 import { decomposeTTL, composeTTL } from '../../utils/ttl';
 
 interface CacheEntryReady { key: string; title: string; indexerName?: string; videoPath: string; videoSize: number; expiresAt: number }
-interface CacheEntryFailed { key: string; title: string; indexerName?: string; error: string; expiresAt: number }
+interface CacheEntryFailed { key: string; title: string; indexerName?: string; size?: number; error: string; episodePattern?: string; expiresAt: number }
 
 function formatBytes(bytes: number): string {
   if (!bytes || !Number.isFinite(bytes)) return '0 B';
@@ -484,13 +484,26 @@ export function NzbDatabaseOverlay({
                             <AlertTriangle className="w-3 h-3 flex-shrink-0" />
                             <span className="break-words">{entry.error}</span>
                           </div>
-                          <div className="flex items-center gap-1 mt-1 text-[10px] text-slate-500">
-                            <Clock className="w-3 h-3" />
-                            {formatExpiry(entry.expiresAt)}
+                          <div className="flex items-center gap-3 mt-1">
+                            {entry.size != null && (
+                              <span className="flex items-center gap-1 text-[10px] text-slate-500">
+                                <HardDrive className="w-3 h-3" />
+                                {formatBytes(entry.size)}
+                              </span>
+                            )}
+                            <span className="flex items-center gap-1 text-[10px] text-slate-500">
+                              <Clock className="w-3 h-3" />
+                              {formatExpiry(entry.expiresAt)}
+                            </span>
                           </div>
-                          {entry.indexerName && (
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/80 text-slate-300 mt-0.5 max-w-full truncate">
+                          {(entry.indexerName || entry.episodePattern) && (
+                            <span
+                              className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/80 text-slate-300 mt-0.5 max-w-full truncate"
+                              aria-label={entry.episodePattern ? `Blocked only for episode ${entry.episodePattern}` : undefined}
+                            >
                               {entry.indexerName}
+                              {entry.indexerName && entry.episodePattern && ' · '}
+                              {entry.episodePattern && `${entry.episodePattern} only`}
                             </span>
                           )}
                         </div>

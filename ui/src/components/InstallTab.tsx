@@ -2,7 +2,7 @@
 //   Install Manager — manage multiple Stremio manifest installations (add, rename, regenerate, delete)
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Download, Copy, ExternalLink, XCircle, Plus, RefreshCw, Trash2, X, Check, Pencil } from 'lucide-react';
+import { Download, Copy, ExternalLink, XCircle, Plus, RefreshCw, Trash2, X, Check, Pencil, Cast, Coffee } from 'lucide-react';
 import clsx from 'clsx';
 import type { Manifest, ApiFetch } from '../types';
 
@@ -117,6 +117,7 @@ export function InstallTab({ manifests, setManifests, hasIndexers, apiFetch }: I
             <p className="text-slate-300">Configure indexers before installation</p>
           </div>
           <DiscordLink />
+          <KofiLink />
         </div>
       </div>
     );
@@ -212,6 +213,7 @@ export function InstallTab({ manifests, setManifests, hasIndexers, apiFetch }: I
         </div>
 
         <DiscordLink />
+        <KofiLink />
       </div>
     </div>
 
@@ -300,6 +302,9 @@ function InstallCard({
     <div className="rounded-lg bg-slate-800/40 border border-slate-700/20 p-4 space-y-3">
       {/* Name + activity + actions */}
       <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
+          <Cast className="w-4 h-4 text-amber-400" />
+        </div>
         <div className="flex-1 min-w-0">
           {isEditing ? (
             <input
@@ -320,17 +325,17 @@ function InstallCard({
               <span className="font-semibold truncate bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 bg-clip-text text-transparent">{manifest.name}</span>
             </div>
           )}
-          <div className="flex items-center gap-3 mt-1">
-            <span className="text-[11px] text-slate-500">Created {timeAgo(manifest.createdAt)}</span>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
+            <span className="text-[11px] text-slate-500 whitespace-nowrap">Created {timeAgo(manifest.createdAt)}</span>
             {manifest.lastUsedAt ? (
-              <span className="flex items-center gap-1 text-[11px]">
-                <span className={clsx("w-1.5 h-1.5 rounded-full", isActive ? "bg-green-400 animate-pulse" : "bg-slate-600")} />
+              <span className="flex items-center gap-1 text-[11px] whitespace-nowrap">
+                <span className={clsx("w-1.5 h-1.5 rounded-full", isActive ? "bg-green-400" : "bg-slate-600")} />
                 <span className={isActive ? "text-green-400/70" : "text-slate-500"}>
                   {timeAgo(manifest.lastUsedAt)}
                 </span>
               </span>
             ) : (
-              <span className="text-[11px] text-slate-600">Never used</span>
+              <span className="text-[11px] text-slate-600 whitespace-nowrap">Never used</span>
             )}
           </div>
         </div>
@@ -436,6 +441,28 @@ function DiscordLink() {
         <p className="text-xs text-slate-400">Get help, share feedback, and connect with the community</p>
       </div>
       <ExternalLink className="w-4 h-4 text-slate-500 group-hover:text-[#5865F2] transition-colors shrink-0" />
+    </a>
+  );
+}
+
+// ── Ko-fi Link ───────────────────────────────────────────────────────
+
+function KofiLink() {
+  return (
+    <a
+      href="https://ko-fi.com/dsmart33"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex items-center gap-4 p-4 rounded-lg bg-[#F97316]/10 border border-[#F97316]/30 hover:bg-[#F97316]/20 hover:border-[#F97316]/50 transition-all"
+    >
+      <div className="w-10 h-10 rounded-xl bg-[#F97316] flex items-center justify-center shadow-lg shadow-[#F97316]/20 shrink-0">
+        <Coffee className="w-5 h-5 text-white" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <h4 className="text-sm font-semibold text-[#F97316] group-hover:text-[#FB923C] transition-colors">Support Development</h4>
+        <p className="text-xs text-slate-400">Send a tip if you find Usenet Ultimate useful</p>
+      </div>
+      <ExternalLink className="w-4 h-4 text-slate-500 group-hover:text-[#F97316] transition-colors shrink-0" />
     </a>
   );
 }

@@ -16,11 +16,82 @@ import { requestContext } from '../requestContext.js';
 import { buildStreamFilename } from '../parsers/metadataParsers.js';
 import { checkNzbLibrary } from '../nzbdav/videoDiscovery.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
+import { encodeTileEnvelope } from '../nzbdav/redirectHelpers.js';
+import { buildEpisodePattern, buildDateEpisodePattern } from '../nzbdav/utils.js';
+import { getTvAllowMultiEpisode } from '../config/accessors.js';
 import type { NZBDavConfig } from '../nzbdav/types.js';
 
 // Internal self-requests (auto-queue) hit localhost directly to avoid
 // cross-origin redirect errors from reverse proxies / external BASE_URL.
 const SELF_URL = `http://localhost:${process.env.PORT || 1337}`;
+
+/**
+ * Mark candidates that already exist in the NZBDav library by calling
+ * checkNzbLibrary in parallel. Skips entries already in healthResults so
+ * concurrent callers (libraryPreCheck + displayLibraryInResults) don't
+ * double-probe the same URL. Library hits are tagged
+ * `{status:'verified', message:'Library', playable:true}` so the existing
+ * streamBuilder maps them to the 📚 status badge. Returns the hit count.
+ */
+export async function markLibraryHits(
+  candidates: any[],
+  healthResults: Map<string, HealthCheckResult>,
+  nzbdavConfig: NZBDavConfig,
+  episodePattern: string | undefined,
+  contentType: 'movie' | 'series',
+  episodesInSeason: number | undefined,
+  episodeAired?: string,
+): Promise<number> {
+  // Re-check entries whose existing health entry is a Library tag — the file
+  // may have been deleted from WebDAV since the cached search ran, so trusting
+  // the prior `Library` verdict on cache hit leaves a stale 📚 icon on tiles
+  // pointing at files that no longer exist. Non-library health results
+  // (NNTP/Zyclops verdicts) are stable; skip those.
+  const unchecked = candidates.filter(r => {
+    const h = healthResults.get(r.link);
+    return !h || h.message === 'Library';
+  });
+  if (unchecked.length === 0) return 0;
+  // Pass 2 fallback: daily/talk-show files in the library are date-named, so
+  // SxxExx-only matching misses them. When the search context carries an
+  // aired date, fall back to a date-pattern check after Pass 1 returns null.
+  // Mirrors the search-side alias-fallback gate.
+  const datePattern = buildDateEpisodePattern(episodeAired);
+  let hits = 0;
+  await Promise.all(unchecked.map(async (r) => {
+    try {
+      let result = await checkNzbLibrary(
+        r.title, nzbdavConfig, episodePattern, contentType, episodesInSeason, '', true,
+      );
+      if (!result && datePattern) {
+        result = await checkNzbLibrary(
+          r.title, nzbdavConfig, datePattern, contentType, episodesInSeason, '', true,
+        );
+      }
+      if (result) {
+        healthResults.set(r.link, { status: 'verified', message: 'Library', playable: true });
+        // Local flag consumed by sortResults' preferLibraryResults tier-zero
+        // comparator. Mutating the result here keeps the sort phase from needing
+        // to thread the healthResults Map through its signature.
+        r.inLibrary = true;
+        hits++;
+      } else if (r.inLibrary) {
+        // Was in the library on the prior run but isn't now (file deleted via
+        // the delete tile, manually removed from WebDAV, etc). Clear the stale
+        // flag and drop the cached Library health entry so downstream sort and
+        // streamBuilder stop painting the 📚 badge.
+        r.inLibrary = false;
+        if (healthResults.get(r.link)?.message === 'Library') {
+          healthResults.delete(r.link);
+        }
+      }
+    } catch {
+      // Non-fatal — checkNzbLibrary only re-throws errors flagged isNzbdavFailure;
+      // transient WebDAV blips don't break the search response.
+    }
+  }));
+  return hits;
+}
 
 export interface HealthCheckContext {
   allResults: any[];
@@ -28,6 +99,7 @@ export interface HealthCheckContext {
   season?: number;
   episode?: number;
   episodesInSeason?: number;
+  episodeAired?: string;
   preExistingHealth?: Map<string, HealthCheckResult>;
 }
 
@@ -40,6 +112,12 @@ export async function coordinateHealthChecks(
   ctx: HealthCheckContext
 ): Promise<{ healthResults: Map<string, HealthCheckResult>; filteredResults: any[] }> {
   let { allResults } = ctx;
+  // Library-origin results are pre-extracted files on disk; skip NNTP/Zyclops/dead-NZB
+  // checks (they'd crash on `library:`-prefixed URLs and are semantically meaningless
+  // for already-resolved files). Library results pass through with no health status,
+  // treated as inherently healthy by downstream stages.
+  const libraryResults = allResults.filter(r => r?.origin === 'library');
+  allResults = allResults.filter(r => r?.origin !== 'library');
   const healthResults = new Map<string, HealthCheckResult>();
   // Pre-populate with existing health data (from cached results) so smart mode
   // sees already-checked results and doesn't re-check them
@@ -51,7 +129,7 @@ export async function coordinateHealthChecks(
   if (!config.healthChecks?.enabled || enabledProviders.length === 0) {
     // No NNTP health checks — still auto-mark EasyNews/Zyclops
     autoMarkRemainingResults(allResults, healthResults);
-    return { healthResults, filteredResults: allResults };
+    return { healthResults, filteredResults: [...libraryResults, ...allResults] };
   }
 
   // Build health-check-enabled set based on index manager mode
@@ -144,11 +222,10 @@ export async function coordinateHealthChecks(
       webdavPassword: config.nzbdavWebdavPassword || '',
       moviesCategory: config.nzbdavMoviesCategory || 'Usenet-Ultimate-Movies',
       tvCategory: config.nzbdavTvCategory || 'Usenet-Ultimate-TV',
+      scanUncategorized: config.searchConfig?.librarySearchScanUncategorized ?? true,
     };
     if (ctx.season !== undefined && ctx.episode !== undefined) {
-      const s = ctx.season.toString().padStart(2, '0');
-      const e = ctx.episode.toString().padStart(2, '0');
-      libraryEpisodePattern = `S${s}[. _-]?E${e}`;
+      libraryEpisodePattern = buildEpisodePattern(ctx.season, ctx.episode, getTvAllowMultiEpisode(config));
     }
   }
 
@@ -157,34 +234,25 @@ export async function coordinateHealthChecks(
   /** Check a batch of candidates against the NZBDav library (concurrent). */
   async function preCheckLibrary(candidates: any[]): Promise<number> {
     if (!nzbdavConfig) return 0;
-    const unchecked = candidates.filter(r => !healthResults.has(r.link));
-    if (unchecked.length === 0) return 0;
-
-    let hits = 0;
-    const checks = unchecked.map(async (r) => {
-      try {
-        const result = await checkNzbLibrary(
-          r.title, nzbdavConfig!, libraryEpisodePattern, libraryContentType, ctx.episodesInSeason
-        );
-        if (result) {
-          healthResults.set(r.link, { status: 'verified', message: 'Library', playable: true });
-          hits++;
-        }
-      } catch {
-        // Non-fatal — fall through to NNTP check
-      }
-    });
-    await Promise.all(checks);
-    return hits;
+    return markLibraryHits(
+      candidates,
+      healthResults,
+      nzbdavConfig,
+      libraryEpisodePattern,
+      libraryContentType,
+      ctx.episodesInSeason,
+      ctx.episodeAired,
+    );
   }
 
   if (inspectionMethod === 'smart') {
     // --- SMART: Stop on Healthy ---
     const batchSize = config.healthChecks.smartBatchSize || 3;
     const additionalRuns = config.healthChecks.smartAdditionalRuns ?? 1;
+    const minHealthy = Math.max(1, config.healthChecks.smartMinHealthy ?? 1);
     const maxBatches = 1 + additionalRuns;
 
-    let foundHealthy = false;
+    let healthyCount = 0;
 
     for (let batch = 0; batch < maxBatches; batch++) {
       const batchStart = batch * batchSize;
@@ -259,27 +327,29 @@ export async function coordinateHealthChecks(
         }
       }
 
-      // Check if at least one healthy result found in this batch
-      for (const r of batchCandidates) {
+      // Count healthy results accumulated so far
+      healthyCount = 0;
+      for (const r of allResults.slice(0, batchStart + batchCandidates.length)) {
         const health = healthResults.get(r.link);
         if (health && isVerifiedStatus(health.status)) {
-          foundHealthy = true;
-          break;
+          healthyCount++;
         }
       }
 
-      if (foundHealthy) {
-        console.log(`✅ Smart mode: found healthy result in batch ${batch + 1}, stopping.`);
+      if (healthyCount >= minHealthy) {
+        console.log(`✅ Smart mode: found ${healthyCount} healthy result(s) by batch ${batch + 1} (min: ${minHealthy}), stopping.`);
         break;
       }
 
       if (batch < maxBatches - 1) {
-        console.log(`⏳ Smart mode: no healthy result in batch ${batch + 1}, continuing...`);
+        console.log(`⏳ Smart mode: ${healthyCount}/${minHealthy} healthy after batch ${batch + 1}, continuing...`);
       }
     }
 
-    if (!foundHealthy) {
+    if (healthyCount === 0) {
       console.log(`⚠️ Smart mode: no healthy result found after checking`);
+    } else if (healthyCount < minHealthy) {
+      console.log(`⚠️ Smart mode: only found ${healthyCount}/${minHealthy} healthy result(s) after all batches`);
     }
 
   } else {
@@ -389,8 +459,8 @@ export async function coordinateHealthChecks(
   for (const [link, result] of healthResults) {
     if (result.status === 'blocked' && result.message !== 'NZB Database: previously failed') {
       const url = easynewsLinkToNzbUrl.get(link) || link;
-      const title = allResults.find(r => r.link === link)?.title;
-      if (title) { addDeadNzbByUrl(url, title); deadWrites++; }
+      const r = allResults.find(rs => rs.link === link);
+      if (r?.title) { addDeadNzbByUrl(url, r.title, r.indexerName, r.size); deadWrites++; }
     }
   }
   if (deadWrites > 0) saveCacheToDisk();
@@ -409,7 +479,8 @@ export async function coordinateHealthChecks(
     }
   }
 
-  return { healthResults, filteredResults: allResults };
+  // Re-merge library-origin results so they reach the downstream sort/stream-builder.
+  return { healthResults, filteredResults: [...libraryResults, ...allResults] };
 }
 
 /**
@@ -447,16 +518,19 @@ export function autoQueueToNzbdav(
   episodesInSeason?: number,
 ): void {
   const mode = config.healthChecks?.autoQueueMode;
-  if (!config.healthChecks?.enabled || !mode || mode === 'off' || config.streamingMode !== 'nzbdav' || allResults.length === 0) {
+  // UF in on-results mode submits NZBs at search time itself; running auto-queue
+  // would race on the same titles (NzbDAV has had 500s on concurrent inserts).
+  // on-tile-selection defers UF's submit until click, so auto-queue is safe there.
+  const ufSubmitsAtSearch = config.ultimateFallback?.enabled
+    && config.ultimateFallback.whenToResolve !== 'on-tile-selection';
+  if (!config.healthChecks?.enabled || !mode || mode === 'off' || config.streamingMode !== 'nzbdav'
+      || allResults.length === 0 || ufSubmitsAtSearch) {
     return;
   }
 
   const sendToNzbdav = (result: any, reason: string) => {
     try {
       console.log(`🚀 Auto-queueing (${reason}): ${result.title}`);
-      const autoEpParams = result.isSeasonPack && season !== undefined && episode !== undefined
-        ? `&season=${season}&episode=${episode}${episodesInSeason ? `&epcount=${episodesInSeason}` : ''}`
-        : '';
       const autoManifestKey = requestContext.getStore()?.manifestKey || '';
 
       // For EasyNews NZB mode, construct the NZB proxy URL instead of using easynews:// link
@@ -473,7 +547,19 @@ export function autoQueueToNzbdav(
       }
 
       const streamFilename = buildStreamFilename(result.title, type, season, episode);
-      const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?nzb=${encodeURIComponent(nzbUrl)}&title=${encodeURIComponent(result.title)}&type=${type}&indexer=${encodeURIComponent(result.indexerName)}&auto=true${autoEpParams}`;
+      const includeSeasonPack = result.isSeasonPack && season !== undefined && episode !== undefined;
+      const tileT = encodeTileEnvelope({
+        url: nzbUrl,
+        title: result.title,
+        indexer: result.indexerName,
+        ...(includeSeasonPack ? {
+          season,
+          episode,
+          seasonpack: 1 as const,
+          ...(episodesInSeason ? { epcount: episodesInSeason } : {}),
+        } : {}),
+      });
+      const proxyUrl = `${SELF_URL}/${autoManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?t=${tileT}&auto=true`;
       fetch(proxyUrl).catch(err => console.error('❌ Auto-queue failed:', err));
     } catch (error) {
       console.error('❌ Auto-queue to NZBDav failed:', error);
@@ -488,14 +574,30 @@ export function autoQueueToNzbdav(
     if (r.easynewsMeta && config.easynewsMode !== 'nzb') return false;
     const health = healthResults.get(r.link);
     if (!health || !isVerifiedStatus(health.status)) return false;
+    // Library hits are already on disk — auto-queueing them would re-grab
+    // content the user already has. Skip.
+    if (health.message === 'Library') return false;
     return true;
   };
 
   if (mode === 'all') {
-    const verified = allResults.filter(isEligible);
+    // Deduplicate by title — same release from different indexers causes NZBDav DB conflicts
+    const seen = new Set<string>();
+    const verified = allResults.filter(r => {
+      if (!isEligible(r)) return false;
+      if (seen.has(r.title)) return false;
+      seen.add(r.title);
+      return true;
+    });
     if (verified.length > 0) {
       console.log(`🚀 Auto-queueing all ${verified.length} verified result(s) to NZBDav`);
-      verified.forEach((r, i) => sendToNzbdav(r, `verified ${i + 1}/${verified.length}`));
+      // Serialize submissions — NZBDav's database chokes on concurrent inserts
+      (async () => {
+        for (let i = 0; i < verified.length; i++) {
+          sendToNzbdav(verified[i], `verified ${i + 1}/${verified.length}`);
+          if (i < verified.length - 1) await new Promise(r => setTimeout(r, 250));
+        }
+      })();
     }
   } else {
     // mode === 'top'

@@ -93,6 +93,10 @@ Anime titles are detected automatically. When found, the addon can optionally fa
 
 IMDB IDs are resolved to TMDB, TVDB, and TVMaze IDs with a 24-hour cache. Alternate and international titles are fetched and used as additional search queries to maximize coverage across indexers that may catalog content under different names.
 
+**Ultimate Library**
+
+Optional pre-search WebDAV scan that runs before any indexer query. When the library returns at least the configured number of matches for a query, indexer searches are skipped entirely and the results list is built from library hits alone — saving indexer rate-limit budget for content already on disk. All-or-nothing semantic: if the scan returns fewer than the threshold, library results are discarded (not merged with indexer results) so the indexer flow stays clean. Folder-name season pre-filter avoids scanning wrong-season packs. Title matching reuses the same Ultimate Text Search engine (token-set match, year disambiguation, alt-title support, stylized digit-letter detection). NZBDav streaming mode only; pairs best with Season Packs enabled.
+
 ---
 
 ### Streaming
@@ -459,16 +463,7 @@ These are migrated into `config/config.json` on first startup. After that, manag
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NZBDAV_FALLBACK_ENABLED` | `false` | Enable automatic fallback to alternative NZBs on failure |
-| `NZBDAV_FALLBACK_ORDER` | `top` | Candidate ordering: `top` (start from highest-ranked) or `selected` (start from clicked NZB) |
-| `NZBDAV_MAX_FALLBACKS` | `0` | Max fallback attempts. `0` = unlimited (try all search results), `1-20` = limit |
-| `NZBDAV_LIBRARY_CHECK` | `true` | Check WebDAV library for existing files before grabbing a new NZB |
-| `NZBDAV_MOVIES_TIMEOUT` | `30` | Seconds to wait for a movie stream before trying the next fallback (1-90) |
-| `NZBDAV_TV_TIMEOUT` | `15` | Seconds to wait for a TV episode stream before trying the next fallback (1-90) |
-| `NZBDAV_SEASON_PACK_TIMEOUT` | `30` | Seconds to wait for a season pack stream before trying the next fallback (1-90) |
-| `NZBDAV_JOB_TIMEOUT` | `120` | Legacy: sets both movie and TV timeouts if the specific ones aren't configured (clamped to 1-90) |
 | `NZBDAV_MAX_SELF_REDIRECTS` | `500` | Max Stremio self-redirects during fallback chains before giving up |
-| `AUTO_RESOLVE_ON_SEARCH` | `true` | Pre-resolve NZBs when search results appear (requires "from top" fallback order) |
 
 #### Stream Proxy
 
@@ -492,6 +487,7 @@ These are migrated into `config/config.json` on first startup. After that, manag
 | `ENABLE_REMAKE_DETECTION` | `true` | Filter out results from the wrong version of remade/rebooted shows |
 | `ALLOW_MULTI_EPISODE_FILES` | `true` | Allow streaming from combined multi-episode files (e.g. S01E01E02) |
 | `URL_DEDUP` | `true` | Remove duplicate results with identical download URLs |
+| `LIBRARY_SEARCH_THRESHOLD` | `0` | Ultimate Library: scan WebDAV before indexer queries; if ≥ N matches found, skip indexers entirely. Sub-threshold scans are discarded. NZBDav streaming mode only. 0 = disabled, 1-10 = active |
 
 #### HTTP Proxy
 

@@ -6,8 +6,37 @@
  */
 
 import type { UsenetProvider, SearchConfig, AutoPlayConfig, SyncedIndexer, StreamDisplayConfig } from '../types.js';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS, SERIES_PACK_KEYWORDS } from '../types.js';
 import { configData, saveConfigFile } from './schema.js';
 import { enforceZyclopsEnabled } from './indexerCrud.js';
+import { validateRulesBlock } from '../rules/importers.js';
+
+// Clamp a timeout value to the integer-seconds domain. Rejects non-finite/non-number input.
+function coerceTimeoutSeconds(raw: unknown): number | undefined {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+  return Math.max(1, Math.min(45, Math.round(raw)));
+}
+
+// Emit a one-line audit log when a top-level searcher's timeout changed.
+function logTimeoutChange(
+  label: string,
+  prevEnabled: boolean | undefined,
+  prevSeconds: number | undefined,
+  nextEnabled: boolean | undefined,
+  nextSeconds: number | undefined,
+): void {
+  const effPrevEnabled = prevEnabled ?? true;
+  const effNextEnabled = nextEnabled ?? effPrevEnabled;
+  const effPrevSeconds = prevSeconds ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
+  const effNextSeconds = nextSeconds ?? effPrevSeconds;
+  if (effPrevEnabled === effNextEnabled && effPrevSeconds === effNextSeconds) return;
+
+  if (effNextEnabled === false) {
+    console.log(`⏱️  ${label} timeout disabled`);
+  } else {
+    console.log(`⏱️  ${label} timeout updated: enabled=true, timeout=${effNextSeconds}s`);
+  }
+}
 
 export function updateSettings(settings: {
   addonEnabled?: boolean;
@@ -17,10 +46,14 @@ export function updateSettings(settings: {
   indexManager?: 'newznab' | 'prowlarr' | 'nzbhydra';
   prowlarrUrl?: string;
   prowlarrApiKey?: string;
+  prowlarrTimeoutEnabled?: boolean;
+  prowlarrTimeout?: number;
   nzbhydraUrl?: string;
   nzbhydraApiKey?: string;
   nzbhydraUsername?: string;
   nzbhydraPassword?: string;
+  nzbhydraTimeoutEnabled?: boolean;
+  nzbhydraTimeout?: number;
   zyclopsEndpoint?: string;
   nzbdavUrl?: string;
   nzbdavApiKey?: string;
@@ -29,17 +62,9 @@ export function updateSettings(settings: {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
-  nzbdavFallbackEnabled?: boolean;
-  nzbdavLibraryCheckEnabled?: boolean;
-  nzbdavMaxFallbacks?: number;
-  nzbdavJobTimeoutSeconds?: number;
-  nzbdavMoviesTimeoutSeconds?: number;
-  nzbdavTvTimeoutSeconds?: number;
-  nzbdavSeasonPackTimeoutSeconds?: number;
-  nzbdavFallbackOrder?: 'selected' | 'top';
-  autoResolveOnSearch?: boolean;
   nzbdavStreamBufferMB?: number;
-  nzbdavProxyEnabled?: boolean;
+  nzbdavPipeBufferMB?: number;
+  nzbdavStreamingMethod?: 'pipe' | 'proxy' | 'direct';
   nzbdavCacheTimeouts?: boolean;
   healthyNzbDbMode?: 'time' | 'storage';
   healthyNzbDbTTL?: number;
@@ -71,6 +96,8 @@ export function updateSettings(settings: {
   easynewsPassword?: string;
   easynewsPagination?: boolean;
   easynewsMaxPages?: number;
+  easynewsTimeoutEnabled?: boolean;
+  easynewsTimeout?: number;
   easynewsMode?: 'ddl' | 'nzb';
   easynewsHealthCheck?: boolean;
   indexerPriority?: string[];
@@ -89,6 +116,26 @@ export function updateSettings(settings: {
     maxConnections?: number;
     autoQueueMode?: 'off' | 'top' | 'all';
     hideBlocked: boolean;
+    healthCheckIndexers?: Record<string, boolean>;
+  };
+  ultimateFallback?: {
+    enabled: boolean;
+    healthCheckEnabled?: boolean;
+    whenToResolve?: 'on-results' | 'on-tile-selection';
+    userPickFallback?: 'uf-lobby' | 'failure-video' | 'fallback-chain';
+    candidateCount?: number;
+    preferenceMode?: 'priority' | 'speed';
+    archiveInspection?: boolean;
+    sampleCount?: 3 | 7;
+    maxAttempts?: number;
+    desiredBackups?: number;
+    backupProcessingLimit?: number;
+    priorityMoviesTimeoutSeconds?: number;
+    priorityTvTimeoutSeconds?: number;
+    prioritySeasonPackTimeoutSeconds?: number;
+    speedMoviesTimeoutSeconds?: number;
+    speedTvTimeoutSeconds?: number;
+    speedSeasonPackTimeoutSeconds?: number;
     healthCheckIndexers?: Record<string, boolean>;
   };
 }): void {
@@ -113,6 +160,19 @@ export function updateSettings(settings: {
   if (settings.prowlarrApiKey !== undefined) {
     configData.prowlarrApiKey = settings.prowlarrApiKey;
   }
+  if (settings.prowlarrTimeoutEnabled !== undefined || settings.prowlarrTimeout !== undefined) {
+    const prevEnabled = configData.prowlarrTimeoutEnabled;
+    const prevSeconds = configData.prowlarrTimeout;
+    let nextSeconds: number | undefined;
+    if (settings.prowlarrTimeoutEnabled !== undefined && typeof settings.prowlarrTimeoutEnabled === 'boolean') {
+      configData.prowlarrTimeoutEnabled = settings.prowlarrTimeoutEnabled;
+    }
+    if (settings.prowlarrTimeout !== undefined) {
+      nextSeconds = coerceTimeoutSeconds(settings.prowlarrTimeout);
+      if (nextSeconds !== undefined) configData.prowlarrTimeout = nextSeconds;
+    }
+    logTimeoutChange('Prowlarr', prevEnabled, prevSeconds, configData.prowlarrTimeoutEnabled, configData.prowlarrTimeout);
+  }
   if (settings.nzbhydraUrl !== undefined) {
     configData.nzbhydraUrl = settings.nzbhydraUrl;
   }
@@ -124,6 +184,18 @@ export function updateSettings(settings: {
   }
   if (settings.nzbhydraPassword !== undefined) {
     configData.nzbhydraPassword = settings.nzbhydraPassword;
+  }
+  if (settings.nzbhydraTimeoutEnabled !== undefined || settings.nzbhydraTimeout !== undefined) {
+    const prevEnabled = configData.nzbhydraTimeoutEnabled;
+    const prevSeconds = configData.nzbhydraTimeout;
+    if (settings.nzbhydraTimeoutEnabled !== undefined && typeof settings.nzbhydraTimeoutEnabled === 'boolean') {
+      configData.nzbhydraTimeoutEnabled = settings.nzbhydraTimeoutEnabled;
+    }
+    if (settings.nzbhydraTimeout !== undefined) {
+      const nextSeconds = coerceTimeoutSeconds(settings.nzbhydraTimeout);
+      if (nextSeconds !== undefined) configData.nzbhydraTimeout = nextSeconds;
+    }
+    logTimeoutChange('NZBHydra', prevEnabled, prevSeconds, configData.nzbhydraTimeoutEnabled, configData.nzbhydraTimeout);
   }
   if (settings.zyclopsEndpoint !== undefined) {
     configData.zyclopsEndpoint = settings.zyclopsEndpoint;
@@ -149,38 +221,15 @@ export function updateSettings(settings: {
   if (settings.nzbdavTvCategory !== undefined) {
     configData.nzbdavTvCategory = settings.nzbdavTvCategory;
   }
-  if (settings.nzbdavFallbackEnabled !== undefined) {
-    configData.nzbdavFallbackEnabled = settings.nzbdavFallbackEnabled;
-  }
-  if (settings.nzbdavLibraryCheckEnabled !== undefined) {
-    configData.nzbdavLibraryCheckEnabled = settings.nzbdavLibraryCheckEnabled;
-  }
-  if (settings.nzbdavMaxFallbacks !== undefined) {
-    configData.nzbdavMaxFallbacks = settings.nzbdavMaxFallbacks;
-  }
-  if (settings.nzbdavJobTimeoutSeconds !== undefined) {
-    configData.nzbdavJobTimeoutSeconds = settings.nzbdavJobTimeoutSeconds;
-  }
-  if (settings.nzbdavMoviesTimeoutSeconds !== undefined) {
-    configData.nzbdavMoviesTimeoutSeconds = settings.nzbdavMoviesTimeoutSeconds;
-  }
-  if (settings.nzbdavTvTimeoutSeconds !== undefined) {
-    configData.nzbdavTvTimeoutSeconds = settings.nzbdavTvTimeoutSeconds;
-  }
-  if (settings.nzbdavSeasonPackTimeoutSeconds !== undefined) {
-    configData.nzbdavSeasonPackTimeoutSeconds = settings.nzbdavSeasonPackTimeoutSeconds;
-  }
-  if (settings.nzbdavFallbackOrder !== undefined) {
-    configData.nzbdavFallbackOrder = settings.nzbdavFallbackOrder;
-  }
-  if (settings.autoResolveOnSearch !== undefined) {
-    configData.autoResolveOnSearch = settings.autoResolveOnSearch;
-  }
   if (settings.nzbdavStreamBufferMB !== undefined) {
     configData.nzbdavStreamBufferMB = settings.nzbdavStreamBufferMB;
   }
-  if (settings.nzbdavProxyEnabled !== undefined) {
-    configData.nzbdavProxyEnabled = settings.nzbdavProxyEnabled;
+  if (settings.nzbdavPipeBufferMB !== undefined) {
+    configData.nzbdavPipeBufferMB = settings.nzbdavPipeBufferMB;
+  }
+  if (settings.nzbdavStreamingMethod !== undefined) {
+    configData.nzbdavStreamingMethod = settings.nzbdavStreamingMethod;
+    delete configData.nzbdavProxyEnabled;
   }
   if (settings.nzbdavCacheTimeouts !== undefined) {
     configData.nzbdavCacheTimeouts = settings.nzbdavCacheTimeouts;
@@ -220,6 +269,63 @@ export function updateSettings(settings: {
     configData.proxyIndexers = settings.proxyIndexers;
   }
   if (settings.searchConfig !== undefined) {
+    // Clear the cached TVDB bearer token if the API key changed. The token is
+    // cached for 23h and tied to the key it was issued with; without this, a
+    // key swap keeps using the stale token until the cache expires (or until
+    // the next 401 response triggers findOnTvdb's existing retry path).
+    // Cached series episode data is keyed by tvdbId and doesn't need
+    // invalidation: the same series returns the same episodes regardless of
+    // which key fetched them.
+    const prevTvdbKey = configData.searchConfig?.tvdbApiKey;
+    const nextTvdbKey = settings.searchConfig.tvdbApiKey;
+    if (prevTvdbKey !== nextTvdbKey) {
+      console.log('🔗 TVDB API key changed, clearing cached token');
+      import('../idResolver.js').then(m => m.clearTvdbToken?.()).catch(() => {});
+    }
+    // Flush TVDB-derived title + translation caches when the English-title
+    // preference flips so the next search picks up the new setting instead
+    // of returning the previously-cached resolution.
+    const prevPreferEnglish = configData.searchConfig?.tvdbPreferEnglishTitle ?? true;
+    const nextPreferEnglish = settings.searchConfig.tvdbPreferEnglishTitle ?? true;
+    if (prevPreferEnglish !== nextPreferEnglish) {
+      console.log('🔗 TVDB English-title preference changed, clearing cached titles');
+      import('../idResolver.js').then(m => m.clearTvdbTitleCache?.()).catch(() => {});
+    }
+    // Clamp librarySearchThreshold on write so a bad frontend payload or manual edit
+    // can't round-trip out-of-range values to disk. Accessor also clamps on read.
+    if (settings.searchConfig.librarySearchThreshold !== undefined) {
+      settings.searchConfig.librarySearchThreshold = Math.max(
+        0,
+        Math.min(10, settings.searchConfig.librarySearchThreshold)
+      );
+    }
+    if (settings.searchConfig.libraryApplyToMovies !== undefined) {
+      settings.searchConfig.libraryApplyToMovies = !!settings.searchConfig.libraryApplyToMovies;
+    }
+    if (settings.searchConfig.libraryApplyToSeries !== undefined) {
+      settings.searchConfig.libraryApplyToSeries = !!settings.searchConfig.libraryApplyToSeries;
+    }
+    if (settings.searchConfig.libraryRunOnCacheHit !== undefined) {
+      settings.searchConfig.libraryRunOnCacheHit = !!settings.searchConfig.libraryRunOnCacheHit;
+    }
+    if (settings.searchConfig.includeMultiSeasonPacks !== undefined) {
+      settings.searchConfig.includeMultiSeasonPacks = !!settings.searchConfig.includeMultiSeasonPacks;
+    }
+    if (settings.searchConfig.seriesPackKeywords !== undefined) {
+      // Whitelist canonical keywords on write so a malformed payload can't poison the field.
+      const KNOWN = new Set<string>(SERIES_PACK_KEYWORDS);
+      const raw = Array.isArray(settings.searchConfig.seriesPackKeywords) ? settings.searchConfig.seriesPackKeywords : [];
+      const seen = new Set<string>();
+      const cleaned: string[] = [];
+      for (const k of raw) {
+        if (typeof k !== 'string') continue;
+        if (!KNOWN.has(k)) continue;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        cleaned.push(k);
+      }
+      settings.searchConfig.seriesPackKeywords = cleaned;
+    }
     configData.searchConfig = settings.searchConfig;
     configData.includeSeasonPacks = settings.searchConfig.includeSeasonPacks;
   }
@@ -236,12 +342,15 @@ export function updateSettings(settings: {
     configData.userAgents = settings.userAgents;
   }
   if (settings.filters !== undefined) {
+    validateRulesBlock(settings.filters?.rules);
     configData.filters = settings.filters;
   }
   if (settings.movieFilters !== undefined) {
+    validateRulesBlock(settings.movieFilters?.rules);
     configData.movieFilters = settings.movieFilters;
   }
   if (settings.tvFilters !== undefined) {
+    validateRulesBlock(settings.tvFilters?.rules);
     configData.tvFilters = settings.tvFilters;
   }
   if (settings.autoPlay !== undefined) {
@@ -265,6 +374,18 @@ export function updateSettings(settings: {
   if (settings.easynewsMaxPages !== undefined) {
     configData.easynewsMaxPages = settings.easynewsMaxPages;
   }
+  if (settings.easynewsTimeoutEnabled !== undefined || settings.easynewsTimeout !== undefined) {
+    const prevEnabled = configData.easynewsTimeoutEnabled;
+    const prevSeconds = configData.easynewsTimeout;
+    if (settings.easynewsTimeoutEnabled !== undefined && typeof settings.easynewsTimeoutEnabled === 'boolean') {
+      configData.easynewsTimeoutEnabled = settings.easynewsTimeoutEnabled;
+    }
+    if (settings.easynewsTimeout !== undefined) {
+      const nextSeconds = coerceTimeoutSeconds(settings.easynewsTimeout);
+      if (nextSeconds !== undefined) configData.easynewsTimeout = nextSeconds;
+    }
+    logTimeoutChange('EasyNews', prevEnabled, prevSeconds, configData.easynewsTimeoutEnabled, configData.easynewsTimeout);
+  }
   if (settings.easynewsMode !== undefined) {
     configData.easynewsMode = settings.easynewsMode;
   }
@@ -286,17 +407,36 @@ export function updateSettings(settings: {
   if (settings.streamDisplayConfig !== undefined) {
     configData.streamDisplayConfig = settings.streamDisplayConfig;
   }
+  // UF transition detection — gate cancel + cache-clear narrowly so unrelated
+  // UF field tweaks don't nuke in-flight playback or purge useful search caches.
+  let ufEnableTransitioned = false;
+  let ufIndexersChanged = false;
+  if (settings.ultimateFallback !== undefined) {
+    const wasUfEnabled = configData.ultimateFallback?.enabled === true;
+    const prevHcIndexersJson = JSON.stringify(configData.ultimateFallback?.healthCheckIndexers ?? {});
+    configData.ultimateFallback = { ...configData.ultimateFallback, ...settings.ultimateFallback };
+    const isUfEnabled = configData.ultimateFallback?.enabled === true;
+    ufEnableTransitioned = wasUfEnabled && !isUfEnabled;
+    ufIndexersChanged =
+      JSON.stringify(configData.ultimateFallback?.healthCheckIndexers ?? {}) !== prevHcIndexersJson;
+  }
 
   // Enforce minimum cacheTTL when auto play is enabled
   if ((configData.autoPlay?.enabled ?? true) && configData.cacheTTL < 9000) {
     configData.cacheTTL = 9000;
   }
 
-  // Cancel auto-resolves when preconditions change
-  if (settings.nzbdavFallbackEnabled === false
-      || settings.nzbdavFallbackOrder === 'selected'
-      || settings.autoResolveOnSearch === false) {
-    import('../nzbdav/autoResolve.js').then(m => m.cancelAllAutoResolves()).catch(() => {});
+
+  // Only cancel UF sessions on a genuine enable→disable transition. Tweaks to
+  // timeouts / candidate count / etc. let in-flight pipelines finish — users
+  // are already watching them. Search cache only needs clearing when the set
+  // of vetting indexers changes (or on a disable, since UF tile injection
+  // depends on the enabled flag).
+  if (ufEnableTransitioned) {
+    import('../nzbdav/ultimateFallback.js').then(m => m.cancelAllUltimateFallbacks()).catch(() => {});
+  }
+  if (ufEnableTransitioned || ufIndexersChanged) {
+    import('../addon/index.js').then(m => m.clearSearchCache()).catch(() => {});
   }
 
   // Mutual exclusion: force enabled + disable proxy/health checks for Zyclops-enabled indexers

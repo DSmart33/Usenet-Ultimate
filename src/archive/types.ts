@@ -35,7 +35,12 @@ export interface EncodedHeaderInfo {
   packPos: number;       // Offset from byte 32 in archive where packed data starts
   packSize: number;      // Size of packed (compressed) data
   unpackSize: number;    // Expected size of unpacked data
-  coderProps: Buffer;    // LZMA properties (5 bytes: lc/lp/pb + dictionary size)
-  isLZMA: boolean;       // Whether the coder is LZMA1 (0x030101)
+  coderProps: Buffer;    // Codec properties (LZMA1: 5 bytes, LZMA2: 1 byte)
+  codecType: 'none' | 'lzma1' | 'lzma2';  // Detected compression codec
   encrypted: boolean;    // Whether AES encryption was detected
+  aesProps?: {           // AES-256 coder properties (for decryption)
+    numCyclesPower: number;
+    salt: Buffer;
+    iv: Buffer;
+  };
 }

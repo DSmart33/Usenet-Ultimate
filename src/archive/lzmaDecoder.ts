@@ -3,6 +3,7 @@
  * Based on the LZMA SDK reference implementation (public domain, Igor Pavlov).
  *
  * Only implements decompression. Handles raw LZMA1 streams with provided properties.
+ * RangeDecoder and LZMADecoder are exported for reuse by the LZMA2 decoder.
  */
 
 export function decompressLZMA1(
@@ -24,7 +25,7 @@ export function decompressLZMA1(
   return decoder.decode();
 }
 
-class RangeDecoder {
+export class RangeDecoder {
   private data: Buffer;
   private pos: number;
   public range: number;
@@ -89,16 +90,16 @@ class RangeDecoder {
   }
 }
 
-const kNumPosBitsMax = 4;
-const kNumStates = 12;
+export const kNumPosBitsMax = 4;
+export const kNumStates = 12;
 const kNumLenToPosStates = 4;
 const kNumAlignBits = 4;
 const kStartPosModelIndex = 4;
 const kEndPosModelIndex = 14;
 const kNumFullDistances = 1 << (kEndPosModelIndex >> 1);
-const kMatchMinLen = 2;
+export const kMatchMinLen = 2;
 
-function initProbs(size: number): Uint16Array {
+export function initProbs(size: number): Uint16Array {
   const probs = new Uint16Array(size);
   probs.fill(1024);
   return probs;
@@ -165,13 +166,15 @@ class LenDecoder {
   }
 }
 
-class LZMADecoder {
+export class LZMADecoder {
   private lc: number;
   private lp: number;
   private pb: number;
   private dictSize: number;
   private uncompSize: number;
   private rc: RangeDecoder;
+  private existingDict?: Uint8Array;
+  private existingDictPos: number;
 
   private isMatch: Uint16Array;
   private isRep: Uint16Array;
@@ -186,13 +189,18 @@ class LZMADecoder {
   private lenDecoder: LenDecoder;
   private repLenDecoder: LenDecoder;
 
-  constructor(lc: number, lp: number, pb: number, dictSize: number, uncompSize: number, rc: RangeDecoder) {
+  constructor(
+    lc: number, lp: number, pb: number, dictSize: number, uncompSize: number, rc: RangeDecoder,
+    existingDict?: Uint8Array, existingDictPos?: number,
+  ) {
     this.lc = lc;
     this.lp = lp;
     this.pb = pb;
     this.dictSize = Math.max(dictSize, 1);
     this.uncompSize = uncompSize;
     this.rc = rc;
+    this.existingDict = existingDict;
+    this.existingDictPos = existingDictPos ?? 0;
 
     this.isMatch = initProbs(kNumStates << kNumPosBitsMax);
     this.isRep = initProbs(kNumStates);
@@ -216,23 +224,33 @@ class LZMADecoder {
     let state = 0;
     let rep0 = 0, rep1 = 0, rep2 = 0, rep3 = 0;
 
+    // Helper for dictionary back-references (supports cross-chunk lookups for LZMA2)
+    const extDict = this.existingDict;
+    const extDictPos = this.existingDictPos;
+    const getByte = (dist: number): number => {
+      const pos = output.length - dist;
+      if (pos >= 0) return output[pos];
+      if (extDict) {
+        const idx = extDictPos + pos;
+        return extDict[((idx % extDict.length) + extDict.length) % extDict.length];
+      }
+      return 0;
+    };
+    const totalAvailable = () => output.length + (extDict?.length ?? 0);
+
     while (output.length < this.uncompSize) {
       const posState = output.length & ((1 << this.pb) - 1);
 
       if (this.rc.decodeBit(this.isMatch, (state << kNumPosBitsMax) + posState) === 0) {
         // Literal
-        const prevByte = output.length > 0 ? output[output.length - 1] : 0;
+        const prevByte = output.length > 0 ? output[output.length - 1] : (extDict ? getByte(1) : 0);
         const litState = ((output.length & ((1 << this.lp) - 1)) << this.lc) + (prevByte >> (8 - this.lc));
         const probsOffset = 768 * litState;
 
         let symbol = 1;
 
         if (state >= 7) {
-          let matchByte = 0;
-          const matchPos = output.length - rep0 - 1;
-          if (matchPos >= 0) {
-            matchByte = output[matchPos];
-          }
+          let matchByte = getByte(rep0 + 1);
 
           do {
             const matchBit = (matchByte >> 7) & 1;
@@ -289,7 +307,7 @@ class LZMADecoder {
 
           if (rep0 === 0xFFFFFFFF) break; // End marker
 
-          if (rep0 >= output.length) {
+          if (rep0 >= totalAvailable()) {
             throw new Error(`LZMA: invalid distance ${rep0} at position ${output.length}`);
           }
 
@@ -299,8 +317,7 @@ class LZMADecoder {
             if (this.rc.decodeBit(this.isRep0Long, (state << kNumPosBitsMax) + posState) === 0) {
               // ShortRep
               state = state < 7 ? 9 : 11;
-              const pos = output.length - rep0 - 1;
-              output.push(pos >= 0 ? output[pos] : 0);
+              output.push(getByte(rep0 + 1));
               continue;
             }
           } else {
@@ -326,8 +343,7 @@ class LZMADecoder {
 
         // Copy from dictionary
         for (let i = 0; i < len && output.length < this.uncompSize; i++) {
-          const pos = output.length - rep0 - 1;
-          output.push(pos >= 0 ? output[pos] : 0);
+          output.push(getByte(rep0 + 1));
         }
       }
     }

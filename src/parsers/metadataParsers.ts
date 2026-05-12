@@ -41,14 +41,19 @@ export interface ParsedMetadata {
 // ── Core parser — calls library once, normalizes all fields ──────────
 
 export function parseMetadata(title: string): ParsedMetadata {
-  const parsed = parseTorrentTitle(title);
+  // Strip trailing whitespace + dashes so indexer-mangled titles get their
+  // release group extracted correctly. Scene convention is `-GROUP` at
+  // end-of-title with nothing after; trailing dashes/spaces are always
+  // indexer-side formatting artifacts.
+  const cleanedTitle = title.replace(/[\s\-]+$/, '');
+  const parsed = parseTorrentTitle(cleanedTitle);
 
   return {
     resolution: parseResolution(parsed, title),
-    codec: normalizeCodec(parsed.codec),
-    source: parseSourceFromLib(parsed),
+    codec: normalizeCodec(parsed.codec, title),
+    source: parseSourceFromLib(parsed, title),
     visualTag: parseVisualFromLib(parsed, title),
-    audioTag: parseAudioFromLib(parsed),
+    audioTag: parseAudioFromLib(parsed, title),
     language: parseLanguageFromLib(parsed),
     edition: parseEditionFromLib(parsed, title),
     releaseGroup: parsed.group ?? 'Unknown',
@@ -79,11 +84,17 @@ export function resolutionToDisplay(resolution: string): string {
 
 // ── Codec ────────────────────────────────────────────────────────────
 
-function normalizeCodec(codec: string | undefined): string {
+// VVC / h.266 — parse-torrent-title doesn't recognize these, so detect
+// from the raw title before falling back to the library's codec field.
+const VVC_PATTERN = /(?:^|[^a-z0-9])(h\.?266|x266|vvc|vvenc)(?:[^a-z0-9]|$)/i;
+
+function normalizeCodec(codec: string | undefined, title?: string): string {
+  if (title && VVC_PATTERN.test(title)) return 'vvc';
   if (!codec) return 'Unknown';
   const c = codec.toLowerCase();
   if (c === 'h265' || c === 'x265') return 'hevc';
   if (c === 'h264' || c === 'x264') return 'avc';
+  if (c === 'h266' || c === 'x266' || c === 'vvc' || c === 'vvenc') return 'vvc';
   if (c === 'divx' || c === 'dvix') return 'xvid';
   return c;
 }
@@ -94,7 +105,12 @@ export function parseCodec(title: string): string {
 
 // ── Source ────────────────────────────────────────────────────────────
 
-function parseSourceFromLib(parsed: any): string {
+// parse-torrent-title doesn't recognize Digital Cinema Package (DCP) leaks —
+// raw projection files dumped from theaters. Detect before library parse.
+const DCP_PATTERN = /(?:^|[^a-z0-9])DCP(?:[^a-z0-9]|$)/i;
+
+function parseSourceFromLib(parsed: any, title?: string): string {
+  if (title && DCP_PATTERN.test(title)) return 'DCP';
   return parsed.quality ?? 'Unknown';
 }
 
@@ -104,18 +120,33 @@ export function parseSource(title: string): string {
 
 // ── Visual/HDR — normalized to current canonical format ──────────────
 
+// HDR10P / HDR10plus are common sanitized filename spellings that the
+// parse-torrent-title library misses. Detect them in the raw title and
+// promote to an HDR10+ tag so downstream SEL rules pick them up.
+const HDR10_PLUS_ALIAS_PATTERN = /(?:^|[^a-z0-9])(?:HDR10[P]|HDR10plus)\b/i;
+
 function parseVisualFromLib(parsed: any, title: string): string {
   if (parsed.threeD) return '3D';
   // Custom fallback for 3D tag in title when library misses it
   if (/S\d{1,2}(?:E\d{1,2})+[._\s-].*\b(?:BD)?3D\b/i.test(title)) return '3D';
 
-  const hdr = parsed.hdr as string[] | undefined;
+  const libHdr = (parsed.hdr as string[] | undefined) ?? [];
+  // Augment the library's HDR list with aliases it doesn't recognise.
+  const hdrSet = new Set(libHdr);
+  if (HDR10_PLUS_ALIAS_PATTERN.test(title)) hdrSet.add('HDR10+');
+  const hdr = [...hdrSet];
 
-  if (hdr && hdr.length > 0) {
-    const hasDV = hdr.some((h: string) => h === 'DV');
-    const hasOtherHDR = hdr.some((h: string) => h !== 'DV' && h !== 'SDR');
+  if (hdr.length > 0) {
+    const hasDV = hdr.some(h => h === 'DV');
+    const otherHdr = hdr.filter(h => h !== 'DV' && h !== 'SDR');
 
-    if (hasDV && hasOtherHDR) return 'HDR+DV';
+    if (hasDV && otherHdr.length > 0) {
+      // Preserve every detected HDR variant alongside DV so SEL rules like
+      // `visualTag(streams, 'HDR10+')` match releases that carry DV + HDR10+.
+      // Comma-separated so the token matcher in filterByAttrContains picks up
+      // each variant independently without ambiguity.
+      return ['DV', ...otherHdr].join(', ');
+    }
     if (hasDV) return 'DV';
     return hdr[0];
   }
@@ -131,28 +162,88 @@ export function parseVisualTag(title: string): string {
   return parseMetadata(title).visualTag;
 }
 
-// ── Audio — library direct ───────────────────────────────────────────
+// ── Audio ────────────────────────────────────────────────────────────
+//
+// parse-torrent-title collapses DTS variants ("DTS-HD MA" → "DTS Lossy" /
+// "DTS Lossless" depending on context) and uses "DDP" for E-AC3. Community
+// ranked-rules templates filter on specific tokens: "DTS-HD MA", "DTS:X",
+// "DD+", etc. Emit canonical names that match those tokens, pre-detecting
+// from the raw title where the library is imprecise.
 
-function parseAudioFromLib(parsed: any): string {
-  const audio = parsed.audio as string[] | undefined;
-  if (!audio || audio.length === 0) return 'Unknown';
+// `(?=\d|\b)` after each codec name allows channel counts to attach directly
+// to the codec token (e.g. DTSMA5.1, MA7.1, TrueHD7.1) — JS \b alone fails
+// between a letter and a digit. HD is optional for DTS-HD MA/HRA variants
+// because some release names use `DTSMA` / `DTSHRA` without the HD separator.
+const AUDIO_PATTERNS: { re: RegExp; token: string }[] = [
+  { re: /\bDTS[ ._:-]?X(?=\d|\b)(?!\d{2,})/i,                token: 'DTS:X' },
+  { re: /\bDTS[ ._-]?(?:HD[ ._-]?)?MA(?=\d|\b)/i,            token: 'DTS-HD MA' },
+  { re: /\bDTS[ ._-]?(?:HD[ ._-]?)?HRA?(?=\d|\b)/i,          token: 'DTS-HD' },
+  { re: /\bDTS[ ._-]?ES(?=\d|\b)/i,                          token: 'DTS-ES' },
+  { re: /\bDD[+]|\bDDP|\bE[ ._-]?AC3\b/i,                    token: 'DD+' },
+  { re: /\bTrueHD(?=\d|\b)/i,                                 token: 'TrueHD' },
+  { re: /\bFLAC(?=\d|\b)/i,                                   token: 'FLAC' },
+  { re: /\bAtmos(?=\d|\b)/i,                                  token: 'Atmos' },
+  { re: /\bDTS(?=\d|\b)/i,                                    token: 'DTS' },
+  { re: /\bAC3\b|\bDD\d/i,                                   token: 'DD' },
+  { re: /\bAAC(?=\d|\b)/i,                                    token: 'AAC' },
+  { re: /\bOpus(?=\d|\b)/i,                                   token: 'Opus' },
+  { re: /\bPCM(?=\d|\b)|\bLPCM(?=\d|\b)/i,                   token: 'PCM' },
+  { re: /\bMP3(?=\d|\b)/i,                                    token: 'MP3' },
+];
 
-  const hasAtmos = audio.includes('Atmos');
-  if (hasAtmos) {
-    if (audio.includes('TrueHD')) return 'Atmos (TrueHD)';
-    if (audio.includes('DDP') || audio.includes('EAC3')) return 'Atmos (DDP)';
-    // Standalone Atmos — infer base layer from source
-    const quality = (parsed.quality || '').toLowerCase();
-    if (quality.includes('bluray') || quality.includes('remux') || quality.includes('bdrip') || quality.includes('brrip') || quality.includes('uhdrip') || quality.includes('bdmux') || quality.includes('brmux')) {
-      return 'Atmos (TrueHD)';
-    }
-    return 'Atmos (DDP)';
+function detectAudioTokens(title: string): string[] {
+  const found = new Set<string>();
+  for (const { re, token } of AUDIO_PATTERNS) {
+    if (re.test(title)) found.add(token);
+  }
+  return [...found];
+}
+
+function parseAudioFromLib(parsed: any, title?: string): string {
+  // Prefer title-driven detection since the library flattens DTS variants.
+  const titleTokens = title ? detectAudioTokens(title) : [];
+  const libAudio = (parsed.audio as string[] | undefined) ?? [];
+  // Merge library detections into the token set (library may catch nuances
+  // the title-regex misses).
+  const tokens = new Set(titleTokens);
+  for (const t of libAudio) {
+    // Normalize library-specific names to canonical tokens
+    if (t === 'EAC3' || t === 'DDP') tokens.add('DD+');
+    else if (t === 'AC3') tokens.add('DD');
+    else tokens.add(t);  // Atmos, TrueHD, FLAC, etc. pass through
   }
 
-  const primary = audio[0];
-  if (primary === 'EAC3') return 'DDP';
-  if (primary === 'AC3') return 'DD';
-  return primary;
+  if (tokens.size === 0) return 'Unknown';
+
+  const has = (v: string) => tokens.has(v);
+
+  // Premium combinations (ordered by community scoring tier)
+  if (has('Atmos') && has('TrueHD')) return 'Atmos (TrueHD)';
+  if (has('Atmos') && has('DD+'))    return 'Atmos (DD+)';
+  if (has('Atmos')) {
+    // Infer base from source — BluRay-sourced Atmos is almost always TrueHD
+    const q = (parsed.quality || '').toLowerCase();
+    if (/bluray|remux|bdrip|brrip|uhdrip|bdmux|brmux/.test(q)) return 'Atmos (TrueHD)';
+    return 'Atmos (DD+)';
+  }
+
+  // Standalone premium codecs (ordered by quality tier)
+  if (has('DTS:X'))     return 'DTS:X';
+  if (has('TrueHD'))    return 'TrueHD';
+  if (has('DTS-HD MA')) return 'DTS-HD MA';
+  if (has('DTS-HD'))    return 'DTS-HD';
+  if (has('FLAC'))      return 'FLAC';
+  if (has('DTS-ES'))    return 'DTS-ES';
+  if (has('DD+'))       return 'DD+';
+  if (has('DTS'))       return 'DTS';
+  if (has('AAC'))       return 'AAC';
+  if (has('Opus'))      return 'Opus';
+  if (has('DD'))        return 'DD';
+  if (has('PCM'))       return 'PCM';
+  if (has('MP3'))       return 'MP3';
+
+  // Fallback: first token seen
+  return [...tokens][0];
 }
 
 export function parseAudioTag(title: string): string {
@@ -238,6 +329,17 @@ export function parseCleanTitle(title: string): string {
 
 export function parseYear(title: string): string | undefined {
   return parseTorrentTitle(title).year;
+}
+
+/**
+ * Detect whether a title represents a season pack (one or more seasons, no
+ * episode markers). Used by the rule preview endpoint so SEL `seasonPack()`
+ * filters can be tested against a single sample title without going through
+ * the full search pipeline that normally tags pack results upstream.
+ */
+export function parseSeasonPack(title: string): boolean {
+  const parsed = parseTorrentTitle(title);
+  return (parsed.seasons?.length ?? 0) > 0 && (parsed.episodes?.length ?? 0) === 0;
 }
 
 export function buildStreamFilename(title: string, type: string, season?: number, episode?: number): string {

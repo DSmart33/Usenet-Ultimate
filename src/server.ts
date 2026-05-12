@@ -23,6 +23,7 @@ import { hasAnyUsers, createUser, authenticateUser, generateToken, verifyToken, 
 import { createManifestRoutes } from './routes/manifests.js';
 import { requireAuth, validateManifestKey } from './auth/authMiddleware.js';
 import { requestContext } from './requestContext.js';
+import { resolveBaseUrl } from './utils/urlHelpers.js';
 import { initAnimeDatabase, startDailyRefresh, stopDailyRefresh, getDatabaseStatus } from './anime/animeDatabase.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -42,6 +43,7 @@ import { createHealthCheckRoutes } from './routes/healthCheck.js';
 import { createExternalApiRoutes } from './routes/externalApis.js';
 import { createStatsRoutes } from './routes/stats.js';
 import { createLogRoutes } from './routes/logs.js';
+import { createRulesRoutes } from './routes/rules.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,7 +56,10 @@ app.set('trust proxy', 1);
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+// Rule-heavy filter saves (regex + SEL rules × Global/Movie/TV) can exceed
+// Express's default 100 KB. 5 MB is comfortable headroom while still a hard
+// cap against pathological payloads.
+app.use(express.json({ limit: '5mb' }));
 // Serve static files — hashed assets get long cache, non-hashed files (sw.js, index.html) get no-cache
 const staticMiddleware = express.static('ui/dist', {
   setHeaders: (res, filePath) => {
@@ -175,6 +180,8 @@ app.use('/api/logs', createLogRoutes({
   subscribeToLogs,
 }));
 
+app.use('/api/rules', createRulesRoutes());
+
 // --- Key-protected proxy routes (no JWT auth, validated by manifest key) ---
 // Mounted at both /:manifestKey/ (legacy) and /stremio/:manifestKey/ (recommended for reverse proxy setups)
 
@@ -183,14 +190,14 @@ const nzbdavRoutes = createNzbdavStreamRoutes(nzbdavDeps);
 const stremioRouter = express.Router({ mergeParams: false });
 // Serve manifest with absolute logo URL (Stremio doesn't resolve relative paths correctly)
 stremioRouter.get('/manifest.json', (req, res) => {
-  const baseUrl = requestContext.getStore()?.baseUrl || process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const baseUrl = requestContext.getStore()?.baseUrl || resolveBaseUrl(req);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(JSON.stringify({ ...addonManifest, logo: `${baseUrl}/pwa-512x512.png` }));
 });
 stremioRouter.use(getRouter(addon));
 
 const contextMiddleware = (pathPrefix: string) => (req: express.Request, _res: express.Response, next: express.NextFunction) => {
-  requestContext.run({ manifestKey: req.params.manifestKey, baseUrl: process.env.BASE_URL || `${req.protocol}://${req.get('host')}`, pathPrefix }, () => next());
+  requestContext.run({ manifestKey: req.params.manifestKey, baseUrl: resolveBaseUrl(req), pathPrefix }, () => next());
 };
 
 // /stremio/ prefixed routes (recommended for new installations and reverse proxy setups)

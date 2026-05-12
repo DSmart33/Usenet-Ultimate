@@ -7,6 +7,7 @@ import clsx from 'clsx';
 import indexerPresets from '../../indexerPresets.json';
 import type { IndexerCaps, IndexerPreset, NewIndexerForm } from '../../types';
 import { normalizeNewznabUrl } from '../../utils/normalizeNewznabUrl';
+import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../../constants';
 
 const INDEXER_PRESETS: IndexerPreset[] = indexerPresets;
 
@@ -77,7 +78,7 @@ export function AddIndexerModal({
   return (
     <div className="fixed inset-0 z-[55] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => {
       onClose();
-      setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+      setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: DEFAULT_INDEXER_TIMEOUT_SECONDS });
       setSelectedPreset('');
       setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
       setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });
@@ -92,7 +93,7 @@ export function AddIndexerModal({
             <button
               onClick={() => {
                 onClose();
-                setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3 });
+                setNewIndexer({ name: '', url: '', apiKey: '', website: '', logo: '', movieSearchMethod: ['text'], tvSearchMethod: ['text'], animeMovieSearchMethod: ['text'], animeTvSearchMethod: ['text'], caps: null, pagination: false, maxPages: 3, timeoutEnabled: true, timeout: DEFAULT_INDEXER_TIMEOUT_SECONDS });
                 setSelectedPreset('');
                 setTestResults(prev => { const next = { ...prev }; delete next['__new__']; return next; });
                 setTestQuery(prev => { const next = { ...prev }; delete next['__new__']; return next; });

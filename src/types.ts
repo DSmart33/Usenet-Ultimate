@@ -49,6 +49,8 @@ export interface UsenetIndexer {
   caps?: IndexerCaps;  // Discovered capabilities from ?t=caps
   pagination?: boolean; // Enable paginated search (default false)
   maxPages?: number;    // Max extra pages to fetch when pagination enabled (1-10, default 3)
+  timeoutEnabled?: boolean; // Enable request timeout (default true)
+  timeout?: number;         // Request timeout in seconds, 0.5s steps (1-120, default 8)
   zyclops?: ZyclopsIndexerConfig;  // Zyclops health-check proxy settings (Newznab mode only)
 }
 
@@ -72,12 +74,52 @@ export interface ZyclopsIndexerConfig {
   };
 }
 
+// Default timeout for indexer search requests (seconds). 15s balances
+// responsiveness on fast networks with headroom for slower indexers;
+// users can raise the per-indexer value (max 45s) or the top-level
+// Prowlarr/NZBHydra/EasyNews override.
+export const DEFAULT_INDEXER_TIMEOUT_SECONDS = 15;
+
 // Valid Zyclops backbone identifiers
 export const ZYCLOPS_BACKBONES = [
   'abavia', 'base-ip', 'elbracht', 'eweka-internet-services',
   'giganews', 'its-hosted', 'netnews', 'omicron',
   'usenetexpress', 'uzo-reto'
 ] as const;
+
+// Raw result origin discriminator. Library results bypass NZB-specific code paths
+// (submitNzb, getCacheKey, dead-NZB checks, health checks) — handlers gate on this.
+export type ResultOrigin = 'indexer' | 'easynews' | 'library';
+
+// Shape used by dedup, sort, score, and stream-builder. Indexer/EasyNews searchers
+// return loosely-typed objects today; this interface documents the contract and is
+// enforced for library-origin results emitted by searchLibrary().
+export interface RawResult {
+  origin: ResultOrigin;
+  title: string;
+  link: string;          // dedup key — see src/addon/dedup.ts
+  nzbUrl: string;        // for indexer/easynews: same as link; for library: 'library:<videoPath>'
+  size: number;
+  indexerName: string;
+  pubDate?: string;
+  quality?: string;
+  codec?: string;
+  source?: string;
+  audioTag?: string;
+  visualTag?: string;
+  edition?: string;
+  releaseGroup?: string;
+  language?: string;
+  isSeasonPack?: boolean;
+  /** Set only when origin === 'library' AND the inner file is a per-episode file inside a pack folder.
+   *  Pack-total size filters skip these entries since `size` is the per-episode size, not the pack total.
+   *  Per-episode-in-pack filters still apply via the existing isSeasonPack branch. */
+  extractedFromPack?: boolean;
+  duration?: string;
+  easynewsMeta?: any;
+  /** Set only when origin === 'library' — direct WebDAV path; handleStream uses this for the fast-path serve. */
+  libraryVideoPath?: string;
+}
 
 // Search configuration - global API keys and settings shared across all indexers
 export interface SearchConfig {
@@ -89,13 +131,37 @@ export interface SearchConfig {
   useTextSearchForAnime?: boolean; // Override per-indexer search method to use text search for anime (Animation+Japan)
   skipAnimeTitleResolve?: boolean; // Skip TVDB/TMDB title resolution for anime (Animation+Japan) to avoid Japanese titles
   indexerPriorityDedup?: boolean;  // Deduplicate results across indexers, keeping only the copy from the highest-priority indexer (default false)
-  enableRemakeFiltering?: boolean;  // For shows with remakes, filter yearless results that don't contain the correct episode name (default true)
-  allowMultiEpisodeFiles?: boolean;  // Allow streaming from combined multi-episode files (e.g. S01E01E02) — default true
   urlDedup?: boolean;  // Remove duplicate results with identical download URLs (default true)
+  junkFilter?: boolean;  // Strip bare archive parts and NZB containers from search results (default true)
+  displayLibraryInResults?: boolean;  // Mark search results that exist in the WebDAV library with the 📚 icon (default true)
+  cacheEmptyResults?: boolean;  // Cache search responses that returned zero results (default true)
+  absoluteEpisodeFallback?: boolean;  // Series text-search: retry with absolute episode numbering (Title E31) when the SxxExx query returns zero results. UTS only. (default true)
+  parallelAlternateTitleSearch?: boolean;  // Run primary + alt-title searches in parallel from the start instead of using alts only as a zero-result fallback. UTS only. (default false)
+  tvdbPreferEnglishTitle?: boolean;  // When TVDB's canonical title is non-English, substitute the English translation for indexer text search (default true)
+  aliasTitleFallback?: boolean;  // When a UTS search returns zero results, retry once per English alias from TVDB whose normalized form is a strict substring of the canonical title and substantially shorter. UTS only. (default true)
+  includeMultiSeasonPacks?: boolean;  // Series Packs master toggle. When true (default for fresh installs, false for users upgrading from before this field existed), gates the multi-season fanout query and keyword queries.
+  seriesPackKeywords?: string[];  // Each enabled keyword fires a '<Title> <Keyword>' indexer query to catch keyword-only releases without Sxx tokens. Empty array means no keyword queries fire. Allowed values come from SERIES_PACK_KEYWORDS.
+  seriesPackPagination?: boolean;  // Enable pagination for series-pack queries (multi-season fanout + keyword queries). Independent of seasonPackPagination. (default true)
+  seriesPackAdditionalPages?: number;  // Additional pages for series-pack queries (1-10).
+  librarySearchThreshold?: number;  // 0 = disabled, 1-10 = WebDAV library short-circuit: when scan returns ≥ threshold matches, skip indexer queries entirely
+  libraryApplyToMovies?: boolean;  // When false, Ultimate Library is skipped for movie requests (default true)
+  libraryApplyToSeries?: boolean;  // When false, Ultimate Library is skipped for series requests (default true)
+  librarySearchScanUncategorized?: boolean;  // Include `/content/uncategorized` as a second scan root so manually uploaded NZBDav content is searchable (default true)
+  libraryRunOnCacheHit?: boolean;  // When true, Ultimate Library runs on cache hits and short-circuits to UL-only results when the post-filter threshold is met. Below threshold, cached results are returned unchanged. The one-shot Skip tile bypass still wins. (default false)
+  libraryDeleteAllTile?: boolean;  // Show one "Delete All Ultimate Library Results" tile near the top of the list. Two-step click-confirm. Scoped to the current request only. (default false)
+  libraryDeletePerStreamTile?: boolean;  // Show a delete tile after each library result. Pack results get two tiles (delete file + delete whole pack); non-pack results get one. Two-step click-confirm. (default false)
+  libraryDeleteAllPackScope?: 'episode' | 'pack';  // For series/season pack results, the "Delete All" tile deletes the per-episode file ('episode', default) or the entire release folder ('pack')
+  librarySkipTilePosition?: 'second' | 'last';  // Where the "Skip Ultimate Library" stream tile appears in the results list (default 'second')
   // Legacy fields - migrated to per-indexer settings, kept for migration
   movieSearchMethod?: 'imdb' | 'tmdb' | 'tvdb' | 'text';
   tvSearchMethod?: 'imdb' | 'tvdb' | 'tvmaze' | 'text';
 }
+
+// Canonical chip values for seriesPackKeywords. Single source of truth shared
+// by the UI chip selector, the settings whitelist, and the fresh-install
+// migration default. Order is alphabetical (matches UI chip order).
+export const SERIES_PACK_KEYWORDS = ['All Seasons', 'Anthology', 'Boxset', 'Collection', 'Complete', 'Saga'] as const;
+export type SeriesPackKeyword = typeof SERIES_PACK_KEYWORDS[number];
 
 // Our app configuration
 export interface Config {
@@ -116,15 +182,22 @@ export interface Config {
   movieFilters?: FilterConfig;   // Movie-specific sort/filter overrides (falls back to filters)
   tvFilters?: FilterConfig;      // TV-specific sort/filter overrides (falls back to filters)
   healthChecks?: HealthCheckConfig; // Health check settings for NZB verification
+  ultimateFallback?: UltimateFallbackConfig; // Ultimate-Fallback: combined fallback + health checking
   autoPlay?: AutoPlayConfig;   // Auto-play / binge group settings
   streamDisplayConfig?: StreamDisplayConfig; // Stream display customization
   syncedIndexers?: SyncedIndexer[]; // Indexers synced from Prowlarr or NZBHydra
   prowlarrUrl?: string;
   prowlarrApiKey?: string;
+  // Accessor applies defaults — always defined at runtime even when absent from config.json.
+  prowlarrTimeoutEnabled: boolean;
+  prowlarrTimeout: number;
   nzbhydraUrl?: string;
   nzbhydraApiKey?: string;
   nzbhydraUsername?: string;
   nzbhydraPassword?: string;
+  // Accessor applies defaults — always defined at runtime.
+  nzbhydraTimeoutEnabled: boolean;
+  nzbhydraTimeout: number;
   zyclopsEndpoint?: string;            // Zyclops API endpoint URL (default: https://zyclops.elfhosted.com)
   nzbdavUrl?: string;
   nzbdavApiKey?: string;
@@ -133,18 +206,10 @@ export interface Config {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
-  nzbdavFallbackEnabled?: boolean; // Master toggle for fallback feature (default false)
-  nzbdavLibraryCheckEnabled?: boolean; // Check WebDAV library before grabbing NZB (default true)
-  nzbdavMaxFallbacks?: number;  // 0 = try all results (default), 1-20 = limit
-  nzbdavJobTimeoutSeconds?: number;            // Legacy — use nzbdavMoviesTimeoutSeconds / nzbdavTvTimeoutSeconds
-  nzbdavMoviesTimeoutSeconds?: number;         // Max seconds to wait for movie streams (1-90, default 30)
-  nzbdavTvTimeoutSeconds?: number;             // Max seconds to wait for TV streams (1-90, default 15)
-  nzbdavSeasonPackTimeoutSeconds?: number;     // Max seconds to wait for season pack streams (1-90, default 30)
-  nzbdavFallbackOrder?: 'selected' | 'top';   // Start from clicked NZB or top of quality-sorted list
-  autoResolveOnSearch?: boolean;              // Pre-resolve NZBs when search results appear (default true, requires "from top")
   nzbdavCacheTimeouts?: boolean;              // Store timed-out NZBs in dead cache (default true)
-  nzbdavStreamBufferMB?: number;              // WebDAV proxy buffer size in MB (default 128)
-  nzbdavProxyEnabled?: boolean;               // Stream through local proxy (buffer+reconnect) or direct WebDAV redirect (default true)
+  nzbdavStreamBufferMB?: number;              // Dual-stage proxy buffer size in MB (default 128, range 8-256)
+  nzbdavPipeBufferMB?: number;                // Pipe mode buffer size in MB (default 8, range 1-16)
+  nzbdavStreamingMethod?: 'pipe' | 'proxy' | 'direct';  // Streaming delivery: proxy (default, dual-stage buffer), pipe, or direct (WebDAV redirect)
   healthyNzbDbMode?: 'time' | 'storage';      // Database limit mode for successful streams (default 'time')
   healthyNzbDbTTL?: number;                   // TTL in seconds for successful streams when mode is 'time' (default 259200 / 3 days)
   healthyNzbDbMaxSizeMB?: number;             // Max storage in MB for successful streams when mode is 'storage' (default 50)
@@ -157,9 +222,13 @@ export interface Config {
   easynewsPassword?: string;
   easynewsPagination?: boolean;  // Enable paginated search (default false)
   easynewsMaxPages?: number;     // Additional pages when pagination enabled (1-10, default 3)
+  // Accessor applies defaults — always defined at runtime.
+  easynewsTimeoutEnabled: boolean;
+  easynewsTimeout: number;
   easynewsMode?: 'ddl' | 'nzb'; // DDL = direct download/stream, NZB = send to download client
   easynewsHealthCheck?: boolean; // Include EasyNews NZB results in health checks (default true)
   indexerPriority?: string[];    // Ordered indexer names for dedup priority (position 0 = highest priority)
+  searchTimeoutOverride?: number; // SEARCH_TIMEOUT env var override (seconds, 1-120)
 }
 
 // Auto-play / binge group configuration
@@ -218,8 +287,8 @@ export interface FilterConfig {
     language?: Record<string, boolean>;      // Which languages are enabled
     edition?: Record<string, boolean>;       // Which editions are enabled
   };
-  minFileSize?: number;                      // Min file size in bytes — individual episodes only (undefined = no minimum)
-  maxFileSize?: number;                      // Max file size in bytes — individual episodes only (undefined = unlimited)
+  minFileSize?: number;                      // Min file size in bytes — individual files only, excludes season packs (undefined = no minimum)
+  maxFileSize?: number;                      // Max file size in bytes — individual files only, excludes season packs (undefined = unlimited)
   minSeasonPackSize?: number;                // Min season pack total size in bytes (undefined = no minimum)
   maxSeasonPackSize?: number;                // Max season pack total size in bytes (undefined = unlimited)
   minSeasonPackEpisodeSize?: number;         // Min per-episode size for season packs in bytes (undefined = no minimum)
@@ -227,6 +296,7 @@ export interface FilterConfig {
   maxStreams?: number;                       // Max total streams to return (default unlimited)
   maxStreamsPerResolution?: number;           // Max streams per resolution level (undefined = unlimited)
   maxStreamsPerQuality?: number;             // Max streams per video source quality level (undefined = unlimited)
+  maxSeasonPacks?: number;                   // TV-only. Max season packs in results (undefined = unlimited). Excludes deprioritized yearless packs from the count.
   resolutionPriority?: string[];             // Resolution priority order for sorting
   videoPriority?: string[];                  // Video source priority order for sorting
   encodePriority?: string[];                 // Video encode priority order for sorting
@@ -235,6 +305,35 @@ export interface FilterConfig {
   languagePriority?: string[];               // Language priority order for sorting
   editionPriority?: string[];                // Edition priority order for sorting (Extended, DC, etc)
   preferNonStandardEdition?: boolean;        // Prioritize all enabled non-standard editions equally over Standard
+  preferSeasonPacks?: boolean;               // TV-only. Sort season packs above non-packs; secondary sort still applies within each group.
+  preferLibraryResults?: boolean;            // Sort indexer/EasyNews results flagged as in-library above the rest. Library short-circuit case is unaffected (all results are library).
+  enableRemakeFiltering?: boolean;           // TV-only. Cross-reference TVDB to filter wrong-version results for shows with remakes. Default true. Env: ENABLE_REMAKE_DETECTION.
+  allowMultiEpisodeFiles?: boolean;          // TV-only. Allow multi-episode files (e.g. S01E01E02.mkv). Default true. Env: ALLOW_MULTI_EPISODE_FILES.
+  rules?: {
+    rankedRegexPatterns?: RankedRegexRule[];
+    rankedStreamExpressions?: RankedSelRule[];
+    remoteRankedRegexUrls?: string[];
+    remoteRankedStreamExpressionUrls?: string[];
+  };
+}
+
+// Ranked rule shared shape. score: positive boosts, negative penalizes (regex
+// rules also support 'keep'/'drop' modes that filter the pool — see RankedRegexRule.mode).
+interface RankedRuleBase {
+  id: string;                   // Stable UUID for React keys and cross-tab identity
+  name: string;                 // Display name
+  score: number;                // Boosts/penalizes when score mode; clamped to ±10_000 at save time
+  enabled?: boolean;            // Defaults to true when undefined
+}
+
+export interface RankedRegexRule extends RankedRuleBase {
+  pattern: string;              // Regex source, no leading/trailing slashes
+  flags?: string;               // Regex flags (e.g. 'i')
+  mode?: 'score' | 'keep' | 'drop';  // 'score' (default) adds to score; 'keep' acts as include filter (only match-any-keep candidates survive); 'drop' removes matches from pool
+}
+
+export interface RankedSelRule extends RankedRuleBase {
+  expression: string;           // Stream Expression Language source
 }
 
 // Usenet provider for health checking
@@ -259,13 +358,37 @@ export interface HealthCheckConfig {
   providers: UsenetProvider[];   // Usenet providers for article checking
   nzbsToInspect: number;         // Number of top results to health check (used in 'fixed' mode)
   inspectionMethod: 'fixed' | 'smart'; // Fixed count vs smart stop-on-healthy
-  smartBatchSize: number;        // NZBs per batch in smart mode (1, 2, or 3; default 3)
-  smartAdditionalRuns: number;   // Additional batches if no healthy found (0-5; default 1)
+  smartBatchSize: number;        // NZBs per batch in smart mode (1-6; default 3)
+  smartAdditionalRuns: number;   // Additional batches if threshold not met (0-5; default 1)
+  smartMinHealthy: number;       // Healthy results required before smart mode stops (1-10; default 1)
   maxConnections: number;        // Max concurrent health check workers
   autoQueueMode: 'off' | 'top' | 'all';  // Auto-queue mode: off, top verified result, or all verified results
   hideBlocked: boolean;          // Filter out blocked NZBs from results
   libraryPreCheck: boolean;      // Check NZBDav library before NNTP checks — skip checking content already downloaded
   healthCheckIndexers?: Record<string, boolean>; // Per-indexer health check enable/disable
+}
+
+// Ultimate-Fallback: combines retry-on-failure with Health Checking for fastest resolution
+export interface UltimateFallbackConfig {
+  enabled: boolean;
+  healthCheckEnabled?: boolean;        // Run NNTP health-check pre-flight before nzbdav submission (default false)
+  whenToResolve: 'on-results' | 'on-tile-selection';   // When to fire UF — on search results or on user tile click (default on-tile-selection)
+  userPickFallback: 'uf-lobby' | 'failure-video' | 'fallback-chain';      // When an individual stream tile fails — show failure video (default), fall into UF lobby, or walk the chain
+  candidateCount: number;              // Active pool size (1-10, default 1)
+  preferenceMode: 'priority' | 'speed';
+  archiveInspection: boolean;
+  sampleCount: 3 | 7;
+  maxAttempts: number;                 // Cap on total primary search attempts before giving up (0 = unlimited, 1-20 = cap, default 0). Library hits don't count.
+  desiredBackups: number;              // Target backups post-primary (0 = no replacement pulls; free library/in-flight still cache. 1-10 = target count, default 0)
+  backupProcessingLimit: number;       // Max candidates to evaluate for backup (0 = all, 1-20 = limit, default 3)
+  // Per-mode nzbdav job-completion wait times (0-90s, 0 = wait forever). Active set picked by preferenceMode at runtime.
+  priorityMoviesTimeoutSeconds: number;
+  priorityTvTimeoutSeconds: number;
+  prioritySeasonPackTimeoutSeconds: number;
+  speedMoviesTimeoutSeconds: number;
+  speedTvTimeoutSeconds: number;
+  speedSeasonPackTimeoutSeconds: number;
+  healthCheckIndexers?: Record<string, boolean>;
 }
 
 // Device manifest — each represents a Stremio installation

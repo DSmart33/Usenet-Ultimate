@@ -1,5 +1,5 @@
 // What this does:
-//   Streaming configuration overlay with NZBDav connection settings, stream buffer, and categories
+//   Streaming configuration overlay with NzbDAV connection settings, stream buffer, and categories
 
 import { Play, X, Activity } from 'lucide-react';
 import clsx from 'clsx';
@@ -27,6 +27,10 @@ interface StreamingOverlayProps {
   setNzbdavTvCategory: React.Dispatch<React.SetStateAction<string>>;
   nzbdavStreamBufferMB: number;
   setNzbdavStreamBufferMB: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavPipeBufferMB: number;
+  setNzbdavPipeBufferMB: React.Dispatch<React.SetStateAction<number>>;
+  nzbdavStreamingMethod: 'pipe' | 'proxy' | 'direct';
+  ultimateFallbackEnabled: boolean;
   nzbdavConnectionStatus: 'connected' | 'disconnected' | 'unconfigured' | 'checking' | null;
   nzbdavTestNzbStatus: 'idle' | 'sending' | 'success' | 'error';
   nzbdavTestNzbMessage: string;
@@ -56,12 +60,18 @@ export function StreamingOverlay({
   setNzbdavTvCategory,
   nzbdavStreamBufferMB,
   setNzbdavStreamBufferMB,
+  nzbdavPipeBufferMB,
+  setNzbdavPipeBufferMB,
+  nzbdavStreamingMethod,
+  ultimateFallbackEnabled,
   nzbdavConnectionStatus,
   nzbdavTestNzbStatus,
   nzbdavTestNzbMessage,
   checkNzbdavConnection,
   sendNzbdavTestNzb,
 }: StreamingOverlayProps) {
+  // Backend forces proxy when UF is off — mirror here so the UI stays truthful
+  const effectiveMethod = !ultimateFallbackEnabled ? 'proxy' as const : nzbdavStreamingMethod;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={() => onClose()}>
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl border border-slate-700/50 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
@@ -89,28 +99,28 @@ export function StreamingOverlay({
               className="input flex-1 max-w-xs"
             >
               <option value="stremio" disabled>Stremio Native (Unavailable)</option>
-              <option value="nzbdav">NZBDav (Hosted)</option>
+              <option value="nzbdav">NzbDAV</option>
             </select>
             <p className="text-xs text-slate-500 mt-2">
-              <strong>NZBDav:</strong> Stream through a hosted NZBDav WebDAV server instance
+              <strong>NzbDAV:</strong> Stream through a hosted NzbDAV WebDAV server instance
             </p>
           </div>
 
           {streamingMode === 'nzbdav' && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">NZBDav URL</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2">NzbDAV URL</label>
                 <input type="text" value={nzbdavUrl} onChange={(e) => setNzbdavUrl(e.target.value)} placeholder="http://localhost:3000" className="input" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">NZBDav API Key</label>
-                <input type="password" value={nzbdavApiKey} onChange={(e) => setNzbdavApiKey(e.target.value)} placeholder="Your NZBDav API key" className="input" />
+                <label className="block text-sm font-medium text-slate-300 mb-2">NzbDAV API Key</label>
+                <input type="password" value={nzbdavApiKey} onChange={(e) => setNzbdavApiKey(e.target.value)} placeholder="Your NzbDAV API key" className="input" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">WebDAV URL</label>
-                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">NZB Fallback Disabled or Proxy Streaming Method:</span> Use the local/internal hostname for best performance (e.g. http://nzbdav:3000)</p>
+                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Proxy Streaming Method:</span> Use the local/internal hostname for best performance (e.g. http://nzbdav:3000)</p>
                 <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> Must be a publicly reachable URL (e.g. https://nzbdav.example.com) if using a reverse proxy (Traefik, Caddy, Nginx, etc.)</p>
-                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> If using an auth layer (Authelia, Authentik, etc.), the NZBDav hostname must bypass auth so Stremio can reach it directly</p>
+                <p className="text-xs text-slate-500 mb-1"><span className="text-amber-400/70">Direct Streaming Method:</span> If using an auth layer (Authelia, Authentik, etc.), the NzbDAV hostname must bypass auth so Stremio can reach it directly</p>
                 <input type="text" value={nzbdavWebdavUrl} onChange={(e) => setNzbdavWebdavUrl(e.target.value)} placeholder="http://localhost:3000" className="input" />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -145,12 +155,13 @@ export function StreamingOverlay({
                   </div>
                 </div>
               </div>
-              {/* Stream Buffer Size */}
+              {/* Stream Buffer Size — hidden in direct mode (no buffer needed); method + range follow effectiveMethod */}
+              {effectiveMethod !== 'direct' && (
               <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium text-slate-300">Proxy Stream Buffer</div>
+                  <div className="text-sm font-medium text-slate-300">{effectiveMethod === 'pipe' ? 'Pipe Stream Buffer' : 'Dual-Stage Proxy Stream Buffer'}</div>
                   <button
-                    onClick={() => setNzbdavStreamBufferMB(128)}
+                    onClick={() => effectiveMethod === 'pipe' ? setNzbdavPipeBufferMB(8) : setNzbdavStreamBufferMB(128)}
                     className="text-xs text-primary-400 hover:text-primary-300"
                   >
                     Reset
@@ -159,19 +170,22 @@ export function StreamingOverlay({
                 <div className="flex items-center gap-3">
                   <input
                     type="range"
-                    min={8}
-                    max={256}
-                    step={8}
-                    value={nzbdavStreamBufferMB}
-                    onChange={(e) => setNzbdavStreamBufferMB(parseInt(e.target.value, 10))}
+                    min={effectiveMethod === 'pipe' ? 1 : 8}
+                    max={effectiveMethod === 'pipe' ? 16 : 256}
+                    step={effectiveMethod === 'pipe' ? 1 : 8}
+                    value={effectiveMethod === 'pipe' ? nzbdavPipeBufferMB : nzbdavStreamBufferMB}
+                    onChange={(e) => effectiveMethod === 'pipe' ? setNzbdavPipeBufferMB(parseInt(e.target.value, 10)) : setNzbdavStreamBufferMB(parseInt(e.target.value, 10))}
                     className="flex-1 accent-purple-400"
                   />
-                  <span className="text-sm text-slate-300 w-16 text-right">{nzbdavStreamBufferMB} MB</span>
+                  <span className="text-sm text-slate-300 w-16 text-right">{effectiveMethod === 'pipe' ? nzbdavPipeBufferMB : nzbdavStreamBufferMB} MB</span>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Internal buffer between WebDAV and the player. Larger buffers absorb network jitter but use more memory per stream. If you experience buffering on large files, try increasing this.
+                  {effectiveMethod === 'pipe'
+                    ? 'Buffer between WebDAV and the player. Absorbs network jitter with minimal memory usage.'
+                    : 'Internal buffer between WebDAV and the player. Larger buffers absorb network jitter but use more memory per stream.'}
                 </p>
               </div>
+              )}
               <div className={clsx(
                 "flex items-center justify-between p-4 rounded-lg border",
                 nzbdavConnectionStatus === 'connected' && "bg-green-500/10 border-green-500/30",

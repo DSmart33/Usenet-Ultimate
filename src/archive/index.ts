@@ -29,8 +29,9 @@ export { parseZip } from './zipParser.js';
 // Re-export utilities
 export { readVInt, read7zNumber, checkFileContentType, hasVideoContent } from './utils.js';
 
-// Re-export LZMA decoder
+// Re-export LZMA decoders
 export { decompressLZMA1 } from './lzmaDecoder.js';
+export { decompressLZMA2 } from './lzma2Decoder.js';
 
 // Import format detectors and parsers for the orchestrator
 import type { ArchiveInfo } from './types.js';

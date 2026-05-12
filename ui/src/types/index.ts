@@ -40,6 +40,8 @@ export interface Indexer {
   caps?: IndexerCaps;
   pagination?: boolean;
   maxPages?: number;
+  timeoutEnabled?: boolean;
+  timeout?: number;
   zyclops?: ZyclopsIndexerConfig;
 }
 
@@ -74,17 +76,33 @@ export interface SearchConfig {
   tmdbApiKey?: string;
   tvdbApiKey?: string;
   includeSeasonPacks?: boolean;
+  includeMultiSeasonPacks?: boolean;
   seasonPackPagination?: boolean;
   seasonPackAdditionalPages?: number;
   useTextSearchForAnime?: boolean;
   skipAnimeTitleResolve?: boolean;
   indexerPriorityDedup?: boolean;
-  enableRemakeFiltering?: boolean;
-  allowMultiEpisodeFiles?: boolean;
   urlDedup?: boolean;
+  junkFilter?: boolean;
+  seriesPackKeywords?: string[];
+  seriesPackPagination?: boolean;
+  seriesPackAdditionalPages?: number;
+  librarySearchThreshold?: number;
+  libraryApplyToMovies?: boolean;
+  libraryApplyToSeries?: boolean;
+  librarySearchScanUncategorized?: boolean;
+  displayLibraryInResults?: boolean;
+  absoluteEpisodeFallback?: boolean;
+  parallelAlternateTitleSearch?: boolean;
+  tvdbPreferEnglishTitle?: boolean;
+  aliasTitleFallback?: boolean;
+  cacheEmptyResults?: boolean;
   movieSearchMethod?: string;
   tvSearchMethod?: string;
 }
+
+// Mirrors backend SERIES_PACK_KEYWORDS. Keep alphabetical so chip order is stable.
+export const SERIES_PACK_KEYWORDS = ['All Seasons', 'Anthology', 'Boxset', 'Collection', 'Complete', 'Saga'] as const;
 
 export interface StreamDisplayElement {
   id: string;
@@ -141,10 +159,14 @@ export interface Config {
   syncedIndexers?: SyncedIndexer[];
   prowlarrUrl?: string;
   prowlarrApiKey?: string;
+  prowlarrTimeoutEnabled?: boolean;
+  prowlarrTimeout?: number;
   nzbhydraUrl?: string;
   nzbhydraApiKey?: string;
   nzbhydraUsername?: string;
   nzbhydraPassword?: string;
+  nzbhydraTimeoutEnabled?: boolean;
+  nzbhydraTimeout?: number;
   nzbdavUrl?: string;
   nzbdavApiKey?: string;
   nzbdavWebdavUrl?: string;
@@ -152,21 +174,17 @@ export interface Config {
   nzbdavWebdavPassword?: string;
   nzbdavMoviesCategory?: string;
   nzbdavTvCategory?: string;
-  nzbdavFallbackEnabled?: boolean;
-  nzbdavLibraryCheckEnabled?: boolean;
-  nzbdavMaxFallbacks?: number;
-  nzbdavJobTimeoutSeconds?: number;
-  nzbdavMoviesTimeoutSeconds?: number;
-  nzbdavTvTimeoutSeconds?: number;
-  nzbdavFallbackOrder?: 'selected' | 'top';
-  autoResolveOnSearch?: boolean;
   nzbdavStreamBufferMB?: number;
+  nzbdavPipeBufferMB?: number;
+  nzbdavStreamingMethod?: 'pipe' | 'proxy' | 'direct';
   nzbdavProxyEnabled?: boolean;
   easynewsEnabled?: boolean;
   easynewsUsername?: string;
   easynewsPassword?: string;
   easynewsPagination?: boolean;
   easynewsMaxPages?: number;
+  easynewsTimeoutEnabled?: boolean;
+  easynewsTimeout?: number;
   easynewsMode?: 'ddl' | 'nzb';
   easynewsHealthCheck?: boolean;
   indexerPriority?: string[];
@@ -184,7 +202,7 @@ export interface IndexerPreset {
 export type Tab = 'dashboard' | 'install';
 
 
-export type OverlayType = 'indexManager' | 'streaming' | 'fallback' | 'nzbDatabase' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | 'zyclops' | null;
+export type OverlayType = 'indexManager' | 'streaming' | 'nzbDatabase' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'ultimateFallback' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | 'zyclops' | null;
 
 export interface LogEntry {
   timestamp: string;
@@ -201,6 +219,7 @@ export interface HealthChecksState {
   inspectionMethod: 'fixed' | 'smart';
   smartBatchSize: number;
   smartAdditionalRuns: number;
+  smartMinHealthy: number;
   maxConnections: number;
   autoQueueMode: 'off' | 'top' | 'all';
   hideBlocked: boolean;
@@ -228,6 +247,7 @@ export interface FiltersState {
   maxStreams: number | undefined;
   maxStreamsPerResolution: number | undefined;
   maxStreamsPerQuality: number | undefined;
+  maxSeasonPacks: number | undefined;
   resolutionPriority: string[];
   videoPriority: string[];
   encodePriority: string[];
@@ -236,6 +256,36 @@ export interface FiltersState {
   languagePriority: string[];
   editionPriority: string[];
   preferNonStandardEdition?: boolean;
+  preferSeasonPacks?: boolean;
+  preferLibraryResults?: boolean;
+  enableRemakeFiltering?: boolean;
+  allowMultiEpisodeFiles?: boolean;
+  rules?: RulesBlock;
+}
+
+export interface RankedRegexRule {
+  id: string;
+  name: string;
+  pattern: string;
+  flags?: string;
+  score: number;
+  enabled?: boolean;
+  mode?: 'score' | 'keep' | 'drop';
+}
+
+export interface RankedSelRule {
+  id: string;
+  name: string;
+  expression: string;
+  score: number;
+  enabled?: boolean;
+}
+
+export interface RulesBlock {
+  rankedRegexPatterns?: RankedRegexRule[];
+  rankedStreamExpressions?: RankedSelRule[];
+  remoteRankedRegexUrls?: string[];
+  remoteRankedStreamExpressionUrls?: string[];
 }
 
 export interface NewIndexerForm {
@@ -251,6 +301,8 @@ export interface NewIndexerForm {
   caps: IndexerCaps | null;
   pagination: boolean;
   maxPages: number;
+  timeoutEnabled: boolean;
+  timeout: number;
 }
 
 export interface EditIndexerForm {
@@ -267,6 +319,8 @@ export interface EditIndexerForm {
   caps: IndexerCaps | null;
   pagination: boolean;
   maxPages: number;
+  timeoutEnabled: boolean;
+  timeout: number;
 }
 
 export interface ElementDragState {

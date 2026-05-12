@@ -10,16 +10,16 @@ export type { NZBDavConfig, FallbackCandidate } from './types.js';
 export { createFallbackGroup, getFallbackGroup, clearFallbackGroups } from './fallbackManager.js';
 
 // Stream cache
-export { getOrCreateStream, getDeadCacheKey, isStreamCached, isDeadNzbByUrl, addDeadNzbByUrl, evictReadyByVideoPath, clearTimeoutEntries } from './streamCache.js';
+export { getOrCreateStream, getCacheKey, getDeadCacheKey, isStreamCached, isDeadNzbByUrl, addDeadNzbByUrl, evictReadyByVideoPath, evictReadyByVideoPathPrefix, clearVideoPathState, clearTimeoutEntries, setReadyCacheEntry, setDeadNzbEntry } from './streamCache.js';
 
 // Cache utilities
 export { getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, saveCacheToDisk } from './cacheUtils.js';
 
-// Auto-resolve (background NZB pre-resolution)
-export { autoResolveFromCandidates, cancelAllAutoResolves } from './autoResolve.js';
+// Ultimate-Fallback (combined retry-on-failure + health checking pipeline)
+export { ultimateFallbackFromCandidates, cancelAllUltimateFallbacks, getSessionPromise, hasAnySessions, clearResolvedSessions } from './ultimateFallback.js';
 
 // Shared utilities
-export { buildEpisodePattern, buildNzbdavConfig } from './utils.js';
+export { buildEpisodePattern, buildDateEpisodePattern, buildNzbdavConfig, isNzbdavLibraryConfigured } from './utils.js';
 
 // Stream handler (Express endpoint)
 export { handleStream } from './streamHandler.js';

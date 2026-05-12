@@ -91,13 +91,33 @@ if ((configData as any).gluetunUrl !== undefined || configData.proxyMode === 'gl
   console.log(`✅ Migrated legacy Gluetun proxy config to generic proxy naming`);
 }
 
-// Migrate legacy useTextSearch / includeSeasonPacks to searchConfig
+// Migrate: users upgrading from before Series Packs existed default to OFF.
+// Fresh installs hit this BEFORE line-95 creates their searchConfig, so they
+// have searchConfig === undefined and skip. Upgrading users have an existing
+// searchConfig (carried over from v1.3.0 or earlier) but no
+// includeMultiSeasonPacks field; set it false so behavior doesn't change
+// silently. Fresh installs pick up the UI useState default (true) on first run.
+if (configData.searchConfig !== undefined && configData.searchConfig.includeMultiSeasonPacks === undefined) {
+  configData.searchConfig.includeMultiSeasonPacks = false;
+  saveConfigFile(configData);
+  console.log('✅ Series Packs default OFF for users upgrading from before Series Packs existed');
+}
+
+// Migrate legacy useTextSearch / includeSeasonPacks to searchConfig.
+// Fresh installs land here (no prior searchConfig); seed Series Packs defaults
+// (master ON, Complete keyword) so headless users get the same behavior as
+// users who open the UI. Upgrading users (with existing searchConfig) hit the
+// migration above instead and get Series Packs OFF.
 if (configData.searchConfig === undefined) {
   const method = configData.useTextSearch ? 'text' as const : 'imdb' as const;
   configData.searchConfig = {
     movieSearchMethod: method,
     tvSearchMethod: method,
     includeSeasonPacks: configData.includeSeasonPacks ?? true,
+    includeMultiSeasonPacks: true,
+    seriesPackKeywords: [],
+    seriesPackPagination: true,
+    seriesPackAdditionalPages: 1,
   };
   saveConfigFile(configData);
   console.log(`✅ Migrated search settings to searchConfig (method=${method})`);
@@ -216,3 +236,184 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   }
 }
 
+// Migrate enableRemakeFiltering / allowMultiEpisodeFiles from searchConfig to filters
+{
+  const sc = configData.searchConfig as any;
+  if (sc && (sc.enableRemakeFiltering !== undefined || sc.allowMultiEpisodeFiles !== undefined)) {
+    if (!configData.filters) configData.filters = { sortOrder: [] };
+    if (sc.enableRemakeFiltering !== undefined && configData.filters.enableRemakeFiltering === undefined) {
+      configData.filters.enableRemakeFiltering = sc.enableRemakeFiltering;
+    }
+    if (sc.allowMultiEpisodeFiles !== undefined && configData.filters.allowMultiEpisodeFiles === undefined) {
+      configData.filters.allowMultiEpisodeFiles = sc.allowMultiEpisodeFiles;
+    }
+    delete sc.enableRemakeFiltering;
+    delete sc.allowMultiEpisodeFiles;
+    saveConfigFile(configData);
+    console.log('✅ Migrated enableRemakeFiltering / allowMultiEpisodeFiles from searchConfig to filters');
+  }
+}
+
+// Append 'vvc' to encodePriority arrays that pre-date VVC/h.266 support.
+// VVC is the MPEG successor to HEVC and ranks at the top of the canonical
+// default order (highest priority). For upgrading users we append it at the
+// bottom of their existing list to preserve their customized ordering rather
+// than silently re-ranking codecs they already organized. New users and
+// Reset to Default get VVC at the top via the default constants.
+{
+  const needsVvc = (arr: string[] | undefined): boolean => !!arr && arr.length > 0 && !arr.includes('vvc');
+  let migrated = false;
+  for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
+    const f = configData[key] as any;
+    if (needsVvc(f?.encodePriority)) {
+      f.encodePriority = [...f.encodePriority, 'vvc'];
+      migrated = true;
+    }
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ Appended VVC (h.266) to encodePriority for upgrading users');
+  }
+}
+
+// Append 'DCP' (Digital Cinema Package leaks) to videoPriority arrays that
+// pre-date DCP support. DCP ranks just above WEBCap in the canonical default
+// order (theatrical-master transcodes sit between standard web/BDRip sources
+// and screener-grade captures). For upgrading users we append it at the
+// bottom rather than re-ranking their customized list. New users and Reset
+// to Default get DCP at its canonical position via the default constants.
+{
+  const needsDcp = (arr: string[] | undefined): boolean => !!arr && arr.length > 0 && !arr.includes('DCP');
+  let migrated = false;
+  for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
+    const f = configData[key] as any;
+    if (needsDcp(f?.videoPriority)) {
+      f.videoPriority = [...f.videoPriority, 'DCP'];
+      migrated = true;
+    }
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ Appended DCP to videoPriority for upgrading users');
+  }
+}
+
+// Migrate audioTagPriority from coarse library-style tokens ('DDP', 'DTS Lossless'
+// etc.) to fine-grained canonical tokens that match community template rules
+// ('DD+', 'DTS-HD MA', 'DTS:X', etc.). Parser now emits the fine-grained form.
+{
+  const AUDIO_RENAME: Record<string, string> = {
+    'DDP': 'DD+',
+    'Atmos (DDP)': 'Atmos (DD+)',
+    'OPUS': 'Opus',
+  };
+  const NEW_TOKENS = ['DTS:X', 'DTS-HD MA', 'DTS-HD', 'DTS-ES'];
+
+  const migrateList = (arr: string[] | undefined): { out: string[]; changed: boolean } => {
+    if (!Array.isArray(arr) || arr.length === 0) return { out: arr ?? [], changed: false };
+    let changed = false;
+    // Rename existing tokens
+    const renamed = arr.map(v => {
+      if (AUDIO_RENAME[v]) { changed = true; return AUDIO_RENAME[v]; }
+      return v;
+    });
+    // Remove obsolete tokens that no longer exist
+    const kept = renamed.filter(v => {
+      if (v === 'DTS Lossless' || v === 'DTS Lossy') { changed = true; return false; }
+      return true;
+    });
+    // Append new tokens the user didn't have yet (keep them togglable)
+    for (const t of NEW_TOKENS) {
+      if (!kept.includes(t)) { kept.push(t); changed = true; }
+    }
+    return { out: kept, changed };
+  };
+
+  let migrated = false;
+  for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
+    const f = configData[key] as any;
+    if (!f) continue;
+    const r = migrateList(f.audioTagPriority);
+    if (r.changed) { f.audioTagPriority = r.out; migrated = true; }
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ Migrated audioTagPriority to fine-grained audio tokens (DD+, DTS-HD MA, DTS:X, etc.)');
+  }
+}
+
+// Migrate NZB Fallback → Ultimate Fallback. UF fully replaces fallback semantics;
+// migrants land on the new UF default baseline (on-tile-selection + failure-video)
+// rather than deriving from prior NZB Fallback toggles — fresh start.
+{
+  const c = configData as any;
+  const hadFallback = c.nzbdavFallbackEnabled !== undefined
+    || c.nzbdavMaxFallbacks !== undefined
+    || c.nzbdavFallbackOrder !== undefined
+    || c.autoResolveOnSearch !== undefined
+    || c.autoResolveTargets !== undefined;
+
+  if (hadFallback) {
+    const fallbackWasEnabled = c.nzbdavFallbackEnabled === true;
+    const userHasUR = c.ultimateFallback?.enabled !== undefined;
+    if (fallbackWasEnabled && !userHasUR) {
+      const ur = (c.ultimateFallback ??= {});
+      ur.enabled = true;
+      ur.healthCheckEnabled = false;
+      ur.candidateCount = 1;
+      ur.desiredBackups = 0;
+      ur.preferenceMode = 'priority';
+      ur.whenToResolve = 'on-tile-selection';
+      // 'uf-lobby' = "Use Ultimate Fallback to Resolve From Top of List"
+      // — closest 1:1 to NZB Fallback's v1.3.0 behavior (auto-iterate
+      // candidates from the start of the list when a stream tile fails).
+      ur.userPickFallback = 'uf-lobby';
+      ur.maxAttempts = typeof c.nzbdavMaxFallbacks === 'number' ? c.nzbdavMaxFallbacks : 0;
+    }
+    delete c.nzbdavFallbackEnabled;
+    delete c.nzbdavMaxFallbacks;
+    delete c.nzbdavFallbackOrder;
+    delete c.autoResolveOnSearch;
+    delete c.autoResolveTargets;
+    saveConfigFile(configData);
+    console.log(fallbackWasEnabled && !userHasUR
+      ? '✅ Migrated NZB Fallback → Ultimate Fallback (sequential, lobby-from-top on tile failure, no health checks, no backups)'
+      : '✅ Removed legacy NZB Fallback config fields');
+  }
+
+  const removedEnv = ['NZBDAV_FALLBACK_ENABLED', 'NZBDAV_MAX_FALLBACKS', 'NZBDAV_FALLBACK_ORDER', 'AUTO_RESOLVE_ON_SEARCH', 'AUTO_RESOLVE_TARGETS'];
+  const stillSet = removedEnv.filter(name => process.env[name] !== undefined && process.env[name] !== '');
+  if (stillSet.length > 0) {
+    console.warn(`⚠️  Deprecated env vars set but ignored: ${stillSet.join(', ')}. NZB Fallback was replaced by Ultimate Fallback — remove these from your environment.`);
+  }
+}
+
+// Rebrand: Ultimate Fallback → Ultimate Fallback. Pure rename; feature stays
+// enabled. Translates the config object key + the userPickFallback 'uf-lobby'
+// value, and warns about deprecated env vars.
+{
+  const c = configData as any;
+  const hadOldUR = c.ultimateFallback !== undefined;
+  if (hadOldUR && c.ultimateFallback === undefined) {
+    c.ultimateFallback = c.ultimateFallback;
+    delete c.ultimateFallback;
+    if (c.ultimateFallback?.userPickFallback === 'uf-lobby') {
+      c.ultimateFallback.userPickFallback = 'uf-lobby';
+    }
+    saveConfigFile(configData);
+    console.log('✅ Rebranded ultimateFallback → ultimateFallback');
+  }
+
+  if (Array.isArray(c.cardOrder)) {
+    const idx = c.cardOrder.indexOf('ultimateFallback');
+    if (idx !== -1) {
+      c.cardOrder[idx] = 'ultimateFallback';
+      saveConfigFile(configData);
+    }
+  }
+
+  const stillSetUR = Object.keys(process.env).filter(k => k.startsWith('ULTIMATE_FALLBACK_'));
+  if (stillSetUR.length > 0) {
+    console.warn(`⚠️  Deprecated env vars set but ignored: ${stillSetUR.join(', ')}. Ultimate Fallback was renamed to Ultimate Fallback — use ULTIMATE_FALLBACK_* instead.`);
+  }
+}
