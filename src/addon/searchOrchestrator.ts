@@ -471,6 +471,77 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
       }
     }
 
+    // Date-format fallback: when all prior searches (SxxExx primary, alias,
+    // etc.) return zero results and TVDB provides an air date for the episode,
+    // retry using a date-formatted query — e.g. "AEW Dynamite 2026.05.13".
+    // This catches shows whose Usenet releases are date-named rather than
+    // SxxExx-numbered (wrestling, sports, daily programmes). The alias
+    // fallback above already applies date-scheme when aliases exist; this
+    // block covers the canonical title and any additional titles for shows
+    // that have no useful TVDB aliases. UTS-only.
+    if (
+      results.length === 0
+      && type === 'series'
+      && season !== undefined
+      && episode !== undefined
+      && typeof episodeAired === 'string'
+      && /^\d{4}-\d{2}-\d{2}/.test(episodeAired)
+      && !isAnime
+      && config.searchConfig?.dateFallback !== false
+    ) {
+      const retryIndexers = effectiveIndexers.filter(i => !timedOutIndexers.has(i.name) && isTextCapable(i));
+      if (retryIndexers.length === 0 && enabledIndexers.length > 0) {
+        slog(`⚠️  No text-method indexers, skipping date-format fallback`);
+      }
+      if (retryIndexers.length > 0) {
+        const dateDotted = episodeAired.slice(0, 10).replace(/-/g, '.');
+        // Always fan over all titles in date fallback — date-named releases
+        // commonly use abbreviated/alternate titles (e.g. "AEW" not "All Elite
+        // Wrestling"), regardless of whether parallelAltEnabled is on. By the
+        // time we reach this fallback we are already in zero-result territory,
+        // so the parallel/sequential distinction is moot.
+        const titlesToRetry = (additionalTitles?.length)
+          ? [title, ...additionalTitles]
+          : [title];
+        slog(`📅 Date-format fallback: no SxxExx/alias results found, trying date query (${dateDotted})`);
+        const datePromises = retryIndexers.map(async (indexer) => {
+          const { result, lines } = await withBuffer(async (): Promise<any[]> => {
+            const subResults = await Promise.all(titlesToRetry.map(t =>
+              withSubBuffer(`Date fallback: "${t} ${dateDotted}"`, async () => {
+                const startTime = Date.now();
+                const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
+                try {
+                  // Pass additionalTitles only for the primary title so the
+                  // filter stays tight on alt-title iterations.
+                  const altsForFilter = t === title ? additionalTitles : undefined;
+                  const fbResults = await searcher.searchTVShow(
+                    imdbId, t, season, episode, episodesInSeason, year, country,
+                    undefined, 'text', altsForFilter, titleYear,
+                    { numberingScheme: 'date', airedDate: episodeAired },
+                  );
+                  if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                  const responseTime = Date.now() - startTime;
+                  trackQuery(indexer.name, true, responseTime, fbResults.length);
+                  return fbResults.map(r => ({ ...r, indexerName: indexer.name }));
+                } catch (error) {
+                  if (searcher.timedOut) timedOutIndexers.add(indexer.name);
+                  const responseTime = Date.now() - startTime;
+                  trackQuery(indexer.name, false, responseTime, 0, error instanceof Error ? error.message : 'Unknown error');
+                  slog(`❌ Error in date-format fallback for ${indexer.name} ("${t}"): ${error instanceof Error ? error.message : 'Unknown error'}`);
+                  return [];
+                }
+              })
+            ));
+            return subResults.flat();
+          });
+          return { result, lines, indexerName: indexer.name };
+        });
+        const dateResults = await Promise.all(datePromises);
+        for (const r of dateResults) accumulate(r.indexerName, r.lines);
+        results = dateResults.flatMap(r => r.result);
+      }
+    }
+
     // Absolute-episode fallback: covers indexers that file releases under
     // continuous absolute numbering (Title E31) rather than Title S03E07.
     // When combined results are zero after the main pass + standard
