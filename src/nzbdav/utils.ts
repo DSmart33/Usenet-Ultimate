@@ -145,6 +145,11 @@ export function clearDeliveryLog(): void {
 /** Error message stored when an episode is only found in a combined multi-episode file */
 export const MULTI_EPISODE_BLOCKED_ERROR = 'Episode only found in combined multi-episode file';
 
+/** Error message stored when the job completed but no video was at the expected
+ *  WebDAV path. The one-time stale-folder migration clears dead-NZB entries
+ *  carrying this message (false-positives of the orphaned-folder bug). */
+export const VIDEO_NOT_FOUND_ERROR = 'Video file not found in WebDAV after job completed';
+
 export function nzbdavError(message: string, isTimeout = false, isEpisodeSpecific = false): Error & { isNzbdavFailure: boolean; isTimeout: boolean; isEpisodeSpecific: boolean } {
   const err = new Error(message) as Error & { isNzbdavFailure: boolean; isTimeout: boolean; isEpisodeSpecific: boolean };
   err.isNzbdavFailure = true;

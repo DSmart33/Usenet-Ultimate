@@ -13,7 +13,7 @@ import { fileURLToPath } from 'url';
 import type { CacheEntry, StreamData, NZBDavConfig } from './types.js';
 import { config as globalConfig } from '../config/index.js';
 import { clearFallbackGroups } from './fallbackManager.js';
-import { clearDeliveryLog, MULTI_EPISODE_BLOCKED_ERROR } from './utils.js';
+import { clearDeliveryLog, MULTI_EPISODE_BLOCKED_ERROR, VIDEO_NOT_FOUND_ERROR } from './utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -545,6 +545,26 @@ export function clearMultiEpisodeDeadEntries(): number {
   }
   if (count) {
     console.log(`\u{1F9F9} Cleared ${count} multi-episode dead NZB entries`);
+    saveCacheToDisk();
+  }
+  return count;
+}
+
+/** Clear dead entries that were false-positives of the orphaned-folder bug
+ *  (job completed but the video was absent at the expected path because the
+ *  release had been remounted at an iterated path). Called once by the
+ *  stale-folder cleanup migration. */
+export function clearVideoNotFoundDeadEntries(): number {
+  let count = 0;
+  for (const [key, entry] of deadNzbCache) {
+    if (entry.error.message === VIDEO_NOT_FOUND_ERROR) {
+      console.log(`\u{1F9F9} Stale cleanup: cleared dead NZB "${entry.title || key}"`);
+      deadNzbCache.delete(key);
+      count++;
+    }
+  }
+  if (count) {
+    console.log(`\u{1F9F9} Cleared ${count} "video not found" dead NZB entries`);
     saveCacheToDisk();
   }
   return count;

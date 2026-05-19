@@ -23,7 +23,7 @@ import { buildNzbdavConfig, encodeWebdavPath } from './utils.js';
 import { getWebdavClient } from './webdavClient.js';
 import { folderHasPlayableVideo } from './videoDiscovery.js';
 import { cleanupHistoryForPath } from './historyApi.js';
-import { evictReadyByVideoPathPrefix } from './streamCache.js';
+import { evictReadyByVideoPathPrefix, clearVideoNotFoundDeadEntries } from './streamCache.js';
 import { WEBDAV_REQUEST_TIMEOUT_MS } from './types.js';
 
 const STALE_LIBRARY_FOLDER_CLEANUP_VERSION = 1;
@@ -120,6 +120,14 @@ export async function runStaleLibraryFolderCleanup(): Promise<void> {
     }
 
     console.log(`\u{1F5D1}️ Stale cleanup complete: ${totalRemoved} folder(s) removed`);
+
+    // Same one-time migration also sweeps the dead-NZB DB of false-positives
+    // this bug produced (job completed but the video was absent because the
+    // release had been remounted at an iterated path). Pure local op, runs
+    // regardless of the folder-sweep outcome, inside the same gate and
+    // try/catch. Placed before the version bump so a crash here retries both.
+    clearVideoNotFoundDeadEntries();
+
     configData.staleLibraryFolderCleanupVersion = STALE_LIBRARY_FOLDER_CLEANUP_VERSION;
     saveConfigFile(configData);
   } catch (err) {

@@ -10,7 +10,7 @@ import { createClient, FileStat } from 'webdav';
 import { getWebdavClient } from './webdavClient.js';
 import { resolveCategory } from './nzbdavApi.js';
 import { WEBDAV_REQUEST_TIMEOUT_MS, type NZBDavConfig, type StreamData } from './types.js';
-import { encodeWebdavPath, folderCouldContainSeason, nzbdavError, MULTI_EPISODE_BLOCKED_ERROR } from './utils.js';
+import { encodeWebdavPath, folderCouldContainSeason, nzbdavError, MULTI_EPISODE_BLOCKED_ERROR, VIDEO_NOT_FOUND_ERROR } from './utils.js';
 import { config as globalConfig, getTvAllowMultiEpisode } from '../config/index.js';
 
 export const VIDEO_EXTS = ['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.ts', '.wmv', '.webm', '.mpg', '.mpeg'];
@@ -298,7 +298,7 @@ export async function waitForVideoFile(
   console.log(`${logPrefix}  ❌ Video file not found in WebDAV after job completed`);
   // Episode-specific: the NZB itself downloaded fine, this episode's file just
   // wasn't in the pack. Other episodes from the same pack may still resolve.
-  throw nzbdavError('Video file not found in WebDAV after job completed', false, true);
+  throw nzbdavError(VIDEO_NOT_FOUND_ERROR, false, true);
 }
 
 /**
