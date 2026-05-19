@@ -6,7 +6,7 @@
  * decides the pair's order.
  */
 
-import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, getAgeHours, getBitrateValue } from '../parsers/metadataParsers.js';
+import { parseQuality, parseCodec, parseSource, parseVisualTag, visualTagFilterKey, parseAudioTag, parseLanguage, parseEdition, getAgeHours, getBitrateValue } from '../parsers/metadataParsers.js';
 import type { FilterConfig } from '../types.js';
 
 /**
@@ -109,8 +109,8 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?
 
         if (indexA !== indexB) return indexA - indexB;
       } else if (method === 'visualTag') {
-        const visualA = parseVisualTag(a.title);
-        const visualB = parseVisualTag(b.title);
+        const visualA = visualTagFilterKey(parseVisualTag(a.title));
+        const visualB = visualTagFilterKey(parseVisualTag(b.title));
         const priorityA = visualTagPriority.indexOf(visualA);
         const priorityB = visualTagPriority.indexOf(visualB);
 

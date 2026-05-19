@@ -162,6 +162,13 @@ export function parseVisualTag(title: string): string {
   return parseMetadata(title).visualTag;
 }
 
+// Composite visualTags ("DV, HDR10+") have no UI checkbox of their own;
+// fold them into the single 'HDR+DV' bucket so that checkbox can disable
+// and rank combos. parseVisualTag stays comma-form for the SEL tokenizer.
+export function visualTagFilterKey(parsed: string): string {
+  return parsed.includes(',') ? 'HDR+DV' : parsed;
+}
+
 // ── Audio ────────────────────────────────────────────────────────────
 //
 // parse-torrent-title collapses DTS variants ("DTS-HD MA" → "DTS Lossy" /
