@@ -15,11 +15,12 @@ import { config as globalConfig, getTvAllowMultiEpisode } from '../config/index.
 
 export const VIDEO_EXTS = ['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.ts', '.wmv', '.webm', '.mpg', '.mpeg'];
 
-// Matches sample/trailer/featurette as a tail-label immediately before the
-// file extension (e.g. sample.mkv, foo.sample.mkv, foo-trailer.mp4). Release
-// names that contain these words elsewhere in the title are not matched
-// because the regex requires the label to sit directly before .ext.
-export const NON_PLAYABLE_TAIL_LABEL_RE = /(^|[._\-\s])(sample|trailer|featurette)\.[a-z0-9]{2,4}$/i;
+// Matches sample/trailer/featurette as a tail-label before the file extension,
+// allowing digits and separators in between (e.g. sample.mkv, Sample1.mkv,
+// Sample-1.mkv, foo.sample.mkv, Trailer2.mp4). Release names that contain
+// these words followed by letters (e.g. Trailer.Park.Boys, The.Sample.Movie)
+// are not matched, because the between-section is digits/separators only.
+export const NON_PLAYABLE_TAIL_LABEL_RE = /(^|[._\-\s])(sample|trailer|featurette)[\d._\-]*\.[a-z0-9]{2,4}$/i;
 
 // Matches files living under a sample/trailer/featurette/extras/subs/subtitles
 // subdirectory. Plural forms handled via `s?`.
@@ -82,15 +83,22 @@ export async function folderHasPlayableVideo(folderPath: string, config: NZBDavC
       }
       if (item.type !== 'file') continue;
       const basename = pathPosix.basename(item.filename);
+      if (basename.startsWith('.')) continue;
       const ext = basename.substring(basename.lastIndexOf('.')).toLowerCase();
       if (!VIDEO_EXTS.includes(ext)) continue;
       if (NON_PLAYABLE_TAIL_LABEL_RE.test(basename)) continue;
       if (NON_PLAYABLE_PATH_RE.test(item.filename)) continue;
       return true;
     }
-    // Hidden dirs intentionally NOT filtered here — discovery filters .unpack/
-    // decoys; cleanup stays conservative to avoid wiping folders prematurely.
+    // Hidden files are filtered in the per-item loop above; hidden subdirs
+    // are filtered here. Both mirror findVideoFile's decoy skip so this
+    // "is anything servable left?" check agrees with the "what file would
+    // we serve?" answer. Breaking that symmetry lets a stray .unpack.mkv
+    // or .unpack/ keep a release folder alive, recreating the
+    // Release.Name (1) bug that orphan-prune was added to fix.
     for (const sub of subdirs) {
+      const subBasename = pathPosix.basename(sub || '');
+      if (subBasename.startsWith('.')) continue;
       if (NON_PLAYABLE_PATH_RE.test(sub + '/')) continue;
       if (await walk(sub, depth + 1)) return true;
     }

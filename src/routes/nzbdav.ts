@@ -340,7 +340,10 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     for (let depth = segments.length - 1; depth >= 3; depth--) {
       const parent = '/' + segments.slice(0, depth).join('/');
       const hasVideo = await folderHasPlayableVideo(parent, nzbdavConfig);
-      if (hasVideo) return;
+      if (hasVideo) {
+        console.log(`\u{1F5D1}️ Prune stopped at ${parent} - folder still has playable content`);
+        return;
+      }
       const result = await runWebdavDelete(parent, 'pack');
       if (!result.ok) {
         console.warn(`\u{1F5D1}\uFE0F Could not prune orphaned folder ${parent}: ${result.error}`);
