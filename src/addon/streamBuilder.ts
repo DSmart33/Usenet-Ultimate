@@ -112,7 +112,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           if (meta.sig) nzbParams.set('sig', meta.sig);
           nzbUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
         }
-        return { nzbUrl, title: r.title, indexerName: r.indexerName, size: r.size, isSeasonPack: r.isSeasonPack || false, libraryVideoPath: r.libraryVideoPath };
+        return { nzbUrl, title: r.title, indexerName: r.indexerName, size: r.size, isSeasonPack: r.isSeasonPack || false, libraryVideoPath: r.libraryVideoPath, searchExitIp: r.searchExitIp };
       });
 
     createFallbackGroup(
@@ -283,6 +283,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           url: nzbProxyUrl,
           title: result.title,
           indexer: result.indexerName || '',
+          ...(result.searchExitIp ? { ip: result.searchExitIp } : {}),
         });
         const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?t=${tileT}`;
         streams.push({
@@ -350,6 +351,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         url: result.link,
         title: result.title,
         indexer: result.indexerName || '',
+        ...(result.searchExitIp ? { ip: result.searchExitIp } : {}),
       });
       streams.push({
         name: streamName,

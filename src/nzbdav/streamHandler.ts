@@ -19,6 +19,7 @@ import { getFallbackGroup } from './fallbackManager.js';
 import { encodeWebdavPath, nzbdavError, getDeliveryLog, WebDav404Error, buildEpisodePattern, buildDateEpisodePattern, buildNzbdavConfig } from './utils.js';
 import { getSessionPromise, getSessionBackups, ultimateFallbackFromCandidates, type UfBackupStream } from './ultimateFallback.js';
 import { encodeTileEnvelope, incrementRedirectCounter, parseTilePayload } from './redirectHelpers.js';
+import { ProxyCircuitAbortError } from '../proxy.js';
 import { formatBytes } from '../parsers/metadataParsers.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
 import { getCachedTitleByImdb } from '../idResolver.js';
@@ -29,8 +30,8 @@ const pipelineAsync = promisify(pipeline);
 // Register prepareStream into the cache to break the circular import
 // (streamCache needs to call prepareStream, but importing it directly would create a cycle)
 setPrepareFn(
-  (nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack, logPrefix, indexerName) =>
-    prepareStream(nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack, logPrefix, indexerName)
+  (nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack, logPrefix, indexerName, searchExitIp) =>
+    prepareStream(nzbUrl, title, config, episodePattern, contentType, episodesInSeason, isSeasonPack, logPrefix, indexerName, searchExitIp)
 );
 
 // ============================================================================
@@ -176,6 +177,7 @@ export async function prepareStream(
   isSeasonPack?: boolean,
   logPrefix = '',
   indexerName?: string,
+  searchExitIp?: string,
 ): Promise<StreamData> {
   const totalBudgetMs = getAttemptBudgetMs(contentType, isSeasonPack);
   const unlimited = totalBudgetMs === 0;
@@ -202,7 +204,7 @@ export async function prepareStream(
   // Step 1: Submit NZB. Grab tracking lives inside submitNzb after content
   // validation, so cache hits (precached by health checks) do not double-count.
   console.log(`${logPrefix}  \u23F1\uFE0F Submitting NZB... (${remaining()}s remaining)`);
-  const nzoId = await submitNzb(nzbUrl, title, config, contentType, unlimited ? undefined : totalBudgetMs - (Date.now() - budgetStart), logPrefix, indexerName);
+  const nzoId = await submitNzb(nzbUrl, title, config, contentType, unlimited ? undefined : totalBudgetMs - (Date.now() - budgetStart), logPrefix, indexerName, searchExitIp);
   console.log(`${logPrefix}  \u23F1\uFE0F NZB submitted → ${remaining()}s remaining`);
 
   // Step 2: Wait for job to complete (or fail) — remaining budget
@@ -590,6 +592,11 @@ export async function handleStream(
   let tPackUserPick = false;
   let tPackRc: number | undefined;
   let tPackCi: number | undefined;
+  // Search-time exit IP sourced from the FBG candidate (if `idx` points to one)
+  // or the envelope's `ip` field. Hydrates the sentinel candidate built below so
+  // verifyProxyCircuit has a baseline when the FBG is missing (UF disabled, no
+  // `fbg` in URL, or group TTL expired).
+  let tPackSearchExitIp: string | undefined;
   const isUfTilePath = req.params.filename === 'ultimate-fallback';
   const payload = parseTilePayload(typeof req.query.t === 'string' ? req.query.t : undefined);
   fallbackGroupId = payload.fbg;
@@ -612,6 +619,7 @@ export async function handleStream(
     title = cand?.title ?? payload.title ?? '';
     indexerName = cand?.indexerName ?? payload.indexer ?? '';
     contentType = group?.type ?? payload.ty;
+    tPackSearchExitIp = cand?.searchExitIp ?? payload.ip;
     seasonParam = payload.season !== undefined ? String(payload.season) : undefined;
     episodeParam = payload.episode !== undefined ? String(payload.episode) : undefined;
     tPackSp = payload.seasonpack === 1 ? '1' : undefined;
@@ -659,7 +667,7 @@ export async function handleStream(
   // has expired).
   const candidates: FallbackCandidate[] = [];
   if (nzbUrl && title) {
-    candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
+    candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest, searchExitIp: tPackSearchExitIp });
   }
 
   const fallbackEnabled = globalConfig.ultimateFallback?.enabled === true;
@@ -687,7 +695,7 @@ export async function handleStream(
       } else {
         // Clicked NZB not found in group — push sentinel (skip empty for UF tile
         // requests) + all group candidates so the chain still has something to walk.
-        if (nzbUrl && title) candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest });
+        if (nzbUrl && title) candidates.push({ nzbUrl, title, indexerName, isSeasonPack: isSeasonPackRequest, searchExitIp: tPackSearchExitIp });
         candidates.push(...group.candidates);
       }
       if (verbose) {
@@ -1103,7 +1111,7 @@ export async function handleStream(
       if (elapsed + attemptBudgetMs + STREMIO_SAFETY_MARGIN_MS > STREMIO_TIMEOUT_MS) {
         const pendingKey = getCacheKey(candidate.nzbUrl, candidate.title) + (cachePattern ? `:${cachePattern}` : '');
         if (!streamCacheMap.has(pendingKey) && !isDeadNzb(deadKey)) {
-          getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack).catch(() => {});
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, '', candidate.searchExitIp).catch(() => {});
         }
         // Site 2 of 6: rc and ci carried inside `t` so iOS handoff doesn't
         // truncate them. Without ci, the next request would restart at
@@ -1130,7 +1138,7 @@ export async function handleStream(
         const waitMs = Math.max(1000, EXO_PLAYER_BUDGET_MS - requestElapsed);
         let exoTimerId: ReturnType<typeof setTimeout>;
         streamData = await Promise.race([
-          getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack)
+          getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, '', candidate.searchExitIp)
             .finally(() => clearTimeout(exoTimerId)),
           new Promise<never>((_, reject) => {
             exoTimerId = setTimeout(() => reject(Object.assign(new Error('ExoPlayer safety timeout'), { isExoTimeout: true })), waitMs);
@@ -1145,7 +1153,7 @@ export async function handleStream(
         if (attemptBudgetMs > stremioRemainingMs && stremioRemainingMs > 0 && !req.socket.destroyed) {
           let stremioTimerId: ReturnType<typeof setTimeout>;
           streamData = await Promise.race([
-            getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack)
+            getOrCreateStream(candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, '', candidate.searchExitIp)
               .finally(() => clearTimeout(stremioTimerId)),
             new Promise<never>((_, reject) => {
               stremioTimerId = setTimeout(() => reject(Object.assign(new Error('Stremio timeout redirect'), { isExoTimeout: true })), stremioRemainingMs);
@@ -1153,7 +1161,7 @@ export async function handleStream(
           ]);
         } else {
           streamData = await getOrCreateStream(
-            candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack
+            candidate.nzbUrl, candidate.title, config, cachePattern, filePattern, contentType, episodesInSeason, candidate.indexerName, candidate.size, verbose, candidate.isSeasonPack, '', candidate.searchExitIp
           );
         }
       }
@@ -1236,6 +1244,14 @@ export async function handleStream(
       return;
 
     } catch (error) {
+      // Proxy circuit aborted (VPN IP changed / baseline unavailable / etc.) -
+      // every remaining candidate in the local array carries the same stale
+      // searchExitIp hash and would abort identically. Break the walk; the
+      // natural fall-through serves the failure video.
+      if (error instanceof ProxyCircuitAbortError) {
+        console.error(`🔒 🚫 Proxy circuit aborted mid-stream, stopping candidate walk. ${error.message}`);
+        break;
+      }
       // Stremio / ExoPlayer timeout — candidate is still processing in cache,
       // self-redirect to keep the player alive while we wait
       if ((error as any).isExoTimeout && redirectCount < MAX_SELF_REDIRECTS && !req.socket.destroyed) {

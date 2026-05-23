@@ -79,6 +79,12 @@ export type TilePayload = {
    *  fallback group exists (Ultimate Fallback disabled, group evicted, or
    *  post-restart). */
   ty?: ContentType;
+  /** Proxy exit IP captured at search time. Travels in the envelope so the
+   *  stream handler can hydrate the sentinel candidate (Ultimate Fallback
+   *  disabled, missing fbg, expired group) and verifyProxyCircuit still has
+   *  a baseline to check against. Same field as `NZBSearchResult.searchExitIp`
+   *  / `FallbackCandidate.searchExitIp`; just routed through the URL. */
+  ip?: string;
 };
 
 /** Single trust-boundary validator. `req.query.t` is user-controllable;
@@ -105,6 +111,7 @@ export function parseTilePayload(t: string | undefined): TilePayload {
     epcount: isNum(raw.epcount) ? raw.epcount : undefined,
     aired: typeof raw.aired === 'string' && /^\d{4}-\d{2}-\d{2}/.test(raw.aired) ? raw.aired.slice(0, 10) : undefined,
     ty: raw.ty === 'movie' || raw.ty === 'series' ? raw.ty : undefined,
+    ip: typeof raw.ip === 'string' ? raw.ip : undefined,
   };
 }
 

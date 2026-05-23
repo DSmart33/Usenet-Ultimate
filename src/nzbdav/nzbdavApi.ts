@@ -25,7 +25,10 @@ export function resolveCategory(config: NZBDavConfig, contentType?: string): str
 }
 
 /**
- * Submit NZB to NZBDav and return the nzo_id
+ * Submit NZB to NZBDav and return the nzo_id.
+ * `searchExitIp` carries the proxy exit IP that was live when this candidate's
+ * search ran. verifyProxyCircuit compares against it so a rotation+new-search
+ * between the original search and this grab cannot silently pass verification.
  */
 export async function submitNzb(
   nzbUrl: string,
@@ -35,6 +38,7 @@ export async function submitNzb(
   budgetMs?: number,
   logPrefix = '',
   indexerName?: string,
+  searchExitIp?: string,
 ): Promise<string> {
   const budgetStart = Date.now();
   const remainingBudget = () => budgetMs ? Math.max(1000, budgetMs - (Date.now() - budgetStart)) : 30000;
@@ -48,8 +52,8 @@ export async function submitNzb(
     // Download NZB from indexer with timeout
     const downloadUserAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
     console.log(`${logPrefix}  \u{1F4E5} Downloading NZB from indexer: ${nzbUrl.substring(0, 80)}...`);
-    await verifyProxyCircuit(nzbUrl, 'nzb-grab');
-    await logProxyExitIp(nzbUrl, 'nzb-grab');
+    await verifyProxyCircuit(nzbUrl, 'nzb-grab', indexerName, searchExitIp);
+    await logProxyExitIp(nzbUrl, 'nzb-grab', indexerName);
 
     const controller = new AbortController();
     const downloadTimeoutMs = remainingBudget();
@@ -60,7 +64,7 @@ export async function submitNzb(
       nzbResponse = await proxyFetch(nzbUrl, {
         headers: { 'User-Agent': downloadUserAgent },
         signal: controller.signal,
-      });
+      }, indexerName);
     } catch (err) {
       clearTimeout(timeout);
       if ((err as Error).name === 'AbortError') {
@@ -162,17 +166,19 @@ export async function submitNzb(
 
 /**
  * Pre-fetch an NZB from the indexer and cache it for later submission.
- * Best-effort — never throws. Returns true if the NZB is cached and ready.
+ * Best-effort, never throws. Returns true if the NZB is cached and ready.
+ * `searchExitIp` carries the proxy exit IP that was live when this candidate's
+ * search ran, used to gate the prefetch against an intervening IP rotation.
  */
-export async function prefetchNzb(nzbUrl: string, logPrefix = '', quiet = false, title?: string, indexerName?: string): Promise<boolean> {
+export async function prefetchNzb(nzbUrl: string, logPrefix = '', quiet = false, title?: string, indexerName?: string, searchExitIp?: string): Promise<boolean> {
   // Already cached (from health check or earlier prefetch)
   if (getCachedNzbContent(nzbUrl)) return true;
 
   try {
     const downloadUserAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
     if (!quiet) console.log(`${logPrefix}  📥 Prefetching NZB: ${nzbUrl.substring(0, 80)}...`);
-    await verifyProxyCircuit(nzbUrl, 'nzb-prefetch');
-    await logProxyExitIp(nzbUrl, 'nzb-prefetch');
+    await verifyProxyCircuit(nzbUrl, 'nzb-prefetch', indexerName, searchExitIp);
+    await logProxyExitIp(nzbUrl, 'nzb-prefetch', indexerName);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -182,7 +188,7 @@ export async function prefetchNzb(nzbUrl: string, logPrefix = '', quiet = false,
       nzbResponse = await proxyFetch(nzbUrl, {
         headers: { 'User-Agent': downloadUserAgent },
         signal: controller.signal,
-      });
+      }, indexerName);
     } catch (err) {
       clearTimeout(timeout);
       if (!quiet) console.warn(`${logPrefix}  ⚠️ Prefetch failed: ${(err as Error).message}`);

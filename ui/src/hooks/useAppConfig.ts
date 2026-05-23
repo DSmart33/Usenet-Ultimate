@@ -467,9 +467,15 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indexerPriorityDedup, config?.indexers, syncedIndexers, easynewsEnabled, indexManager]);
 
-  // Auto-save: proxy settings
+  // Auto-save: proxy settings.
+  // proxyMode/proxyUrl/proxyIndexers changes invalidate the previously-displayed
+  // connection status and exit IP (those were resolved against the OLD proxy).
+  // Reset both so the UI doesn't keep showing "Connected, X.X.X.X" for a proxy
+  // that's no longer in use until the user clicks Test.
   useEffect(() => {
     if (!initialLoadDone.current) return;
+    setProxyStatus(null);
+    setProxyIp('');
     const timer = setTimeout(() => saveSettings({ proxyMode, proxyUrl, proxyIndexers }), 300);
     return () => clearTimeout(timer);
   }, [proxyMode, proxyUrl, proxyIndexers, saveSettings]);

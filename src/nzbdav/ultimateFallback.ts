@@ -543,7 +543,7 @@ export async function ultimateFallbackFromCandidates(
 
     const startGrab = (cs: CandidateState) => {
       cs.grabStatus = 'grabbing';
-      cs.grabPromise = prefetchNzb(cs.candidate.nzbUrl, `${tag} [grab #${cs.poolIndex + 1}] `, true, cs.candidate.title, cs.candidate.indexerName)
+      cs.grabPromise = prefetchNzb(cs.candidate.nzbUrl, `${tag} [grab #${cs.poolIndex + 1}] `, true, cs.candidate.title, cs.candidate.indexerName, cs.candidate.searchExitIp)
         .then(ok => { cs.grabStatus = ok ? 'done' : 'failed'; return { cs, ok }; })
         .catch(() => { cs.grabStatus = 'failed'; return { cs, ok: false }; });
     };
@@ -555,6 +555,8 @@ export async function ultimateFallbackFromCandidates(
         cs.candidate.nzbUrl, providers, userAgent,
         { archiveInspection: options.archiveInspection, sampleCount: options.sampleCount },
         pool,
+        cs.candidate.indexerName,
+        cs.candidate.searchExitIp,
       ).then(result => {
         cs.healthStatus = isHealthy(result) ? 'healthy' : 'dead';
         cs.containerType = result.containerType;
@@ -574,7 +576,7 @@ export async function ultimateFallbackFromCandidates(
         if (cs.cancelled) { cs.nzbdavStatus = 'failed'; return null; }
 
         // Step 1: Submit NZB (uses cached XML from grab chain)
-        const nzoId = await submitNzb(cs.candidate.nzbUrl, cs.candidate.title, nzbdavConfig, contentType, undefined, logPrefix, cs.candidate.indexerName);
+        const nzoId = await submitNzb(cs.candidate.nzbUrl, cs.candidate.title, nzbdavConfig, contentType, undefined, logPrefix, cs.candidate.indexerName, cs.candidate.searchExitIp);
         cs.nzoId = nzoId;
 
         // Cancel checkpoint: health check may have failed while submitNzb was in-flight

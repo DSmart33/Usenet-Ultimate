@@ -58,6 +58,10 @@ export interface FallbackCandidate {
    *  which root it lives under, including /content/uncategorized/... where
    *  resolveCategory would otherwise reconstruct the wrong path. */
   libraryVideoPath?: string;
+  /** Proxy exit IP captured at search time. verifyProxyCircuit compares against
+   *  this when grabbing the NZB, so a rotation+new-search between search and
+   *  grab cannot silently pass verification. In-memory only, not persisted. */
+  searchExitIp?: string;
 }
 
 export interface FallbackGroup {

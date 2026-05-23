@@ -7,7 +7,7 @@
  */
 
 import { parseStringPromise } from 'xml2js';
-import { proxyFetch, logProxyExitIp, verifyProxyCircuit } from '../proxy.js';
+import { proxyFetch, logProxyExitIp, verifyProxyCircuit, ProxyCircuitAbortError } from '../proxy.js';
 import type { NzbFile, NzbParseResult } from './types.js';
 import { cacheNzbContent, getCachedNzbContent } from './nzbContentCache.js';
 
@@ -20,30 +20,33 @@ export class CircuitChangedError extends Error {
 }
 
 /**
- * Download and parse an NZB file
- * Extracts file list and optional password from NZB metadata
+ * Download and parse an NZB file.
+ * Extracts file list and optional password from NZB metadata.
+ * `searchExitIp` is the proxy exit IP that was live when this candidate's
+ * search ran. verifyProxyCircuit compares against it to detect search/grab
+ * IP mismatch.
  */
-export async function downloadAndParseNzb(nzbUrl: string, userAgent: string): Promise<NzbParseResult> {
+export async function downloadAndParseNzb(nzbUrl: string, userAgent: string, indexerName?: string, searchExitIp?: string): Promise<NzbParseResult> {
   // Use cached NZB XML if available (populated by prefetchNzb or a prior health check)
   let nzbXml = getCachedNzbContent(nzbUrl);
 
   if (!nzbXml) {
-    // Circuit verification — if the circuit changed since search, skip this
+    // Circuit verification: if the circuit changed since search, skip this
     // health check entirely rather than hitting the indexer with a mismatched IP.
     // Throws a tagged error so callers can distinguish it from real failures.
     try {
-      await verifyProxyCircuit(nzbUrl, 'health-check');
+      await verifyProxyCircuit(nzbUrl, 'health-check', indexerName, searchExitIp);
     } catch (err) {
-      if (err instanceof Error && err.message.includes('IP changed')) {
-        console.warn(`🔒 [health-check] Skipping health check — VPN IP changed for ${new URL(nzbUrl).hostname}`);
+      if (err instanceof ProxyCircuitAbortError) {
+        console.warn(`🔒 [health-check] Skipping health check: ${err.message} (${new URL(nzbUrl).hostname})`);
         throw new CircuitChangedError(err.message);
       }
       throw err;
     }
-    await logProxyExitIp(nzbUrl, 'health-check');
+    await logProxyExitIp(nzbUrl, 'health-check', indexerName);
     const response = await proxyFetch(nzbUrl, {
       headers: { 'User-Agent': userAgent }
-    });
+    }, indexerName);
 
     if (!response.ok) {
       throw new Error(`Failed to download NZB: ${response.status}`);

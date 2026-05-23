@@ -255,18 +255,33 @@ export function updateSettings(settings: {
   if (settings.deadNzbDbMaxSizeMB !== undefined) {
     configData.deadNzbDbMaxSizeMB = Math.min(50, Math.max(1, settings.deadNzbDbMaxSizeMB));
   }
+  // Proxy mode / URL changes invalidate the searchExitIp baseline (each
+  // proxy configuration has its own exit IP). Cached search results carry
+  // stamps under the old config; on grab they'd fail-closed with
+  // "VPN IP changed." In-flight UF sessions need to be cancelled so they
+  // stop walking their backup chain against the dead proxy. Detect any of
+  // these settings changing and reset everything downstream together.
+  const proxyConfigChanged =
+    (settings.proxyMode !== undefined && settings.proxyMode !== configData.proxyMode) ||
+    (settings.proxyUrl !== undefined && settings.proxyUrl !== configData.proxyUrl) ||
+    (settings.proxyIndexers !== undefined && JSON.stringify(settings.proxyIndexers) !== JSON.stringify(configData.proxyIndexers));
+
   if (settings.proxyMode !== undefined) {
     configData.proxyMode = settings.proxyMode;
-    // Clear cached proxy agents when switching modes
-    if (settings.proxyMode === 'disabled') {
-      import('../proxy.js').then(m => m.clearProxyCache()).catch(() => {});
-    }
   }
   if (settings.proxyUrl !== undefined) {
     configData.proxyUrl = settings.proxyUrl;
   }
   if (settings.proxyIndexers !== undefined) {
     configData.proxyIndexers = settings.proxyIndexers;
+  }
+
+  if (proxyConfigChanged) {
+    console.log(`🔒 proxy configuration changed; clearing proxy cache, search cache, fallback groups, and in-flight Ultimate Fallback sessions`);
+    import('../proxy.js').then(m => m.clearProxyCache()).catch(() => {});
+    import('../addon/index.js').then(m => m.clearSearchCache?.()).catch(() => {});
+    import('../nzbdav/fallbackManager.js').then(m => m.clearFallbackGroups?.()).catch(() => {});
+    import('../nzbdav/ultimateFallback.js').then(m => m.cancelAllUltimateFallbacks?.()).catch(() => {});
   }
   if (settings.searchConfig !== undefined) {
     // Clear the cached TVDB bearer token if the API key changed. The token is
