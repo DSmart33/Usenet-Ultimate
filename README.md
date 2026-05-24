@@ -5,7 +5,7 @@
 <h1 align="center">Usenet Ultimate</h1>
 
 <p align="center">
-  A Stremio addon that searches Usenet indexers for media content and streams it directly through NZBDav.
+  A Stremio addon that searches Usenet indexers for media content and streams it directly through NzbDAV.
 </p>
 
 <p align="center">
@@ -38,11 +38,21 @@ Have questions, need help, or want to follow development?
 
 ---
 
+## Installation and Setup
+
+See **[INSTALLATION.md](INSTALLATION.md)** for full walkthroughs of localhost, LAN, and VPS deployments. 
+
+One-command Auto-Installers for macOS, Linux, and Windows (localhost and LAN) are in [auto-installers/](auto-installers/README.md).
+
+Once it's running, **[SETUP.md](SETUP.md)** walks you through first-time configuration and recommended settings: creating your account, connecting an indexer, setting up NzbDAV, installing the addon in Stremio, etc..
+
+---
+
 ## What Is It
 
-Usenet Ultimate is a self-hosted Stremio addon that turns Usenet into a streaming service. Point it at your Newznab indexers (or Prowlarr/NZBHydra), connect a Usenet provider and [NZBDav](https://github.com/nzbdav-dev/nzbdav), and you've got a fully searchable streaming layer on top of Usenet — no download client required.
+Usenet Ultimate is a self-hosted Stremio addon that turns Usenet into a streaming service. Point it at your Newznab indexers (or Prowlarr/NZBHydra), connect a Usenet provider and [NzbDAV](https://github.com/nzbdav-dev/nzbdav), and you've got a fully searchable streaming layer on top of Usenet — no download client required.
 
-> **What is NZBDav?** — [NZBDav](https://github.com/nzbdav-dev/nzbdav) is the streaming engine that powers playback. It downloads NZBs from your Usenet provider, assembles the files, and serves them over WebDAV so Usenet Ultimate can stream video directly into Stremio. Think of it as the backend that turns Usenet downloads into a streamable library. Head to the [NZBDav repo](https://github.com/nzbdav-dev/nzbdav) to set it up — it runs alongside Usenet Ultimate as a separate container.
+> **What is NzbDAV?** — [NzbDAV](https://github.com/nzbdav-dev/nzbdav) is the streaming engine that powers playback. It downloads NZBs from your Usenet provider, assembles the files, and serves them over WebDAV so Usenet Ultimate can stream video directly into Stremio. Think of it as the backend that turns Usenet downloads into a streamable library. Head to the [NzbDAV repo](https://github.com/nzbdav-dev/nzbdav) to set it up — it runs alongside Usenet Ultimate as a separate container.
 
 ## How It Works
 
@@ -53,7 +63,7 @@ When you click play on a movie or TV show in Stremio, Usenet Ultimate:
 3. **Parses release metadata** — resolution, codec, HDR, audio, release group, edition, language, and more
 4. **Health-checks NZBs** against your Usenet provider at the NNTP level before presenting them
 5. **Inspects archives** for encryption, passwords, nested containers, and disc structures
-6. **Streams the content** through NZBDav or EasyNews directly into Stremio with automatic fallback
+6. **Streams the content** through NzbDAV or EasyNews directly into Stremio with automatic fallback
 
 ---
 
@@ -95,15 +105,15 @@ IMDB IDs are resolved to TMDB, TVDB, and TVMaze IDs with a 24-hour cache. Altern
 
 **Ultimate Library**
 
-Optional pre-search WebDAV scan that runs before any indexer query. When the library returns at least the configured number of matches for a query, indexer searches are skipped entirely and the results list is built from library hits alone — saving indexer rate-limit budget for content already on disk. All-or-nothing semantic: if the scan returns fewer than the threshold, library results are discarded (not merged with indexer results) so the indexer flow stays clean. Folder-name season pre-filter avoids scanning wrong-season packs. Title matching reuses the same Ultimate Text Search engine (token-set match, year disambiguation, alt-title support, stylized digit-letter detection). NZBDav streaming mode only; pairs best with Season Packs enabled.
+Optional pre-search WebDAV scan that runs before any indexer query. When the library returns at least the configured number of matches for a query, indexer searches are skipped entirely and the results list is built from library hits alone — saving indexer rate-limit budget for content already on disk. All-or-nothing semantic: if the scan returns fewer than the threshold, library results are discarded (not merged with indexer results) so the indexer flow stays clean. Folder-name season pre-filter avoids scanning wrong-season packs. Title matching reuses the same Ultimate Text Search engine (token-set match, year disambiguation, alt-title support, stylized digit-letter detection). NzbDAV streaming mode only; pairs best with Season Packs enabled.
 
 ---
 
 ### Streaming
 
-**NZBDav Streaming**
+**NzbDAV Streaming**
 
-NZBs are submitted to your NZBDav instance, which downloads and assembles the content. The addon discovers the video file via WebDAV, then issues a 302 redirect directly to the WebDAV URL. Stremio streams from NZBDav without proxying through the addon, keeping the server lightweight while supporting full range requests and seeking.
+NZBs are submitted to your NzbDAV instance, which downloads and assembles the content. The addon discovers the video file via WebDAV, then issues a 302 redirect directly to the WebDAV URL. Stremio streams from NzbDAV without proxying through the addon, keeping the server lightweight while supporting full range requests and seeking.
 
 **Automatic Fallback on Failure**
 
@@ -152,7 +162,7 @@ Before streaming, the addon can inspect archive headers to detect problems witho
 
 This is non-invasive — only headers are read, not full file content. Encrypted archives are fully supported when a password is present in the NZB metadata — the addon extracts the password from the NZB `<head>` and allows the release through to segment checking and streaming.
 
-The only content types that are rejected are: **ISOs**, **nested archives** (archives inside archives), and **encrypted archives without a provided password**. These are the same limitations as NZBDav itself — Usenet Ultimate's file type support matches NZBDav's identically. Everything else streams without issue.
+The only content types that are rejected are: **ISOs**, **nested archives** (archives inside archives), and **encrypted archives without a provided password**. These are the same limitations as NzbDAV itself — Usenet Ultimate's file type support matches NzbDAV's identically. Everything else streams without issue.
 
 **Smart Batching**
 
@@ -169,9 +179,9 @@ Per-indexer Zyclops proxy support for backbone-level pre-verification. When enab
 
 Before running NNTP checks, health checks consult the NZB Database (the same caches used by the streaming pipeline). NZBs previously streamed successfully are instantly marked as verified, and NZBs that previously failed are instantly blocked — skipping expensive NNTP connections entirely. Blocked results from health checks are also written back to the dead NZB database so future searches skip them instantly.
 
-**NZBDav Library Pre-Check**
+**NzbDAV Library Pre-Check**
 
-If content is already in your NZBDav library (previously downloaded), the addon skips health checking entirely and streams it directly. No redundant verification for content you already have.
+If content is already in your NzbDAV library (previously downloaded), the addon skips health checking entirely and streams it directly. No redundant verification for content you already have.
 
 ---
 
@@ -218,9 +228,9 @@ Stremio's native binge watching is fully supported. When an episode ends, Stremi
 - **matchingFile**: Auto-plays the next episode's stream that matches specific attributes (resolution, quality, edition by default, but configurable to include codec, audio, release group, indexer, or visual tags)
 - **matchingIndex**: Auto-plays the stream at the same position in the next episode's results (e.g., always the #1 result)
 
-**Auto-Queue to NZBDav**
+**Auto-Queue to NzbDAV**
 
-For seamless binge watching, the addon can pre-download content to NZBDav before you need it:
+For seamless binge watching, the addon can pre-download content to NzbDAV before you need it:
 
 - **Auto-queue**: After health checks complete, queues the verified result(s) so they're ready before the current episode ends
 - Two modes: queue only the top result, or queue all verified results in order
@@ -314,7 +324,7 @@ The addon periodically fetches the latest versions of Prowlarr, SABnzbd, Chrome,
 | **axios** | HTTP client with built-in proxy agent support and request/response interceptors. Used for indexer API calls and NZB downloads. |
 | **node-cache** | Lightweight in-memory cache with TTL support for search results and ID resolution. No external cache server needed — everything runs in a single process. |
 | **bcryptjs + jsonwebtoken** | Industry-standard password hashing and stateless authentication. Pure JavaScript implementations with no native compilation required — critical for Alpine Docker builds. |
-| **webdav** | First-class WebDAV client for NZBDav file operations including directory listing, file streaming, and range request support. |
+| **webdav** | First-class WebDAV client for NzbDAV file operations including directory listing, file streaming, and range request support. |
 | **Docker + Alpine** | Multi-stage build produces a minimal image. Alpine base keeps the image small. Health checks, log rotation, and volume mounts are configured out of the box. |
 | **JSON file storage** | No database server to configure or maintain. Config, users, stats, and segment cache are stored as JSON files in a single mounted volume. For a single-instance addon, this is simpler and more portable than SQLite or Postgres. |
 
@@ -329,10 +339,14 @@ The addon periodically fetches the latest versions of Prowlarr, SABnzbd, Chrome,
   - Prowlarr or NZBHydra instance with Usenet indexers configured
   - An EasyNews account
 - For streaming (rather than external NZB links):
-  - A [NZBDav](https://github.com/nzbdav-dev/nzbdav) instance, or
+  - A [NzbDAV](https://github.com/nzbdav-dev/nzbdav) instance, or
   - EasyNews direct streaming
 
 ## Quick Start with Docker
+
+> Setting up for LAN or a VPS? See **[INSTALLATION.md](INSTALLATION.md)** for full walkthroughs of localhost, LAN, and VPS deployments.
+
+One-command Auto-Installers for macOS, Linux, and Windows (localhost and LAN) are in [auto-installers/](auto-installers/README.md).
 
 ```bash
 docker run -d \
@@ -391,11 +405,11 @@ cd ui && npm run dev
 
 ## Configuration
 
-All configuration is managed through the web UI at `http://localhost:1337`. On first launch, you'll set up an admin account, then configure:
+All configuration is managed through the web UI at `http://localhost:1337`. For a guided walkthrough, see **[SETUP.md](SETUP.md)**. On first launch, you'll set up an admin account, then configure:
 
 1. **Index Manager** — Choose between Newznab (direct), Prowlarr, or NZBHydra
 2. **Indexers** — Add your Usenet indexers with API keys. Capabilities are auto-discovered
-3. **Streaming** — Connect NZBDav for direct streaming, or use EasyNews, or use external NZB links
+3. **Streaming** — Connect NzbDAV for direct streaming, or use EasyNews, or use external NZB links
 4. **Health Checks** — Add your Usenet providers (NNTP credentials) to verify NZBs before streaming
 5. **Filters** — Set quality preferences, size limits, and sort priorities
 6. **Auto-Play** — Configure binge watching behavior
@@ -435,13 +449,13 @@ These are migrated into `config/config.json` on first startup. After that, manag
 | `NZBHYDRA_USERNAME` | — | NZBHydra username (required only if auth is enabled) |
 | `NZBHYDRA_PASSWORD` | — | NZBHydra password (required only if auth is enabled) |
 
-#### NZBDav Connection
+#### NzbDAV Connection
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NZBDAV_URL` | — | NZBDav API URL |
-| `NZBDAV_API_KEY` | — | NZBDav API key |
-| `NZBDAV_WEBDAV_URL` | — | NZBDav WebDAV URL |
+| `NZBDAV_URL` | — | NzbDAV API URL |
+| `NZBDAV_API_KEY` | — | NzbDAV API key |
+| `NZBDAV_WEBDAV_URL` | — | NzbDAV WebDAV URL |
 | `NZBDAV_WEBDAV_USER` | — | WebDAV username |
 | `NZBDAV_WEBDAV_PASS` | — | WebDAV password |
 
@@ -487,7 +501,7 @@ These are migrated into `config/config.json` on first startup. After that, manag
 | `ENABLE_REMAKE_DETECTION` | `true` | Filter out results from the wrong version of remade/rebooted shows |
 | `ALLOW_MULTI_EPISODE_FILES` | `true` | Allow streaming from combined multi-episode files (e.g. S01E01E02) |
 | `URL_DEDUP` | `true` | Remove duplicate results with identical download URLs |
-| `LIBRARY_SEARCH_THRESHOLD` | `0` | Ultimate Library: scan WebDAV before indexer queries; if ≥ N matches found, skip indexers entirely. Sub-threshold scans are discarded. NZBDav streaming mode only. 0 = disabled, 1-10 = active |
+| `LIBRARY_SEARCH_THRESHOLD` | `0` | Ultimate Library: scan WebDAV before indexer queries; if ≥ N matches found, skip indexers entirely. Sub-threshold scans are discarded. NzbDAV streaming mode only. 0 = disabled, 1-10 = active |
 
 #### HTTP Proxy
 
@@ -730,10 +744,10 @@ Not every indexer needs to go through the proxy. In the web UI, each indexer has
 ║                         │                                               ║
 ║                         ▼                                               ║
 ║  ┌───────────────────────────────────────────────────────────────────┐  ║
-║  │              Stream Handler (NZBDav 302 redirect)                  │  ║
+║  │              Stream Handler (NzbDAV 302 redirect)                  │  ║
 ║  │                                                                   │  ║
 ║  │  ┌────────────┐  ┌────────────┐  ┌────────────┐                  │  ║
-║  │  │ NZBDav API │  │ WebDAV     │  │ Fallback   │                  │  ║
+║  │  │ NzbDAV API │  │ WebDAV     │  │ Fallback   │                  │  ║
 ║  │  │ (submit    │  │ Discovery  │  │ Handler    │                  │  ║
 ║  │  │  NZB, poll │  │ (find      │  │ (auto-     │                  │  ║
 ║  │  │  status)   │  │  video)    │  │  retry,    │                  │  ║
@@ -751,7 +765,7 @@ Not every indexer needs to go through the proxy. In the web UI, each indexer has
 ╚═════════════════════════╪══════════╪════════════════════════════════════╝
                           ▼           │
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                          NZBDav Instance                                │
+│                          NzbDAV Instance                                │
 │              (download, assemble, serve via WebDAV)                      │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -763,7 +777,7 @@ Not every indexer needs to go through the proxy. In the web UI, each indexer has
 3. **Result Processor** parses metadata, applies title matching, deduplicates across indexers, and sorts by user-defined priority chains
 4. **Health Check Coordinator** downloads NZBs, inspects archive headers, checks segment availability via NNTP, and caches results
 5. **Stream Builder** formats verified results for Stremio display, assigns binge groups, and registers fallback candidates
-6. **Stream Handler** submits the chosen NZB to NZBDav, discovers the video file via WebDAV, and redirects Stremio directly to the WebDAV URL. If the stream fails, the fallback handler automatically tries the next candidate with self-redirect to reset Stremio's timeout
+6. **Stream Handler** submits the chosen NZB to NzbDAV, discovers the video file via WebDAV, and redirects Stremio directly to the WebDAV URL. If the stream fails, the fallback handler automatically tries the next candidate with self-redirect to reset Stremio's timeout
 
 ### File Storage
 
@@ -798,7 +812,7 @@ src/
   auth/         JWT authentication and bcrypt password hashing
   config/       Schema, migrations, CRUD operations
   health/       NNTP health check pipeline (article sampling, segment cache)
-  nzbdav/       NZBDav API, WebDAV client, stream handler, fallback manager
+  nzbdav/       NzbDAV API, WebDAV client, stream handler, fallback manager
   parsers/      Newznab client, metadata extraction, title matching
   routes/       Express route handlers
   searchers/    EasyNews, Prowlarr, NZBHydra search implementations
