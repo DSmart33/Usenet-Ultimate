@@ -123,6 +123,52 @@ async function resolveTmdbId(
 }
 
 /**
+ * Map a numeric TMDB id to its external ids (IMDB, plus TVDB for series) via
+ * /3/{movie|tv}/{id}/external_ids. Drives the tmdb: Stremio prefix, which
+ * delegates to the imdb or tvdb pipeline instead of resolving titles itself.
+ * No 401-retry: TMDB v3 keys / v4 tokens do not expire mid-session like the
+ * TVDB bearer token. v3 api_key vs v4 bearer detection mirrors findOnTmdb.
+ */
+export async function resolveTmdbExternalIds(
+  tmdbId: number,
+  type: 'movie' | 'series'
+): Promise<{ imdbId?: string; tvdbId?: number } | null> {
+  const cacheKey = `tmdb:external:${type}:${tmdbId}`;
+  const cached = idCache.get<{ imdbId?: string; tvdbId?: number }>(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const apiKey = config.searchConfig?.tmdbApiKey;
+  if (!apiKey) return null;
+  const isReadAccessToken = apiKey.length > 40 || apiKey.startsWith('eyJ');
+  const pathSeg = type === 'movie' ? 'movie' : 'tv';
+
+  try {
+    const response = await axios.get(`https://api.themoviedb.org/3/${pathSeg}/${tmdbId}/external_ids`, {
+      params: isReadAccessToken ? {} : { api_key: apiKey },
+      headers: isReadAccessToken ? { Authorization: `Bearer ${apiKey}` } : {},
+      timeout: 5000,
+    });
+    const data = response.data ?? {};
+    const imdbId = typeof data.imdb_id === 'string' && /^tt\d+$/.test(data.imdb_id) ? data.imdb_id : undefined;
+    const tvdbId = typeof data.tvdb_id === 'number' && data.tvdb_id > 0 ? data.tvdb_id : undefined;
+    const result = { imdbId, tvdbId };
+    // Cache only positive results. A record with no external ids is left
+    // uncached so it is re-checked next request (TMDB may add an imdb id later).
+    if (imdbId || tvdbId) idCache.set(cacheKey, result);
+    console.log(`🆔 TMDB external ids: ${pathSeg} id=${tmdbId}${imdbId ? ` imdb=${imdbId}` : ''}${tvdbId ? ` tvdb=${tvdbId}` : ''}`);
+    return result;
+  } catch (error: any) {
+    const status = error.response?.status;
+    if (status === 404) {
+      console.warn(`⚠️  TMDB record not found: ${pathSeg} id=${tmdbId} (404)`);
+      return null;
+    }
+    console.warn(`⚠️  TMDB external-ids error: ${pathSeg} id=${tmdbId}: ${status || (error as Error).message}`);
+    return null;
+  }
+}
+
+/**
  * Resolve the canonical movie title for an IMDB ID via TMDB.
  * Stremio's Cinemeta sometimes returns truncated or incorrect titles
  * (e.g. truncated or missing subtitle portions of full titles).
