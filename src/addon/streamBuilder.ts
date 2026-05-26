@@ -18,7 +18,7 @@ import type { Stream, AutoPlayConfig } from '../types.js';
 import type { HealthCheckResult } from '../health/index.js';
 import { requestContext } from '../requestContext.js';
 import { createFallbackGroup, type FallbackCandidate } from '../nzbdav/index.js';
-import { encodeTileEnvelope } from '../nzbdav/redirectHelpers.js';
+import { encodeTileEnvelope, toContentType } from '../nzbdav/redirectHelpers.js';
 import { registerDeleteAllTargets } from '../nzbdav/deleteAllTargetsStore.js';
 import { buildStreamDisplay } from './streamDisplay.js';
 
@@ -77,6 +77,10 @@ export interface StreamBuildOutput {
  */
 export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   const { allResults, healthResults, type, imdbId, season, episode, episodesInSeason, episodeAired, now, runtime, shortCircuited } = ctx;
+  // Normalize once and pack into every NZB tile envelope so the stream handler
+  // can resolve the nzbdav category (Movies vs TV) even when no in-memory
+  // fallback group exists (Ultimate Fallback disabled, evicted, or post-restart).
+  const ty = toContentType(type);
   // sessionKey includes manifestKey so concurrent requests from different Stremio installations
   // don't share UF session state (avoids cross-tenant state leaks on multi-user deployments).
   const streamManifestKey = requestContext.getStore()?.manifestKey || '';
@@ -88,7 +92,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // Create fallback group for NZBDav mode (auto-retry next NZB on failure)
   let fallbackGroupId: string | undefined;
   let fallbackCandidates: FallbackCandidate[] | undefined;
-  if (config.streamingMode === 'nzbdav' && config.ultimateFallback?.enabled) {
+  if (config.streamingMode === 'nzbdav' && config.ultimateFallback?.enabled && allResults.length > 0) {
     fallbackGroupId = crypto.randomUUID().slice(0, 12);
 
     fallbackCandidates = allResults
@@ -108,7 +112,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           if (meta.sig) nzbParams.set('sig', meta.sig);
           nzbUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/easynews/nzb?${nzbParams.toString()}`;
         }
-        return { nzbUrl, title: r.title, indexerName: r.indexerName, size: r.size, isSeasonPack: r.isSeasonPack || false, libraryVideoPath: r.libraryVideoPath };
+        return { nzbUrl, title: r.title, indexerName: r.indexerName, size: r.size, isSeasonPack: r.isSeasonPack || false, libraryVideoPath: r.libraryVideoPath, searchExitIp: r.searchExitIp };
       });
 
     createFallbackGroup(
@@ -275,9 +279,11 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
           ...(candidateIdx >= 0 ? { idx: candidateIdx } : {}),
           ...(sessionKey ? { sk: sessionKey } : {}),
           ...(needsEpisodeCtx ? { season, episode, seasonpack: 1 as const, ...(episodesInSeason ? { epcount: episodesInSeason } : {}), ...(episodeAired ? { aired: episodeAired } : {}) } : {}),
+          ty,
           url: nzbProxyUrl,
           title: result.title,
           indexer: result.indexerName || '',
+          ...(result.searchExitIp ? { ip: result.searchExitIp } : {}),
         });
         const proxyUrl = `${getBaseUrl()}${getPathPrefix()}/${streamManifestKey}/nzbdav/stream/${encodeURIComponent(streamFilename || result.title || 'stream')}?t=${tileT}`;
         streams.push({
@@ -341,9 +347,11 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
         ...(candidateIdx >= 0 ? { idx: candidateIdx } : {}),
         ...(sessionKey ? { sk: sessionKey } : {}),
         ...(needsEpisodeCtx ? { season, episode, seasonpack: 1 as const, ...(episodesInSeason ? { epcount: episodesInSeason } : {}), ...(episodeAired ? { aired: episodeAired } : {}) } : {}),
+        ty,
         url: result.link,
         title: result.title,
         indexer: result.indexerName || '',
+        ...(result.searchExitIp ? { ip: result.searchExitIp } : {}),
       });
       streams.push({
         name: streamName,
@@ -367,9 +375,12 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
   // Prepend synthetic Ultimate Fallback tile so users can opt into the UF lobby explicitly.
   // Guarded by streamingMode=nzbdav: UF resolves via NZBDav, so showing the tile in other
   // modes would produce a URL the handler can't serve. sessionKey gate skips item pages
-  // that don't have an imdbId (shouldn't happen in practice, but defensive).
+  // that don't have an imdbId (shouldn't happen in practice, but defensive). streams.length
+  // gate suppresses the tile when there are no search results, so a lone UF tile cannot
+  // obscure results from other Stremio addons.
   if (
-    config.ultimateFallback?.enabled
+    streams.length > 0
+    && config.ultimateFallback?.enabled
     && config.streamingMode === 'nzbdav'
     && sessionKey
   ) {

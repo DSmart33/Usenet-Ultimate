@@ -96,7 +96,10 @@ export function ProxyOverlay({
           {proxyMode === 'http' && (
             <div className="bg-slate-900/50 rounded-lg border border-slate-700/30 p-4 space-y-3">
               <div className="text-sm font-medium text-slate-300">HTTP Proxy</div>
-              <p className="text-xs text-slate-500">Routes indexer requests through an HTTP proxy. Recommended for use with <a href="https://tailscale.com" target="_blank" rel="noopener noreferrer" className="text-primary-400 hover:text-primary-300">Tailscale</a> + <a href="https://www.squid-cache.org" target="_blank" rel="noopener noreferrer" className="text-primary-400 hover:text-primary-300">Squid</a> for a reliable and invisible exit node proxy.</p>
+              <div className="space-y-1">
+                <p className="text-xs text-slate-500">Routes indexer requests through an HTTP proxy.</p>
+                <p className="text-xs text-slate-500"><strong className="text-slate-300">Recommended only</strong> for use with <a href="https://tailscale.com" target="_blank" rel="noopener noreferrer" className="text-primary-400 hover:text-primary-300">Tailscale</a> + <a href="https://www.squid-cache.org" target="_blank" rel="noopener noreferrer" className="text-primary-400 hover:text-primary-300">Squid</a> for a reliable and invisible exit node proxy.</p>
+              </div>
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1">Proxy URL</label>
                 <input

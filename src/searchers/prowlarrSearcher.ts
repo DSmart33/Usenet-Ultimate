@@ -85,7 +85,7 @@ export class ProwlarrSearcher {
           const indexerName = indexer?.name || 'Unknown';
           const params: NewznabParams = { t: 'movie', cat: '2000' };
 
-          if (method === 'imdb') {
+          if (method === 'imdb' && imdbId.startsWith('tt')) {
             params.imdbid = imdbId.replace('tt', '');
           } else if (method === 'tmdb' && resolvedIds?.get('tmdb')) {
             params.tmdbid = parseInt(resolvedIds.get('tmdb')!.idValue, 10);
@@ -246,7 +246,7 @@ export class ProwlarrSearcher {
             ep: episode.toString(),
           };
 
-          if (method === 'imdb') {
+          if (method === 'imdb' && imdbId.startsWith('tt')) {
             params.imdbid = imdbId.replace('tt', '');
           } else if (method === 'tvdb' && resolvedIds?.get('tvdb')) {
             params.tvdbid = parseInt(resolvedIds.get('tvdb')!.idValue, 10);

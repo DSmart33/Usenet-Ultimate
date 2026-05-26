@@ -16,7 +16,7 @@ import { requestContext } from '../requestContext.js';
 import { buildStreamFilename } from '../parsers/metadataParsers.js';
 import { checkNzbLibrary } from '../nzbdav/videoDiscovery.js';
 import { isDeadNzbByUrl, addDeadNzbByUrl, saveCacheToDisk } from '../nzbdav/streamCache.js';
-import { encodeTileEnvelope } from '../nzbdav/redirectHelpers.js';
+import { encodeTileEnvelope, toContentType } from '../nzbdav/redirectHelpers.js';
 import { buildEpisodePattern, buildDateEpisodePattern } from '../nzbdav/utils.js';
 import { getTvAllowMultiEpisode } from '../config/accessors.js';
 import type { NZBDavConfig } from '../nzbdav/types.js';
@@ -306,12 +306,21 @@ export async function coordinateHealthChecks(
       console.log(`🔍 Smart batch ${batch + 1}/${maxBatches}: checking ${toCheck.length} NZB(s) across ${enabledProviders.length} provider(s)...`);
 
       if (toCheck.length > 0) {
-        const batchResults = await performBatchHealthChecks(
+        const indexerByUrl = new Map<string, string>();
+        const searchIpByUrl = new Map<string, string>();
+        for (const r of toCheck) {
+          const url = resolveHealthCheckUrl(r);
+          if (r.indexerName) indexerByUrl.set(url, r.indexerName);
+          if (r.searchExitIp) searchIpByUrl.set(url, r.searchExitIp);
+        }
+        const { results: batchResults, circuitAborted } = await performBatchHealthChecks(
           toCheck.map(resolveHealthCheckUrl),
           enabledProviders,
           userAgent,
           Math.min(maxConnections, toCheck.length),
-          healthCheckOpts
+          healthCheckOpts,
+          indexerByUrl,
+          searchIpByUrl
         );
 
         for (const [url, result] of batchResults.entries()) {
@@ -324,6 +333,11 @@ export async function coordinateHealthChecks(
           const resultTitle = allResults.find(r => r.link === originalLink)?.title || 'Unknown';
           const icon = isVerifiedStatus(result.status) ? '✅' : '🚫';
           console.log(`  ${icon} ${resultTitle.substring(0, 60)}...`);
+        }
+
+        if (circuitAborted) {
+          console.warn(`🔒 Smart mode: proxy circuit aborted mid-batch, stopping further batches`);
+          break;
         }
       }
 
@@ -402,18 +416,30 @@ export async function coordinateHealthChecks(
     console.log(`🔍 Health checking ${nonEasynewsToCheck.length} result(s) across ${enabledProviders.length} provider(s)...`);
 
     if (nonEasynewsToCheck.length > 0) {
-      const usenetResults = await performBatchHealthChecks(
+      const indexerByUrl = new Map<string, string>();
+      const searchIpByUrl = new Map<string, string>();
+      for (const r of nonEasynewsToCheck) {
+        const url = resolveHealthCheckUrl(r);
+        if (r.indexerName) indexerByUrl.set(url, r.indexerName);
+        if (r.searchExitIp) searchIpByUrl.set(url, r.searchExitIp);
+      }
+      const { results: usenetResults, circuitAborted } = await performBatchHealthChecks(
         nonEasynewsToCheck.map(resolveHealthCheckUrl),
         enabledProviders,
         userAgent,
         Math.min(maxConnections, nonEasynewsToCheck.length),
-        healthCheckOpts
+        healthCheckOpts,
+        indexerByUrl,
+        searchIpByUrl
       );
 
       for (const [url, result] of usenetResults.entries()) {
         healthResults.set(resolveOriginalLink(url), result);
       }
 
+      if (circuitAborted) {
+        console.warn(`🔒 Health check aborted mid-batch: proxy circuit changed`);
+      }
       console.log(`✅ Health check complete: ${usenetResults.size} results checked`);
 
       for (const [nzbUrl, result] of usenetResults.entries()) {
@@ -528,6 +554,10 @@ export function autoQueueToNzbdav(
     return;
   }
 
+  // Packed into the tile envelope so the stream handler resolves the nzbdav
+  // category correctly for auto-queued submits.
+  const ty = toContentType(type);
+
   const sendToNzbdav = (result: any, reason: string) => {
     try {
       console.log(`🚀 Auto-queueing (${reason}): ${result.title}`);
@@ -549,6 +579,7 @@ export function autoQueueToNzbdav(
       const streamFilename = buildStreamFilename(result.title, type, season, episode);
       const includeSeasonPack = result.isSeasonPack && season !== undefined && episode !== undefined;
       const tileT = encodeTileEnvelope({
+        ty,
         url: nzbUrl,
         title: result.title,
         indexer: result.indexerName,

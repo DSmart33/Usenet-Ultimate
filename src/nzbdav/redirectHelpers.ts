@@ -45,6 +45,16 @@ export function decodeTileEnvelope(t: string): Record<string, unknown> | null {
   return null;
 }
 
+/** Movie vs series. Single source of truth for the inline
+ *  `t === 'movie' ? 'movie' : 'series'` idiom used across the addon. */
+export type ContentType = 'movie' | 'series';
+
+/** Normalize a loose Stremio `type` string to a ContentType. Anything that
+ *  is not exactly 'movie' is treated as 'series', matching the existing
+ *  convention at the search and library call sites. */
+export const toContentType = (t: string | undefined): ContentType =>
+  t === 'movie' ? 'movie' : 'series';
+
 /** Typed payload shape for stream-handler tile URLs. Unifies the regular
  *  result-tile fields and the UF tile fields under one schema; per-route
  *  call sites read only the subset they expect. */
@@ -64,6 +74,17 @@ export type TilePayload = {
   /** Aired date (YYYY-MM-DD) for daily/talk-show episodes; enables a date-pattern
    *  fallback when SxxExx fails to locate the right file inside a season pack. */
   aired?: string;
+  /** Content type for category resolution. Travels in the envelope so the
+   *  stream handler files TV under the TV category even when no in-memory
+   *  fallback group exists (Ultimate Fallback disabled, group evicted, or
+   *  post-restart). */
+  ty?: ContentType;
+  /** Proxy exit IP captured at search time. Travels in the envelope so the
+   *  stream handler can hydrate the sentinel candidate (Ultimate Fallback
+   *  disabled, missing fbg, expired group) and verifyProxyCircuit still has
+   *  a baseline to check against. Same field as `NZBSearchResult.searchExitIp`
+   *  / `FallbackCandidate.searchExitIp`; just routed through the URL. */
+  ip?: string;
 };
 
 /** Single trust-boundary validator. `req.query.t` is user-controllable;
@@ -89,6 +110,8 @@ export function parseTilePayload(t: string | undefined): TilePayload {
     seasonpack: raw.seasonpack === 1 ? 1 : undefined,
     epcount: isNum(raw.epcount) ? raw.epcount : undefined,
     aired: typeof raw.aired === 'string' && /^\d{4}-\d{2}-\d{2}/.test(raw.aired) ? raw.aired.slice(0, 10) : undefined,
+    ty: raw.ty === 'movie' || raw.ty === 'series' ? raw.ty : undefined,
+    ip: typeof raw.ip === 'string' ? raw.ip : undefined,
   };
 }
 

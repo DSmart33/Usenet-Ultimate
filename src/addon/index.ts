@@ -36,7 +36,7 @@ import { isDeadNzbByUrl, isDeadNzb, getDeadCacheKey, consumeLibraryBypass } from
 import { requestContext } from '../requestContext.js';
 import { parseAnimeId, resolveAnimeId } from '../anime/animeIdResolver.js';
 import { isDatabaseLoaded } from '../anime/animeDatabase.js';
-import { resolveEpisodeCountFromTvdbId } from '../idResolver.js';
+import { resolveEpisodeCountFromTvdbId, resolveTmdbExternalIds } from '../idResolver.js';
 
 // Create cache for search results
 // Use stdTTL: 0 (no expiry) and manage TTL per-entry via cache.set() so runtime changes take effect
@@ -59,7 +59,7 @@ const manifest = {
   resources: ['stream'],           // We only provide streams
   types: ['movie', 'series'],      // Support movies and TV shows
   catalogs: [],                    // No catalogs (don't show in discover)
-  idPrefixes: ['tt', 'kitsu:', 'mal:', 'anilist:', 'anidb:'],
+  idPrefixes: ['tt', 'kitsu:', 'mal:', 'anilist:', 'anidb:', 'tvdb:', 'tmdb:'],
   behaviorHints: {
     configurable: true,            // We have a config UI
     configurationRequired: false,  // But it's optional
@@ -119,8 +119,9 @@ async function resolveTitleAndBuildSearchCtx(args: {
   episode: number | undefined;
   animeId: ReturnType<typeof parseAnimeId>;
   animeResolved: ReturnType<typeof resolveAnimeId>;
+  tvdbIdFromRequest?: number;
 }): Promise<{ titleInfo: ResolvedTitleInfo; searchCtx: SearchContext }> {
-  const { type, imdbId, season, episode, animeId, animeResolved } = args;
+  const { type, imdbId, season, episode, animeId, animeResolved, tvdbIdFromRequest } = args;
 
   let titleInfo: ResolvedTitleInfo;
   if (animeResolved && !animeResolved.imdbId && animeResolved.title) {
@@ -161,7 +162,7 @@ async function resolveTitleAndBuildSearchCtx(args: {
       }
     }
   } else {
-    titleInfo = await resolveTitle(type, imdbId, season, episode);
+    titleInfo = await resolveTitle(type, imdbId, season, episode, tvdbIdFromRequest);
     if (animeId) {
       titleInfo.isAnime = true;
     }
@@ -183,6 +184,7 @@ async function resolveTitleAndBuildSearchCtx(args: {
     searchAliases: titleInfo.searchAliases,
     episodeAired: titleInfo.episodeAired,
     animeResolvedIds: animeResolved ? { tmdbId: animeResolved.tmdbId, tvdbId: animeResolved.tvdbId } : undefined,
+    tvdbIdFromRequest,
   };
 
   return { titleInfo, searchCtx };
@@ -197,12 +199,13 @@ builder.defineStreamHandler(async ({ type, id }) => {
       return { streams: [] };
     }
 
-    // Parse the ID — check for anime ID prefixes first, then IMDB
+    // Parse the ID: check for anime ID prefixes first, then tvdb:, then IMDB
     const animeId = parseAnimeId(id);
     let imdbId: string;
     let season: number | undefined;
     let episode: number | undefined;
     let animeResolved: ReturnType<typeof resolveAnimeId> = null;
+    let tvdbIdFromRequest: number | undefined;
 
     if (animeId) {
       // Anime ID (kitsu:, mal:, anilist:, anidb:)
@@ -218,6 +221,57 @@ builder.defineStreamHandler(async ({ type, id }) => {
       imdbId = animeResolved.imdbId || `${animeId.prefix}:${animeId.id}`;
       season = animeResolved.season;
       episode = animeResolved.episode;
+    } else if (id.startsWith('tvdb:')) {
+      // Direct TVDB ID: tvdb:NNN or tvdb:NNN:S:E (movies and series)
+      const parts = id.split(':');
+      const numericTvdb = parseInt(parts[1] ?? '', 10);
+      if (!Number.isFinite(numericTvdb) || numericTvdb <= 0) {
+        console.warn(`⚠️  Malformed tvdb ID: ${id}`);
+        return { streams: [] };
+      }
+      if (!config.searchConfig?.tvdbApiKey) {
+        console.warn(`⚠️  tvdb: prefix received but TVDB API key not configured, returning empty`);
+        return { streams: [] };
+      }
+      tvdbIdFromRequest = numericTvdb;
+      // Use !== undefined so '0' (TVDB specials season) survives the truthy check.
+      season  = parts[2] !== undefined && parts[2] !== '' ? parseInt(parts[2], 10) : undefined;
+      episode = parts[3] !== undefined && parts[3] !== '' ? parseInt(parts[3], 10) : undefined;
+      // Synthetic content-id for cache/bypass/log key strings. Never passed to
+      // IMDB-keyed external APIs; the title resolver branches on tvdbIdHint and
+      // skips Cinemeta/TMDB on this path.
+      imdbId = `tvdb:${numericTvdb}`;
+    } else if (id.startsWith('tmdb:')) {
+      // Direct TMDB id: tmdb:NNN[:S:E] (emitted by catalog addons that key on
+      // tmdb ids). Indexers can't search TV by tmdb id, and movies resolve
+      // better through the imdb pipeline, so look up the record's external ids
+      // once and delegate: imdb when present (movies + most series), else tvdb
+      // for series.
+      const parts = id.split(':');
+      const numericTmdb = parseInt(parts[1] ?? '', 10);
+      if (!Number.isFinite(numericTmdb) || numericTmdb <= 0) {
+        console.warn(`⚠️  Malformed tmdb ID: ${id}`);
+        return { streams: [] };
+      }
+      if (!config.searchConfig?.tmdbApiKey) {
+        console.warn(`⚠️  tmdb: prefix received but TMDB API key not configured, returning empty`);
+        return { streams: [] };
+      }
+      // Use !== undefined so '0' (specials season) survives the truthy check.
+      season  = parts[2] !== undefined && parts[2] !== '' ? parseInt(parts[2], 10) : undefined;
+      episode = parts[3] !== undefined && parts[3] !== '' ? parseInt(parts[3], 10) : undefined;
+      const ext = await resolveTmdbExternalIds(numericTmdb, type === 'series' ? 'series' : 'movie');
+      if (ext?.imdbId) {
+        imdbId = ext.imdbId;
+        console.log(`🆔 tmdb:${numericTmdb} → imdb ${imdbId}, using IMDB pipeline`);
+      } else if (type === 'series' && ext?.tvdbId) {
+        tvdbIdFromRequest = ext.tvdbId;
+        imdbId = `tvdb:${ext.tvdbId}`;
+        console.log(`🆔 tmdb:${numericTmdb} → tvdb ${ext.tvdbId}, using TVDB pipeline`);
+      } else {
+        console.warn(`⚠️  tmdb:${numericTmdb}: no imdb/tvdb mapping resolved, returning empty`);
+        return { streams: [] };
+      }
     } else {
       // Standard IMDB ID: tt1234567 or tt1234567:1:1
       const parts = id.split(':');
@@ -420,7 +474,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
         let chLibResults: any[] = [];
         if (config.searchConfig?.libraryRunOnCacheHit && !libraryBypassed) {
           const { titleInfo: chTitleInfo, searchCtx: chSearchCtx } = await resolveTitleAndBuildSearchCtx({
-            type, imdbId, season, episode, animeId, animeResolved,
+            type, imdbId, season, episode, animeId, animeResolved, tvdbIdFromRequest,
           });
           const chGate = await runLibraryGate(chSearchCtx, chTitleInfo, buildNzbdavConfig);
           chShortCircuit = chGate.shortCircuited;
@@ -475,7 +529,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
     // === STEP 1: TITLE RESOLUTION + STEP 2 SEARCH CONTEXT ===
     const { titleInfo, searchCtx } = await resolveTitleAndBuildSearchCtx({
-      type, imdbId, season, episode, animeId, animeResolved,
+      type, imdbId, season, episode, animeId, animeResolved, tvdbIdFromRequest,
     });
 
     // Optional pre-search: scan the WebDAV library first. Bypass marker (one-shot

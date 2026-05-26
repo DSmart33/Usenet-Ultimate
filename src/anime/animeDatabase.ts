@@ -388,6 +388,10 @@ export function lookupByImdbId(imdbId: string): FribbEntry | undefined {
   return db.fribbByImdb.get(imdbId);
 }
 
+export function lookupByTvdbId(tvdbId: number): FribbEntry | undefined {
+  return db.fribbByTvdb.get(tvdbId);
+}
+
 export function getKitsuImdbEntries(kitsuId: number): KitsuImdbEntry[] {
   return db.kitsuImdbByKitsu.get(kitsuId) || [];
 }

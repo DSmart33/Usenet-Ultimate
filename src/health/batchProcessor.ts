@@ -11,26 +11,40 @@ import { NntpConnectionPool } from './nntpConnection.js';
 import { performHealthCheck } from './healthCheckPipeline.js';
 
 /**
- * Perform health checks on multiple NZBs concurrently
+ * Perform health checks on multiple NZBs concurrently.
+ * `searchIpByUrl` maps each NZB URL to the proxy exit IP that was live when
+ * its search ran. Threaded into performHealthCheck so circuit verification
+ * compares against the original search's IP, not a later-overwritten baseline.
+ *
+ * Returns `{ results, circuitAborted }`. When `circuitAborted` is true, the
+ * proxy circuit changed mid-batch and remaining NZBs in the queue were not
+ * probed — the caller should stop scheduling further batches.
  */
 export async function performBatchHealthChecks(
   nzbUrls: string[],
   providers: UsenetProvider[],
   userAgent: string,
   maxConcurrent: number = 3,
-  options: HealthCheckOptions = { archiveInspection: true, sampleCount: 3 }
-): Promise<Map<string, HealthCheckResult>> {
+  options: HealthCheckOptions = { archiveInspection: true, sampleCount: 3 },
+  indexerByUrl?: Map<string, string>,
+  searchIpByUrl?: Map<string, string>
+): Promise<{ results: Map<string, HealthCheckResult>; circuitAborted: boolean }> {
   const results = new Map<string, HealthCheckResult>();
   const queue = [...nzbUrls];
   const pool = new NntpConnectionPool();
+  let circuitAborted = false;
 
   try {
     const processNext = async (): Promise<void> => {
-      while (queue.length > 0) {
+      while (queue.length > 0 && !circuitAborted) {
         const nzbUrl = queue.shift()!;
 
         try {
-          const result = await performHealthCheck(nzbUrl, providers, userAgent, options, pool);
+          const result = await performHealthCheck(
+            nzbUrl, providers, userAgent, options, pool,
+            indexerByUrl?.get(nzbUrl), searchIpByUrl?.get(nzbUrl),
+            () => { circuitAborted = true; }
+          );
           results.set(nzbUrl, result);
         } catch (error) {
           results.set(nzbUrl, {
@@ -52,5 +66,5 @@ export async function performBatchHealthChecks(
     pool.destroyAll();
   }
 
-  return results;
+  return { results, circuitAborted };
 }

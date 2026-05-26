@@ -25,6 +25,10 @@ import { Plus, Trash2, ChevronUp, ChevronDown, Upload, AlertCircle, FlaskConical
 import clsx from 'clsx';
 import type { RulesBlock, RankedRegexRule, RankedSelRule } from '../../../types';
 
+// Pinned to v2.5.2 at commit da9464e1. Newer Tamtaro templates are currently incompatibile
+const PINNED_TAMTARO_URL =
+  'https://raw.githubusercontent.com/Tam-Taro/SEL-Filtering-and-Sorting/da9464e1ad13ea7e4533abcdf09ca6b405e74905/AIOStreams%20Templates/Tamtaro-complete-setup-template.json';
+
 // ─── Props ───────────────────────────────────────────────────────────
 
 interface RulesSectionProps {
@@ -529,6 +533,22 @@ function ImportDialog({ open, onClose, onImport, apiFetch }: ImportDialogProps) 
                 placeholder="https://raw.githubusercontent.com/.../regexes.json"
                 className="w-full px-2 py-1.5 text-xs font-mono bg-slate-800/70 border border-slate-700/50 rounded text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
               />
+              <button
+                type="button"
+                onClick={() => {
+                  setUrl(PINNED_TAMTARO_URL);
+                  setJsonText('');
+                  setError(null);
+                  setTemplate(null);
+                  setInputValues({});
+                  setParsed(null);
+                  setWarnings([]);
+                }}
+                aria-label="Pre-fill URL with Tamtaro 2.5.2 preset"
+                className="text-xs text-purple-400 hover:text-purple-300 focus:outline-none focus:ring-1 focus:ring-purple-500/50 rounded"
+              >
+                Use Tamtaro 2.5.2 preset
+              </button>
             </div>
             <div className="text-[11px] text-slate-500 text-center">— or —</div>
             <div className="space-y-1.5">

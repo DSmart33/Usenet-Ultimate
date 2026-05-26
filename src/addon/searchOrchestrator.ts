@@ -47,13 +47,17 @@ export interface SearchContext {
   episodeAired?: string;
   // Pre-resolved IDs from anime database (when request came from anime ID prefix)
   animeResolvedIds?: { tmdbId?: string; tvdbId?: string };
+  // Numeric TVDB id parsed from the Stremio request when it arrived via the
+  // `tvdb:` prefix. Seeds resolvedIds.tvdb directly so indexer searches use
+  // tvdbid= without needing an IMDB id to drive resolveExternalId.
+  tvdbIdFromRequest?: number;
 }
 
 /**
  * Search via the configured index manager (Prowlarr, NZBHydra, or Newznab).
  */
 export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
-  const { type, imdbId, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount, additionalTitles, isAnime, titleYear, searchAliases, episodeAired, animeResolvedIds } = ctx;
+  const { type, imdbId, title, year, country, season, episode, episodesInSeason, priorSeasonsEpisodeCount, absoluteEpisodeNumber, tvdbPriorSeasonsCount, additionalTitles, isAnime, titleYear, searchAliases, episodeAired, animeResolvedIds, tvdbIdFromRequest } = ctx;
 
   if (config.indexManager === 'prowlarr' && config.prowlarrUrl && config.prowlarrApiKey) {
     // === PROWLARR MODE ===
@@ -93,6 +97,9 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     const resolvedIds = new Map<string, { idParam: string; idValue: string } | null>();
     if (animeResolvedIds?.tmdbId) resolvedIds.set('tmdb', { idParam: 'tmdbid', idValue: animeResolvedIds.tmdbId });
     if (animeResolvedIds?.tvdbId) resolvedIds.set('tvdb', { idParam: 'tvdbid', idValue: animeResolvedIds.tvdbId });
+    if (tvdbIdFromRequest && !resolvedIds.has('tvdb')) {
+      resolvedIds.set('tvdb', { idParam: 'tvdbid', idValue: String(tvdbIdFromRequest) });
+    }
     await Promise.all([...neededMethods]
       .filter(m => m !== 'imdb' && m !== 'text' && !resolvedIds.has(m))
       .map(async (method) => {
@@ -173,6 +180,9 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     const resolvedIds = new Map<string, { idParam: string; idValue: string } | null>();
     if (animeResolvedIds?.tmdbId) resolvedIds.set('tmdb', { idParam: 'tmdbid', idValue: animeResolvedIds.tmdbId });
     if (animeResolvedIds?.tvdbId) resolvedIds.set('tvdb', { idParam: 'tvdbid', idValue: animeResolvedIds.tvdbId });
+    if (tvdbIdFromRequest && !resolvedIds.has('tvdb')) {
+      resolvedIds.set('tvdb', { idParam: 'tvdbid', idValue: String(tvdbIdFromRequest) });
+    }
     await Promise.all([...neededMethods]
       .filter(m => m !== 'imdb' && m !== 'text' && !resolvedIds.has(m))
       .map(async (method) => {
@@ -263,12 +273,15 @@ export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
     const resolvedIds = new Map<string, { idParam: string; idValue: string } | null>();
     if (animeResolvedIds?.tmdbId) resolvedIds.set('tmdb', { idParam: 'tmdbid', idValue: animeResolvedIds.tmdbId });
     if (animeResolvedIds?.tvdbId) resolvedIds.set('tvdb', { idParam: 'tvdbid', idValue: animeResolvedIds.tvdbId });
+    if (tvdbIdFromRequest && !resolvedIds.has('tvdb')) {
+      resolvedIds.set('tvdb', { idParam: 'tvdbid', idValue: String(tvdbIdFromRequest) });
+    }
     await Promise.all([...neededMethods]
       .filter(m => m !== 'imdb' && m !== 'text' && !resolvedIds.has(m))
       .map(async (method) => {
         const result = await resolveExternalId(imdbId, type as 'movie' | 'series', method as 'tmdb' | 'tvdb' | 'tvmaze');
         if (!result) {
-          console.warn(`⚠️  Failed to resolve ${method} ID for ${imdbId}, affected indexers will fall back to text search`);
+          console.warn(`⚠️  Failed to resolve ${method} ID for ${imdbId}`);
         }
         resolvedIds.set(method, result);
       }));

@@ -20,16 +20,16 @@ import { encodeWebdavPath, WebDav404Error, buildNzbdavConfig } from '../nzbdav/u
 import { cleanupHistoryForPath } from '../nzbdav/historyApi.js';
 import { posix as pathPosix } from 'path';
 import { evictReadyByVideoPath, evictReadyByVideoPathPrefix, clearVideoPathState, markVideoPathBroken, markLibraryBypass } from '../nzbdav/streamCache.js';
+import { folderHasPlayableVideo } from '../nzbdav/videoDiscovery.js';
 import { sendLibraryBypassArmedVideo, sendDeleteAllSuccessVideo, sendDeleteFileSuccessVideo, sendDeletePackSuccessVideo, sendDeleteFailedVideo } from '../nzbdav/streamHandler.js';
 import { incrementRedirectCounterOnUrl } from '../nzbdav/redirectHelpers.js';
 import { getDeleteAllTargets } from '../nzbdav/deleteAllTargetsStore.js';
-import { getWebdavClient } from '../nzbdav/webdavClient.js';
 import { resolveBaseUrl } from '../utils/urlHelpers.js';
 import { buildSearchCacheKey, deleteSearchCacheEntry } from '../addon/index.js';
 
 interface NzbdavDeps {
   config: Config;
-  handleStream: (req: any, res: any, nzbdavConfig: NZBDavConfig, trackGrab: (indexer: string, title: string) => void, proxyFn?: (req: any, res: any, videoPath: string, usePipe: boolean) => Promise<void>) => Promise<void>;
+  handleStream: (req: any, res: any, nzbdavConfig: NZBDavConfig, proxyFn?: (req: any, res: any, videoPath: string, usePipe: boolean) => Promise<void>) => Promise<void>;
   getCacheStats: () => any;
   clearStreamCache: () => void;
   clearReadyCache: () => number;
@@ -37,7 +37,6 @@ interface NzbdavDeps {
   deleteCacheEntry: (cacheKey: string) => boolean;
   getCacheEntries: () => any;
   isStreamCached: (nzbUrl: string, title: string) => boolean;
-  trackGrab: (indexerName: string, title: string) => void;
   getLatestVersions: () => { chrome: string };
 }
 
@@ -200,12 +199,7 @@ export function createNzbdavRoutes(deps: NzbdavDeps): Router {
  */
 export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
   const router = Router({ mergeParams: true });
-  const { config, handleStream, trackGrab, getLatestVersions } = deps;
-
-  // Dedup set for grab tracking — prevents concurrent requests from tracking the same grab
-  // before the stream cache is populated. Entries are cleaned up after 60s.
-  const trackedGrabKeys = new Set<string>();
-  const GRAB_DEDUP_TTL_MS = 60_000;
+  const { config, handleStream, getLatestVersions } = deps;
 
   // Throttle the /stream entry log to first-hit-per-(kind,filename) per 60 s —
   // Range probes and seek bursts otherwise spam the log during active playback.
@@ -233,7 +227,15 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     if (!manifestKey || !sk) return sendLibraryBypassArmedVideo(req, res);
     // sk encodes ${manifestKey}:${type}:${imdbId}:${season}:${episode}. Skip
     // index 0 (the embedded manifestKey) and use the validated path manifest.
-    const [, type, imdbId, season, episode] = sk.split(':');
+    // Back-parse from the end so colon-containing imdbIds (e.g. `tvdb:NNN`
+    // from the tvdb: Stremio prefix) survive the split. Mirrors the pattern at
+    // src/nzbdav/streamHandler.ts where the same sk format is consumed.
+    const parts = sk.split(':');
+    if (parts.length < 5) return sendLibraryBypassArmedVideo(req, res);
+    const type = parts[1];
+    const episode = parts[parts.length - 1];
+    const season = parts[parts.length - 2];
+    const imdbId = parts.slice(2, -2).join(':');
     if (!type || !imdbId) return sendLibraryBypassArmedVideo(req, res);
     const id = (season || episode) ? `${imdbId}:${season || ''}:${episode || ''}` : imdbId;
     const bypassKey = `${manifestKey}:${type}:${imdbId}:${season || ''}:${episode || ''}`;
@@ -323,49 +325,33 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     }
   }
 
-  // PROPFIND helper: is the given folder empty (no immediate children)?
-  // Returns false on error so we never prune a folder we couldn't list
-  // safely. Uses the webdav client (same auth/base URL as the rest of the
-  // pipeline) since DELETE was already proven to work via raw fetch.
-  async function isFolderEmpty(folderPath: string): Promise<boolean> {
-    const client = getWebdavClient(buildNzbdavConfig());
-    try {
-      const items = await (client as any).getDirectoryContents(folderPath, { deep: false });
-      const arr: Array<{ filename?: string; basename?: string }> = Array.isArray(items)
-        ? items
-        : (items && Array.isArray(items.data) ? items.data : []);
-      // Some WebDAV impls echo the folder itself in the response; filter it out
-      // by matching the requested path. Anything else is a real child.
-      const normalizedTarget = folderPath.replace(/\/+$/, '');
-      const children = arr.filter(x => {
-        const fn = (x.filename || '').replace(/\/+$/, '');
-        return fn !== normalizedTarget && fn !== '';
-      });
-      return children.length === 0;
-    } catch (err) {
-      console.warn(`\u{1F5D1}\uFE0F PROPFIND failed for ${folderPath}: ${(err as Error).message}`);
-      return false;
-    }
-  }
-
   // After a successful file-scope delete, walk up the path and remove any
-  // parent folders that are now empty. Stops before `/content/<root>/` so
-  // category roots (Usenet-Ultimate-TV, Usenet-Ultimate-Movies, uncategorized)
-  // are never deleted. Stops as soon as a non-empty ancestor is found.
-  // Path layout: `/content/<root>/<release>/<...>/<file>` — segments[0]
-  // is 'content', segments[1] is the root; we never delete depth <= 2.
-  async function pruneEmptyAncestors(filePath: string): Promise<void> {
+  // parent folders that no longer hold a playable video. A folder is treated
+  // as orphaned when a recursive PROPFIND finds only extras (samples,
+  // trailers, featurettes, subs, .sfv, .nfo, empty subdirs). Stops before
+  // `/content/<root>/` so category roots are never deleted. Stops as soon as
+  // a healthy ancestor (one with a playable video) is found, which protects
+  // packs where sibling episodes still live alongside the deleted one.
+  // Path layout: `/content/<root>/<release>/<...>/<file>`. Segments[0] is
+  // 'content', segments[1] is the root; we never delete depth <= 2.
+  async function pruneOrphanedAncestors(filePath: string): Promise<void> {
+    const nzbdavConfig = buildNzbdavConfig();
     const segments = filePath.split('/').filter(s => s.length > 0);
     for (let depth = segments.length - 1; depth >= 3; depth--) {
       const parent = '/' + segments.slice(0, depth).join('/');
-      const empty = await isFolderEmpty(parent);
-      if (!empty) return;
-      const result = await runWebdavDelete(parent, 'pack');
-      if (!result.ok) {
-        console.warn(`\u{1F5D1}\uFE0F Could not prune empty folder ${parent}: ${result.error}`);
+      const hasVideo = await folderHasPlayableVideo(parent, nzbdavConfig);
+      if (hasVideo) {
+        console.log(`\u{1F5D1}️ Prune stopped at ${parent} - folder still has playable content`);
         return;
       }
-      console.log(`\u{1F5D1}\uFE0F Pruned empty folder: ${parent}`);
+      const result = await runWebdavDelete(parent, 'pack');
+      if (!result.ok) {
+        console.warn(`\u{1F5D1}\uFE0F Could not prune orphaned folder ${parent}: ${result.error}`);
+        return;
+      }
+      await cleanupHistoryForPath(parent, 'pack', nzbdavConfig);
+      evictReadyByVideoPathPrefix(parent, false);
+      console.log(`\u{1F5D1}\uFE0F Pruned orphaned folder: ${parent}`);
     }
   }
 
@@ -439,10 +425,12 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
     if (result.ok) {
       console.log(`\u{1F5D1}\uFE0F Deleted from WebDAV (${scope}): ${targetPath}`);
       invalidateAfterDelete(targetPath, scope, manifestKey, type, id);
-      // File scope leaves behind empty parent folders (release dir, season
-      // subfolder for pack-extracted episodes). Pack scope already removed
-      // the whole release folder via Depth: infinity, so no cleanup.
-      if (scope === 'file') await pruneEmptyAncestors(targetPath);
+      // File scope can leave behind release / season subfolders that hold only
+      // extras (samples, .sfv, .nfo, /Subs/) after the video itself is gone.
+      // Without cleanup, nzbdav would treat the next resubmit as a collision
+      // and mount it under an iterated `Release.Name (1)` path. Pack scope
+      // already removed the whole release folder via Depth: infinity.
+      if (scope === 'file') await pruneOrphanedAncestors(targetPath);
       await cleanupHistoryForPath(targetPath, scope, buildNzbdavConfig());
       return sendScopeSuccess(req, res);
     }
@@ -488,9 +476,9 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       if (result.ok) {
         console.log(`\u{1F5D1}\uFE0F Delete-all removed (${t.scope}): ${v.path}`);
         invalidateAfterDelete(v.path, t.scope, manifestKey, type, id);
-        // File-scope leaves empty parents; pack-scope already removed the
-        // release folder via Depth: infinity so there's nothing to prune.
-        if (t.scope === 'file') await pruneEmptyAncestors(v.path);
+        // File-scope can leave orphan release folders behind when only extras
+        // remain; pack-scope already wiped via Depth: infinity.
+        if (t.scope === 'file') await pruneOrphanedAncestors(v.path);
         await cleanupHistoryForPath(v.path, t.scope, buildNzbdavConfig());
         okCount++;
       } else {
@@ -519,27 +507,15 @@ export function createNzbdavStreamRoutes(deps: NzbdavDeps): Router {
       console.log(`\u{1F39F}\uFE0F /stream hit: kind=${kind} filename=${req.params.filename ?? '-'} q=[${qKeys}] ua=${(req.headers['user-agent'] ?? '').slice(0, 80)}`);
     }
 
-    // Grab tracking happens inside the stream handler once the `t` envelope
-    // is decoded (route-level tracking would need to decode here too just to
-    // extract nzb/title/indexer for the dedup key, so route-level was duplicated
-    // work). The handler calls `dedupedTrackGrab` below for first-time grabs.
+    // Grab tracking now occurs inside `submitNzb` when the NZB is fetched
+    // from the indexer. Cache hits at nzbdavApi.ts:40 short-circuit before
+    // the fetch, providing natural dedup; no route-level wrapper needed.
 
     const nzbdavConfig = buildNzbdavConfig();
 
-    // Wrap trackGrab with the same dedup set so fallback grabs after
-    // self-redirects don't double-count candidates already tracked.
-    const dedupedTrackGrab = (indexer: string, grabTitle: string) => {
-      const key = `${indexer}::${grabTitle}`;
-      if (trackedGrabKeys.has(key)) return;
-      trackedGrabKeys.add(key);
-      setTimeout(() => trackedGrabKeys.delete(key), GRAB_DEDUP_TTL_MS);
-      trackGrab(indexer, grabTitle);
-      console.log(`\u{1F4CA} Tracked grab from ${indexer}: ${grabTitle}`);
-    };
-
     // Delegate to nzbdav module (handles caching, history polling, streaming, fallback)
     try {
-      await handleStream(req, res, nzbdavConfig, dedupedTrackGrab, proxyVideoStream);
+      await handleStream(req, res, nzbdavConfig, proxyVideoStream);
     } catch (error) {
       if (!res.headersSent) {
         res.status(500).json({ error: 'Stream handler failed' });

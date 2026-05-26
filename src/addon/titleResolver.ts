@@ -8,9 +8,9 @@
 
 import axios from 'axios';
 import { config, getTvRemakeFiltering } from '../config/index.js';
-import { resolveTitleFromTmdb, resolveTitleFromTvdb, resolveEpisodeCountFromTvdb, resolveRuntimeFromTmdb, detectRemake } from '../idResolver.js';
+import { resolveTitleFromTmdb, resolveTitleFromTvdb, resolveEpisodeCountFromTvdb, resolveEpisodeCountFromTvdbId, resolveRuntimeFromTmdb, getCachedPremiereYear, detectRemake, fetchTvdbRecordById } from '../idResolver.js';
 import { isStylizedTitle } from '../parsers/titleMatching.js';
-import { isAnimeByImdbId, lookupByImdbId, getKitsuImdbEntries } from '../anime/animeDatabase.js';
+import { isAnimeByImdbId, lookupByImdbId, lookupByTvdbId, getKitsuImdbEntries } from '../anime/animeDatabase.js';
 
 export interface ResolvedTitleInfo {
   /** Final title to use for search (TVDB/TMDB resolved, or Cinemeta fallback) */
@@ -102,76 +102,139 @@ export async function resolveTitle(
   imdbId: string,
   season?: number,
   episode?: number,
+  tvdbIdHint?: number,
 ): Promise<ResolvedTitleInfo> {
-  // Step 1: Cinemeta
-  const resolved = await resolveFromCinemeta(type, imdbId, season);
-  const cinemetaTitle = resolved.title;
-  let year = resolved.year;
-  const country = resolved.country;
-  const genres = resolved.genres;
-
-  // Step 2: Episode count + runtime + episode name — prefer TVDB (authoritative for TV) over Cinemeta (fallback)
-  let episodesInSeason = resolved.episodesInSeason;
-  let runtime = resolved.runtime;
+  // When tvdbIdHint is set the request arrived via the `tvdb:` Stremio prefix.
+  // Skip Cinemeta + TMDB entirely (neither is reachable without an IMDB id) and
+  // drive title/episode resolution directly from TVDB. Anime detection mirrors
+  // the IMDB path's Fribb lookup, just keyed by tvdb id.
+  let cinemetaTitle = '';
+  let year: string | undefined;
+  let country: string | undefined;
+  let genres: string[] | undefined;
+  let episodesInSeason: number | undefined;
+  let priorSeasonsEpisodeCount: number | undefined;
+  let runtime: number | undefined;
   let episodeName: string | undefined;
   let absoluteEpisodeNumber: number | undefined;
   let tvdbPriorSeasonsCount: number | undefined;
   let episodeAired: string | undefined;
-  if (type === 'series' && season !== undefined) {
-    const tvdbResult = await resolveEpisodeCountFromTvdb(imdbId, season, episode);
-    if (tvdbResult) {
-      if (episodesInSeason && tvdbResult.count !== episodesInSeason) {
-        console.log(`📌 TVDB episode count (${tvdbResult.count}) differs from Cinemeta (${episodesInSeason}) — using TVDB`);
-      }
-      episodesInSeason = tvdbResult.count;
-      if (tvdbResult.runtime) runtime = tvdbResult.runtime;
-      if (tvdbResult.episodeName) episodeName = tvdbResult.episodeName;
-      if (tvdbResult.absoluteNumber) absoluteEpisodeNumber = tvdbResult.absoluteNumber;
-      if (tvdbResult.priorSeasonsCount !== undefined) tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
-      if (tvdbResult.episodeAired) episodeAired = tvdbResult.episodeAired;
-    }
-  }
-  console.log(`📌 Title: "${cinemetaTitle}"${year ? ` (${year})` : ''}${country ? ` [${country}]` : ''}${episodesInSeason ? ` — ${episodesInSeason} eps in season` : ''}`);
-
-  // Step 3: Anime detection — database lookup first (authoritative), Cinemeta fallback
-  const isAnime = isAnimeByImdbId(imdbId) || !!(country?.includes('Japan') && genres?.some(g => g.toLowerCase() === 'animation'));
-
-  // Step 4: Resolve canonical title
-  // For anime: use Kitsu-IMDB title (series-level canonical name), skip TVDB/TMDB
-  // (so tvdbNativeTitle never sets for anime; native-language alts via TVDB
-  // don't apply to the anime path).
-  // For non-anime: TVDB for TV, TMDB for movies
+  let isAnime = false;
   let resolvedTitle: string | null = null;
   let tvdbAliases: string[] | undefined;
   let tvdbNativeTitle: string | undefined;
-  if (isAnime) {
-    const fribb = lookupByImdbId(imdbId);
-    if (fribb?.kitsu_id) {
-      const kitsuEntries = getKitsuImdbEntries(fribb.kitsu_id);
-      if (kitsuEntries.length > 0 && kitsuEntries[0].title) {
-        resolvedTitle = kitsuEntries[0].title;
-        console.log(`🎌 Anime detected — using Kitsu title "${resolvedTitle}" (Cinemeta: "${cinemetaTitle}")`);
+
+  if (tvdbIdHint !== undefined) {
+    const record = await fetchTvdbRecordById(tvdbIdHint, type === 'series' ? 'series' : 'movie');
+    if (!record) {
+      console.warn(`⚠️  TVDB record not found for tvdb:${tvdbIdHint}`);
+      return { title: '', cinemetaTitle: '', isAnime: false };
+    }
+    year = record.year;
+    resolvedTitle = record.title;
+    tvdbAliases = record.aliases;
+    tvdbNativeTitle = record.nativeTitle;
+    if (record.runtime) runtime = record.runtime;
+
+    if (type === 'series' && season !== undefined) {
+      const epData = await resolveEpisodeCountFromTvdbId(tvdbIdHint, season, episode);
+      if (epData) {
+        episodesInSeason = epData.count;
+        if (epData.runtime) runtime = epData.runtime;
+        if (epData.episodeName) episodeName = epData.episodeName;
+        if (epData.absoluteNumber) absoluteEpisodeNumber = epData.absoluteNumber;
+        if (epData.priorSeasonsCount !== undefined) tvdbPriorSeasonsCount = epData.priorSeasonsCount;
+        if (epData.episodeAired) episodeAired = epData.episodeAired;
       }
     }
-    if (!resolvedTitle) {
-      console.log(`🎌 Anime detected — no Kitsu title found, using Cinemeta title "${cinemetaTitle}"`);
+    console.log(`📌 Title: "${resolvedTitle}"${year ? ` (${year})` : ''}${episodesInSeason ? ` — ${episodesInSeason} eps in season` : ''}`);
+
+    // Mirror IMDB anime detection. Fribb-by-tvdb is the same primary signal the
+    // imdb path uses (titleResolver.ts:137). Fribb is an anime-only DB by
+    // construction, so any hit implies isAnime regardless of whether a Kitsu
+    // title is recoverable.
+    const fribb = lookupByTvdbId(tvdbIdHint);
+    if (fribb) {
+      isAnime = true;
+      if (fribb.kitsu_id) {
+        const kitsuEntries = getKitsuImdbEntries(fribb.kitsu_id);
+        if (kitsuEntries.length > 0 && kitsuEntries[0].title) {
+          const originalTvdbTitle = resolvedTitle;
+          resolvedTitle = kitsuEntries[0].title;
+          console.log(`🎌  Anime detected via Fribb tvdb-index, using Kitsu title "${resolvedTitle}"`);
+          // Preserve the TVDB title as a fallback search variant, matching the
+          // imdb path's preservation of cinemetaTitle in additionalTitles.
+          if (originalTvdbTitle && originalTvdbTitle !== resolvedTitle) {
+            cinemetaTitle = originalTvdbTitle;
+          }
+        }
+      }
     }
   } else {
-    if (type === 'series') {
-      const tvdbTitleResult = await resolveTitleFromTvdb(imdbId, 'series');
-      resolvedTitle = tvdbTitleResult?.title ?? null;
-      if (tvdbTitleResult?.year && tvdbTitleResult.year !== year) {
-        console.log(`📅 Using TVDB year ${tvdbTitleResult.year} (Cinemeta: ${year})`);
-        year = tvdbTitleResult.year;
+    // Step 1: Cinemeta
+    const resolved = await resolveFromCinemeta(type, imdbId, season);
+    cinemetaTitle = resolved.title;
+    year = resolved.year;
+    country = resolved.country;
+    genres = resolved.genres;
+
+    // Step 2: Episode count + runtime + episode name — prefer TVDB (authoritative for TV) over Cinemeta (fallback)
+    episodesInSeason = resolved.episodesInSeason;
+    priorSeasonsEpisodeCount = resolved.priorSeasonsEpisodeCount;
+    runtime = resolved.runtime;
+    if (type === 'series' && season !== undefined) {
+      const tvdbResult = await resolveEpisodeCountFromTvdb(imdbId, season, episode);
+      if (tvdbResult) {
+        if (episodesInSeason && tvdbResult.count !== episodesInSeason) {
+          console.log(`📌 TVDB episode count (${tvdbResult.count}) differs from Cinemeta (${episodesInSeason}) — using TVDB`);
+        }
+        episodesInSeason = tvdbResult.count;
+        if (tvdbResult.runtime) runtime = tvdbResult.runtime;
+        if (tvdbResult.episodeName) episodeName = tvdbResult.episodeName;
+        if (tvdbResult.absoluteNumber) absoluteEpisodeNumber = tvdbResult.absoluteNumber;
+        if (tvdbResult.priorSeasonsCount !== undefined) tvdbPriorSeasonsCount = tvdbResult.priorSeasonsCount;
+        if (tvdbResult.episodeAired) episodeAired = tvdbResult.episodeAired;
       }
-      tvdbAliases = tvdbTitleResult?.aliases;
-      tvdbNativeTitle = tvdbTitleResult?.nativeTitle;
+    }
+    console.log(`📌 Title: "${cinemetaTitle}"${year ? ` (${year})` : ''}${country ? ` [${country}]` : ''}${episodesInSeason ? ` — ${episodesInSeason} eps in season` : ''}`);
+
+    // Step 3: Anime detection — database lookup first (authoritative), Cinemeta fallback
+    isAnime = isAnimeByImdbId(imdbId) || !!(country?.includes('Japan') && genres?.some(g => g.toLowerCase() === 'animation'));
+
+    // Step 4: Resolve canonical title
+    // For anime: use Kitsu-IMDB title (series-level canonical name), skip TVDB/TMDB
+    // (so tvdbNativeTitle never sets for anime; native-language alts via TVDB
+    // don't apply to the anime path).
+    // For non-anime: TVDB for TV, TMDB for movies
+    if (isAnime) {
+      const fribb = lookupByImdbId(imdbId);
+      if (fribb?.kitsu_id) {
+        const kitsuEntries = getKitsuImdbEntries(fribb.kitsu_id);
+        if (kitsuEntries.length > 0 && kitsuEntries[0].title) {
+          resolvedTitle = kitsuEntries[0].title;
+          console.log(`🎌 Anime detected — using Kitsu title "${resolvedTitle}" (Cinemeta: "${cinemetaTitle}")`);
+        }
+      }
+      if (!resolvedTitle) {
+        console.log(`🎌 Anime detected — no Kitsu title found, using Cinemeta title "${cinemetaTitle}"`);
+      }
     } else {
-      const tmdbResult = await resolveTitleFromTmdb(imdbId, 'movie');
-      resolvedTitle = tmdbResult?.title ?? null;
-      if (tmdbResult?.year && tmdbResult.year !== year) {
-        console.log(`📅 Using TMDB year ${tmdbResult.year} (Cinemeta: ${year})`);
-        year = tmdbResult.year;
+      if (type === 'series') {
+        const tvdbTitleResult = await resolveTitleFromTvdb(imdbId, 'series');
+        resolvedTitle = tvdbTitleResult?.title ?? null;
+        if (tvdbTitleResult?.year && tvdbTitleResult.year !== year) {
+          console.log(`📅 Using TVDB year ${tvdbTitleResult.year} (Cinemeta: ${year})`);
+          year = tvdbTitleResult.year;
+        }
+        tvdbAliases = tvdbTitleResult?.aliases;
+        tvdbNativeTitle = tvdbTitleResult?.nativeTitle;
+      } else {
+        const tmdbResult = await resolveTitleFromTmdb(imdbId, 'movie');
+        resolvedTitle = tmdbResult?.title ?? null;
+        if (tmdbResult?.year && tmdbResult.year !== year) {
+          console.log(`📅 Using TMDB year ${tmdbResult.year} (Cinemeta: ${year})`);
+          year = tmdbResult.year;
+        }
       }
     }
   }
@@ -228,13 +291,28 @@ export async function resolveTitle(
   }
 
   // Step 5: Resolve runtime — TMDB for movies (if key configured and Cinemeta didn't provide it or for higher accuracy)
-  if (type === 'movie') {
+  // Skipped on tvdb: requests since TMDB is keyed by IMDB id which isn't
+  // available on that path; TVDB record runtime is the authoritative source.
+  if (type === 'movie' && tvdbIdHint === undefined) {
     const tmdbRuntime = await resolveRuntimeFromTmdb(imdbId);
     if (tmdbRuntime) runtime = tmdbRuntime;
+
+    // Release groups tag films with the year IMDB shows (the earliest public
+    // release); TMDB/Cinemeta report the later theatrical year, so text searches
+    // miss the scene releases. Prefer the premiere year when it is exactly one
+    // year earlier. resolveRuntimeFromTmdb cached it above (same request).
+    const premiereYear = getCachedPremiereYear(imdbId);
+    if (year && premiereYear && parseInt(year, 10) - parseInt(premiereYear, 10) === 1) {
+      console.log(`📅 Using premiere year ${premiereYear} from TMDB release_dates (theatrical: ${year})`);
+      year = premiereYear;
+    }
   }
 
   // Step 6: Detect remakes — check if another show shares the same title (for text search filtering)
-  const hasRemake = (type === 'series' && getTvRemakeFiltering(config))
+  // Empty/whitespace title can happen when both Cinemeta and TVDB fail to
+  // resolve; without the trim guard, detectRemake('') hits TMDB with an empty
+  // query and returns a 400.
+  const hasRemake = (type === 'series' && getTvRemakeFiltering(config) && title?.trim())
     ? await detectRemake(title)
     : undefined;
 
@@ -269,7 +347,7 @@ export async function resolveTitle(
     country,
     genres,
     episodesInSeason,
-    priorSeasonsEpisodeCount: resolved.priorSeasonsEpisodeCount,
+    priorSeasonsEpisodeCount,
     absoluteEpisodeNumber,
     tvdbPriorSeasonsCount,
     additionalTitles,

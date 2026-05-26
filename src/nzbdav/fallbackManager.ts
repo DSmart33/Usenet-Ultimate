@@ -27,7 +27,7 @@ export function getFallbackGroupTTLMs(): number {
 // the original fbg inside, finds no in-memory group, and breaks the
 // alternative-candidate fallback. Mirrors streamCache.ts.
 const FALLBACK_GROUPS_FILE = path.join(__dirname, '..', '..', 'config', 'fallback-groups.json');
-const FALLBACK_GROUPS_SCHEMA_VERSION = 1;
+const FALLBACK_GROUPS_SCHEMA_VERSION = 2;
 
 interface SerializedFallbackGroup {
   version: number;

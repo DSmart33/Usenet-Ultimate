@@ -461,6 +461,7 @@ export interface NZBSearchResult {
   };
   duration?: number;                   // Duration in seconds (EasyNews, or from Newznab runtime attribute)
   zyclopsVerified?: boolean;           // True if result came through Zyclops (pre-verified healthy)
+  searchExitIp?: string;               // Proxy exit IP at search time. Used by verifyProxyCircuit to detect search/grab IP mismatch. In-memory only, never persisted.
   easynewsMeta?: {      // EasyNews direct download metadata (only present for EasyNews results)
     hash: string;
     filename: string;

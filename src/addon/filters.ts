@@ -11,7 +11,7 @@
  *    and enforces configurable size bounds
  */
 
-import { parseMetadata, parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, parseYear, parseDurationAttr, formatBytes } from '../parsers/metadataParsers.js';
+import { parseMetadata, parseQuality, parseCodec, parseSource, parseVisualTag, visualTagFilterKey, parseAudioTag, parseLanguage, parseEdition, parseYear, parseDurationAttr, formatBytes } from '../parsers/metadataParsers.js';
 import { isRemakeFiltered } from '../parsers/titleMatching.js';
 import { applyRules as engineApplyRules, buildStreamContext } from '../rules/rankEngine.js';
 import type { FilterConfig } from '../types.js';
@@ -160,7 +160,7 @@ export function applyQualityFilters(allResults: any[], filterConfig?: FilterConf
   }
   if (hasDisabled(ep.visualTag)) {
     const before = results.length;
-    results = results.filter(r => ep.visualTag?.[parseVisualTag(r.title)] !== false);
+    results = results.filter(r => ep.visualTag?.[visualTagFilterKey(parseVisualTag(r.title))] !== false);
     if (results.length < before) console.log(`🎯 Filtered ${before - results.length} by disabled visual tags`);
   }
   if (hasDisabled(ep.audioTag)) {

@@ -5,12 +5,26 @@
  * in season packs and BDMV Blu-ray structures.
  */
 
+import { posix as pathPosix } from 'path';
 import { createClient, FileStat } from 'webdav';
 import { getWebdavClient } from './webdavClient.js';
 import { resolveCategory } from './nzbdavApi.js';
 import { WEBDAV_REQUEST_TIMEOUT_MS, type NZBDavConfig, type StreamData } from './types.js';
-import { encodeWebdavPath, folderCouldContainSeason, nzbdavError, MULTI_EPISODE_BLOCKED_ERROR } from './utils.js';
+import { encodeWebdavPath, folderCouldContainSeason, nzbdavError, MULTI_EPISODE_BLOCKED_ERROR, VIDEO_NOT_FOUND_ERROR } from './utils.js';
 import { config as globalConfig, getTvAllowMultiEpisode } from '../config/index.js';
+
+export const VIDEO_EXTS = ['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.ts', '.wmv', '.webm', '.mpg', '.mpeg'];
+
+// Matches sample/trailer/featurette as a tail-label before the file extension,
+// allowing digits and separators in between (e.g. sample.mkv, Sample1.mkv,
+// Sample-1.mkv, foo.sample.mkv, Trailer2.mp4). Release names that contain
+// these words followed by letters (e.g. Trailer.Park.Boys, The.Sample.Movie)
+// are not matched, because the between-section is digits/separators only.
+export const NON_PLAYABLE_TAIL_LABEL_RE = /(^|[._\-\s])(sample|trailer|featurette)[\d._\-]*\.[a-z0-9]{2,4}$/i;
+
+// Matches files living under a sample/trailer/featurette/extras/subs/subtitles
+// subdirectory. Plural forms handled via `s?`.
+export const NON_PLAYABLE_PATH_RE = /\/(samples?|trailers?|featurettes?|extras?|subs?|subtitles?)\//i;
 
 /**
  * Cheap existence check for a single WebDAV path. Used to verify that a
@@ -27,6 +41,74 @@ export async function videoPathExists(videoPath: string, config: NZBDavConfig): 
 }
 
 /**
+ * Does the folder (recursively) contain any playable video? Used by the
+ * delete-prune walk and the one-time stale-folder cleanup migration to
+ * decide whether a release folder still has real content or only extras.
+ *
+ * Playable = video extension AND basename is not a tail-label sample/
+ * trailer/featurette AND path is not under a non-playable subdirectory.
+ * No size threshold (300MB samples are caught by the name/path filters).
+ *
+ * Walks each directory level with its own Depth: 1 PROPFIND because nzbdav
+ * rejects Depth: infinity with 403. Capped at depth 6 to match findVideoFile
+ * and bound worst-case fanout. Returns true on PROPFIND error/timeout at
+ * any level (fail-safe: never wipe a folder we couldn't inspect).
+ */
+export async function folderHasPlayableVideo(folderPath: string, config: NZBDavConfig): Promise<boolean> {
+  const client = getWebdavClient(config);
+
+  async function walk(dirPath: string, depth: number): Promise<boolean> {
+    if (depth > 6) return false;
+    let arr: FileStat[];
+    try {
+      const items = await client.getDirectoryContents(dirPath, {
+        signal: AbortSignal.timeout(WEBDAV_REQUEST_TIMEOUT_MS),
+      });
+      arr = Array.isArray(items)
+        ? items
+        : (items && Array.isArray((items as { data?: FileStat[] }).data) ? (items as { data: FileStat[] }).data : []);
+    } catch {
+      // Treat an error at any level as "could be playable" to avoid wiping
+      // a folder we couldn't see into.
+      return true;
+    }
+    const normalizedTarget = dirPath.replace(/\/+$/, '');
+    const subdirs: string[] = [];
+    for (const item of arr) {
+      const fn = (item.filename || '').replace(/\/+$/, '');
+      if (fn === normalizedTarget || fn === '') continue;
+      if (item.type === 'directory') {
+        subdirs.push(item.filename);
+        continue;
+      }
+      if (item.type !== 'file') continue;
+      const basename = pathPosix.basename(item.filename);
+      if (basename.startsWith('.')) continue;
+      const ext = basename.substring(basename.lastIndexOf('.')).toLowerCase();
+      if (!VIDEO_EXTS.includes(ext)) continue;
+      if (NON_PLAYABLE_TAIL_LABEL_RE.test(basename)) continue;
+      if (NON_PLAYABLE_PATH_RE.test(item.filename)) continue;
+      return true;
+    }
+    // Hidden files are filtered in the per-item loop above; hidden subdirs
+    // are filtered here. Both mirror findVideoFile's decoy skip so this
+    // "is anything servable left?" check agrees with the "what file would
+    // we serve?" answer. Breaking that symmetry lets a stray .unpack.mkv
+    // or .unpack/ keep a release folder alive, recreating the
+    // Release.Name (1) bug that orphan-prune was added to fix.
+    for (const sub of subdirs) {
+      const subBasename = pathPosix.basename(sub || '');
+      if (subBasename.startsWith('.')) continue;
+      if (NON_PLAYABLE_PATH_RE.test(sub + '/')) continue;
+      if (await walk(sub, depth + 1)) return true;
+    }
+    return false;
+  }
+
+  return walk(folderPath, 0);
+}
+
+/**
  * Find video file in WebDAV directory
  */
 export async function findVideoFile(
@@ -39,7 +121,6 @@ export async function findVideoFile(
 ): Promise<{ path: string; size: number } | null> {
   if (depth > 6) return null;
 
-  const videoExts = ['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.ts', '.wmv', '.webm', '.mpg', '.mpeg'];
   const minFileSize = 100 * 1024 * 1024; // 100MB minimum
 
   // Pull the season out of the pattern once. Used to skip per-season subdirs
@@ -60,6 +141,8 @@ export async function findVideoFile(
     for (const item of items) {
       if (item.type === 'file') {
         const basename = item.filename.split('/').pop() || '';
+        // Skip hidden files (e.g. .unpack.mkv) — uploaders plant these as decoys
+        if (basename.startsWith('.')) continue;
         const ext = basename.substring(basename.lastIndexOf('.')).toLowerCase();
         const pathLower = item.filename.toLowerCase();
 
@@ -69,7 +152,7 @@ export async function findVideoFile(
                         pathLower.includes('/subs/') ||
                         pathLower.includes('/subtitle');
 
-        if (videoExts.includes(ext) && !isSample && item.size && item.size >= minFileSize) {
+        if (VIDEO_EXTS.includes(ext) && !isSample && item.size && item.size >= minFileSize) {
           videos.push({ path: item.filename, size: item.size });
         }
       }
@@ -175,11 +258,13 @@ export async function findVideoFile(
     // Recurse into subdirectories
     for (const item of items) {
       if (item.type === 'directory') {
+        const subBasename = item.filename.split('/').pop() || '';
+        // Skip hidden directories (e.g. .unpack/) — uploaders plant these as decoy roots
+        if (subBasename.startsWith('.')) continue;
         const dirLower = item.filename.toLowerCase();
         if (dirLower.includes('/sample') || dirLower.includes('/subs')) continue;
         // Skip per-season subdirs whose name belongs to a different season
         // (e.g. don't enter Pack/S01/ when looking for an S03 episode).
-        const subBasename = item.filename.split('/').pop() || '';
         if (targetSeason != null && !folderCouldContainSeason(subBasename, targetSeason)) continue;
         const found = await findVideoFile(client, item.filename, depth + 1, episodePattern, episodesInSeason, strictEpisodeMatch);
         if (found) return found;
@@ -227,7 +312,7 @@ export async function waitForVideoFile(
   console.log(`${logPrefix}  ❌ Video file not found in WebDAV after job completed`);
   // Episode-specific: the NZB itself downloaded fine, this episode's file just
   // wasn't in the pack. Other episodes from the same pack may still resolve.
-  throw nzbdavError('Video file not found in WebDAV after job completed', false, true);
+  throw nzbdavError(VIDEO_NOT_FOUND_ERROR, false, true);
 }
 
 /**

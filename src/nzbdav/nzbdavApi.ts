@@ -5,8 +5,9 @@
 
 import { config as globalConfig } from '../config/index.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { proxyFetch, logProxyExitIp, verifyProxyCircuit } from '../proxy.js';
+import { proxyFetch, verifyProxyCircuit } from '../proxy.js';
 import { getCachedNzbContent, cacheNzbContent } from '../health/nzbContentCache.js';
+import { trackGrab } from '../statsTracker.js';
 import type { NZBDavConfig, HistorySlot } from './types.js';
 import { nzbdavError } from './utils.js';
 
@@ -24,7 +25,10 @@ export function resolveCategory(config: NZBDavConfig, contentType?: string): str
 }
 
 /**
- * Submit NZB to NZBDav and return the nzo_id
+ * Submit NZB to NZBDav and return the nzo_id.
+ * `searchExitIp` carries the proxy exit IP that was live when this candidate's
+ * search ran. verifyProxyCircuit compares against it so a rotation+new-search
+ * between the original search and this grab cannot silently pass verification.
  */
 export async function submitNzb(
   nzbUrl: string,
@@ -33,19 +37,22 @@ export async function submitNzb(
   contentType?: string,
   budgetMs?: number,
   logPrefix = '',
+  indexerName?: string,
+  searchExitIp?: string,
 ): Promise<string> {
   const budgetStart = Date.now();
   const remainingBudget = () => budgetMs ? Math.max(1000, budgetMs - (Date.now() - budgetStart)) : 30000;
+  const indexerForLog = indexerName?.trim() || '(unknown)';
   // Check if NZB was already downloaded during health checks
   let nzbContent = getCachedNzbContent(nzbUrl);
+  let freshlyDownloaded = false;
   if (nzbContent) {
     console.log(`${logPrefix}  \u{1F4BE} Using cached NZB from health check (${nzbContent.length} bytes)`);
   } else {
     // Download NZB from indexer with timeout
     const downloadUserAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
     console.log(`${logPrefix}  \u{1F4E5} Downloading NZB from indexer: ${nzbUrl.substring(0, 80)}...`);
-    await verifyProxyCircuit(nzbUrl, 'nzb-grab');
-    await logProxyExitIp(nzbUrl, 'nzb-grab');
+    await verifyProxyCircuit(nzbUrl, 'nzb-grab', indexerName, searchExitIp);
 
     const controller = new AbortController();
     const downloadTimeoutMs = remainingBudget();
@@ -56,22 +63,23 @@ export async function submitNzb(
       nzbResponse = await proxyFetch(nzbUrl, {
         headers: { 'User-Agent': downloadUserAgent },
         signal: controller.signal,
-      });
+      }, indexerName);
     } catch (err) {
       clearTimeout(timeout);
       if ((err as Error).name === 'AbortError') {
-        throw nzbdavError(`NZB download timed out after ${Math.round(downloadTimeoutMs / 1000)}s`, true);
+        throw nzbdavError(`NZB download timed out after ${Math.round(downloadTimeoutMs / 1000)}s for ${indexerForLog}`, true);
       }
-      throw nzbdavError(`NZB download failed: ${(err as Error).message}`);
+      throw nzbdavError(`NZB download failed for ${indexerForLog}: ${(err as Error).message}`);
     }
     clearTimeout(timeout);
 
     if (!nzbResponse.ok) {
-      throw nzbdavError(`Failed to download NZB: ${nzbResponse.status} ${nzbResponse.statusText}`);
+      throw nzbdavError(`Failed to download NZB from ${indexerForLog}: ${nzbResponse.status} ${nzbResponse.statusText}`);
     }
 
     nzbContent = await nzbResponse.text();
     console.log(`${logPrefix}  \u2705 NZB downloaded (${nzbContent.length} bytes)`);
+    freshlyDownloaded = true;
   }
 
   // Validate NZB content - must contain <nzb element
@@ -83,6 +91,14 @@ export async function submitNzb(
       throw nzbdavError(`Indexer returned error: ${errorMsg}`);
     }
     throw nzbdavError(`Invalid NZB content received (${nzbContent.length} bytes)`);
+  }
+
+  // Single grab-tracking chokepoint. Cache hits skip this; invalid NZBs throw above.
+  // EasyNews is tracked one layer up in the /nzb route, because its real indexer
+  // fetch happens inside that route's POST to easynews.com, not in submitNzb's
+  // proxyFetch (which just loops back to the local handler).
+  if (freshlyDownloaded && indexerForLog.toLowerCase() !== 'easynews') {
+    trackGrab(indexerForLog, title);
   }
 
   // Submit to NZBDav
@@ -149,17 +165,18 @@ export async function submitNzb(
 
 /**
  * Pre-fetch an NZB from the indexer and cache it for later submission.
- * Best-effort — never throws. Returns true if the NZB is cached and ready.
+ * Best-effort, never throws. Returns true if the NZB is cached and ready.
+ * `searchExitIp` carries the proxy exit IP that was live when this candidate's
+ * search ran, used to gate the prefetch against an intervening IP rotation.
  */
-export async function prefetchNzb(nzbUrl: string, logPrefix = '', quiet = false): Promise<boolean> {
+export async function prefetchNzb(nzbUrl: string, logPrefix = '', quiet = false, title?: string, indexerName?: string, searchExitIp?: string): Promise<boolean> {
   // Already cached (from health check or earlier prefetch)
   if (getCachedNzbContent(nzbUrl)) return true;
 
   try {
     const downloadUserAgent = globalConfig.userAgents?.nzbDownload || getLatestVersions().chrome;
     if (!quiet) console.log(`${logPrefix}  📥 Prefetching NZB: ${nzbUrl.substring(0, 80)}...`);
-    await verifyProxyCircuit(nzbUrl, 'nzb-prefetch');
-    await logProxyExitIp(nzbUrl, 'nzb-prefetch');
+    await verifyProxyCircuit(nzbUrl, 'nzb-prefetch', indexerName, searchExitIp);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -169,7 +186,7 @@ export async function prefetchNzb(nzbUrl: string, logPrefix = '', quiet = false)
       nzbResponse = await proxyFetch(nzbUrl, {
         headers: { 'User-Agent': downloadUserAgent },
         signal: controller.signal,
-      });
+      }, indexerName);
     } catch (err) {
       clearTimeout(timeout);
       if (!quiet) console.warn(`${logPrefix}  ⚠️ Prefetch failed: ${(err as Error).message}`);
@@ -197,6 +214,17 @@ export async function prefetchNzb(nzbUrl: string, logPrefix = '', quiet = false)
 
     cacheNzbContent(nzbUrl, nzbContent);
     if (!quiet) console.log(`${logPrefix}  ✅ Prefetched NZB (${nzbContent.length} bytes)`);
+
+    // The indexer fetch just succeeded. Track here so UF-driven prefetches count
+    // even when the subsequent submitNzb call hits cache. EasyNews skips for
+    // the same reason as submitNzb: its real fetch happens in the /nzb route.
+    if (title) {
+      const tracked = indexerName?.trim() || '(unknown)';
+      if (tracked.toLowerCase() !== 'easynews') {
+        trackGrab(tracked, title);
+      }
+    }
+
     return true;
   } catch (err) {
     if (!quiet) console.warn(`${logPrefix}  ⚠️ Prefetch error: ${(err as Error).message}`);

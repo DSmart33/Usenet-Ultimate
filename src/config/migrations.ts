@@ -276,6 +276,28 @@ if (configData.streamDisplayConfig?.elements && !configData.streamDisplayConfig.
   }
 }
 
+// Append 'vc1' to encodePriority arrays that pre-date VC-1 support.
+// VC-1 sits between AVC and VP8 in the canonical default order. For
+// upgrading users we append it at the bottom of their existing list to
+// preserve their customized ordering rather than silently re-ranking
+// codecs they already organized. New users and Reset to Default get
+// VC-1 at its canonical position via the default constants.
+{
+  const needsVc1 = (arr: string[] | undefined): boolean => !!arr && arr.length > 0 && !arr.includes('vc1');
+  let migrated = false;
+  for (const key of ['filters', 'movieFilters', 'tvFilters'] as const) {
+    const f = configData[key] as any;
+    if (needsVc1(f?.encodePriority)) {
+      f.encodePriority = [...f.encodePriority, 'vc1'];
+      migrated = true;
+    }
+  }
+  if (migrated) {
+    saveConfigFile(configData);
+    console.log('✅ Appended VC-1 to encodePriority for upgrading users');
+  }
+}
+
 // Append 'DCP' (Digital Cinema Package leaks) to videoPriority arrays that
 // pre-date DCP support. DCP ranks just above WEBCap in the canonical default
 // order (theatrical-master transcodes sit between standard web/BDRip sources

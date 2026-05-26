@@ -8,6 +8,7 @@
 
 import { Router } from 'express';
 import axios from 'axios';
+import { trackGrab } from '../statsTracker.js';
 import type { Config } from '../types.js';
 
 interface EasynewsProxyDeps {
@@ -145,6 +146,9 @@ export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}.nzb"`);
       if (nzbResp.headers['content-length']) res.setHeader('Content-Length', nzbResp.headers['content-length']);
       res.send(Buffer.from(nzbResp.data));
+
+      const trackedTitle = filename?.trim() || '(untitled)';
+      trackGrab('EasyNews', trackedTitle);
     } catch (error: any) {
       console.error('\u274C EasyNews NZB download error:', error.message);
       if (error.response) {

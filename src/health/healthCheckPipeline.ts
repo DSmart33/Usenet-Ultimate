@@ -18,14 +18,23 @@ import { NntpConnectionPool } from './nntpConnection.js';
 import { checkArticlesMultiProvider } from './articleChecker.js';
 
 /**
- * Perform health check on an NZB using multiple providers
+ * Perform health check on an NZB using multiple providers.
+ * `searchExitIp` is the proxy exit IP that was live when the candidate's search
+ * ran; passed to the NZB downloader so circuit verification compares against
+ * the original search's IP rather than a (possibly newer) global baseline.
+ * `onCircuitAbort` is invoked once when the proxy circuit aborts so the
+ * surrounding batch can stop scheduling further NZBs against the same
+ * (still-broken) proxy state.
  */
 export async function performHealthCheck(
   nzbUrl: string,
   providers: UsenetProvider[],
   userAgent: string,
   options: HealthCheckOptions = { archiveInspection: true, sampleCount: 3 },
-  pool?: NntpConnectionPool
+  pool?: NntpConnectionPool,
+  indexerName?: string,
+  searchExitIp?: string,
+  onCircuitAbort?: () => void
 ): Promise<HealthCheckResult> {
   // Create a short label for log lines so parallel checks can be distinguished
   // Updated after NZB parsing to use the actual content base name
@@ -41,7 +50,7 @@ export async function performHealthCheck(
 
   try {
     // Download and parse NZB
-    const { files, password } = await downloadAndParseNzb(nzbUrl, userAgent);
+    const { files, password } = await downloadAndParseNzb(nzbUrl, userAgent, indexerName, searchExitIp);
 
     if (files.length === 0) {
       return {
@@ -377,9 +386,10 @@ export async function performHealthCheck(
 
   } catch (error) {
     if (error instanceof CircuitChangedError) {
+      onCircuitAbort?.();
       return {
         status: 'error',
-        message: 'Skipped — VPN IP changed',
+        message: 'Skipped: VPN circuit verification failed',
         playable: false
       };
     }

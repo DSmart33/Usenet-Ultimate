@@ -14,7 +14,7 @@ import addonSDK from 'stremio-addon-sdk';
 import addon, { clearSearchCache, addonManifest } from './addon/index.js';
 import { config, getIndexers, addIndexer, updateIndexer, deleteIndexer, reorderIndexers, reorderSyncedIndexers, updateSettings, getProviders, addProvider, updateProvider, deleteProvider, reorderProviders } from './config/index.js';
 import { getLogBuffer, subscribeToLogs } from './logBuffer.js';
-import { getAllStats, getIndexerStats, resetIndexerStats, resetAllStats, trackGrab } from './statsTracker.js';
+import { getAllStats, getIndexerStats, resetIndexerStats, resetAllStats, runStaleIndexerStatsCleanup } from './statsTracker.js';
 import { fetchLatestVersions, getLatestVersions } from './versionFetcher.js';
 import { handleStream, getCacheStats, clearStreamCache, clearReadyCache, clearFailedCache, deleteCacheEntry, getCacheEntries, isStreamCached, saveCacheToDisk } from './nzbdav/index.js';
 import { proxyFetch, testProxyConnection } from './proxy.js';
@@ -25,6 +25,7 @@ import { requireAuth, validateManifestKey } from './auth/authMiddleware.js';
 import { requestContext } from './requestContext.js';
 import { resolveBaseUrl } from './utils/urlHelpers.js';
 import { initAnimeDatabase, startDailyRefresh, stopDailyRefresh, getDatabaseStatus } from './anime/animeDatabase.js';
+import { runStaleLibraryFolderCleanup } from './nzbdav/staleFolderCleanup.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'node:module';
@@ -124,7 +125,6 @@ const nzbdavDeps = {
   deleteCacheEntry,
   getCacheEntries,
   isStreamCached,
-  trackGrab,
   getLatestVersions,
 };
 
@@ -244,6 +244,15 @@ process.on('SIGINT', () => {
   } catch (err) {
     console.error('⚠️  Anime database initialization failed (addon will still work for IMDB IDs):', (err as Error).message);
   }
+
+  // One-time best-effort migration. Fire-and-forget so it never blocks
+  // listening; gated internally by a config version flag.
+  runStaleLibraryFolderCleanup().catch(err =>
+    console.error('Stale library folder cleanup error:', err)
+  );
+  runStaleIndexerStatsCleanup().catch(err =>
+    console.error('Stale indexer stats cleanup error:', err)
+  );
 
   app.listen(PORT, () => {
     console.log(`\n\u{1F680} Usenet Ultimate is running!\n`);

@@ -6,7 +6,7 @@
  * decides the pair's order.
  */
 
-import { parseQuality, parseCodec, parseSource, parseVisualTag, parseAudioTag, parseLanguage, parseEdition, getAgeHours, getBitrateValue } from '../parsers/metadataParsers.js';
+import { parseQuality, parseCodec, parseSource, parseVisualTag, visualTagFilterKey, parseAudioTag, parseLanguage, parseEdition, getAgeHours, getBitrateValue } from '../parsers/metadataParsers.js';
 import type { FilterConfig } from '../types.js';
 
 /**
@@ -19,7 +19,7 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?
   const enabledPriorities = filterConfig?.enabledPriorities || {};
   const resolutionPriority = filterConfig?.resolutionPriority || ['4k', '1440p', '1080p', '720p', 'Unknown', '576p', '540p', '480p', '360p', '240p', '144p'];
   const videoPriority = filterConfig?.videoPriority || ['BluRay REMUX', 'REMUX', 'BDMUX', 'BRMUX', 'BluRay', 'WEB-DL', 'WEB', 'DLMUX', 'UHDRip', 'BDRip', 'WEB-DLRip', 'WEBRip', 'BRRip', 'DCP', 'WEBCap', 'VODR', 'HDTV', 'HDTVRip', 'SATRip', 'TVRip', 'PPVRip', 'DVD', 'DVDRip', 'PDTV', 'SDTV', 'HDRip', 'SCR', 'WORKPRINT', 'TeleCine', 'TeleSync', 'CAM', 'VHSRip', 'Unknown'];
-  const encodePriority = filterConfig?.encodePriority || ['vvc', 'av1', 'hevc', 'vp9', 'avc', 'vp8', 'xvid', 'mpeg2', 'Unknown'];
+  const encodePriority = filterConfig?.encodePriority || ['vvc', 'av1', 'hevc', 'vp9', 'avc', 'vc1', 'vp8', 'xvid', 'mpeg2', 'Unknown'];
   const visualTagPriority = filterConfig?.visualTagPriority || ['DV', 'HDR+DV', 'HDR10+', 'HDR', '10bit', 'AI', 'SDR', '3D', 'Unknown'];
   const audioTagPriority = filterConfig?.audioTagPriority || ['Atmos (TrueHD)', 'DTS:X', 'Atmos (DD+)', 'TrueHD', 'DTS-HD MA', 'FLAC', 'DTS-HD', 'DD+', 'DTS-ES', 'DTS', 'AAC', 'DD', 'Opus', 'PCM', 'MP3', 'Unknown'];
   const languagePriority = filterConfig?.languagePriority || ['English', 'Multi', 'Dual Audio', 'Dubbed', 'Arabic', 'Bengali', 'Bulgarian', 'Chinese', 'Croatian', 'Czech', 'Danish', 'Dutch', 'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew', 'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean', 'Latino', 'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak', 'Slovenian', 'Spanish', 'Swedish', 'Tamil', 'Telugu', 'Thai', 'Turkish', 'Ukrainian', 'Vietnamese'];
@@ -109,8 +109,8 @@ export function sortResults(allResults: any[], filterConfig?: FilterConfig, now?
 
         if (indexA !== indexB) return indexA - indexB;
       } else if (method === 'visualTag') {
-        const visualA = parseVisualTag(a.title);
-        const visualB = parseVisualTag(b.title);
+        const visualA = visualTagFilterKey(parseVisualTag(a.title));
+        const visualB = visualTagFilterKey(parseVisualTag(b.title));
         const priorityA = visualTagPriority.indexOf(visualA);
         const priorityB = visualTagPriority.indexOf(visualB);
 

@@ -69,7 +69,7 @@ export class NzbhydraSearcher {
       const params: Record<string, string> = {
         apikey: this.apiKey, extended: '1', indexers: indexerNames.join(','),
       };
-      if (method === 'imdb') {
+      if (method === 'imdb' && imdbId.startsWith('tt')) {
         params.t = 'movie';
         params.imdbid = imdbId.replace('tt', '');
         idSearchedNames.push(...indexerNames);
@@ -228,7 +228,7 @@ export class NzbhydraSearcher {
         extended: '1',
         indexers: indexerNames.join(','),
       };
-      if (method === 'imdb') {
+      if (method === 'imdb' && imdbId.startsWith('tt')) {
         params.t = 'tvsearch';
         params.imdbid = imdbId.replace('tt', '');
         params.season = season.toString();

@@ -63,9 +63,24 @@ export function parseMetadata(title: string): ParsedMetadata {
 
 // ── Resolution ───────────────────────────────────────────────────────
 
+// Bare resolution numbers without the `p` suffix. Recognized as fallback
+// when the library parser misses them and UHD detection also failed.
+// Rejects alphanumeric neighbors, so `Show.2160.WEB`, `Show 2160 WEB`,
+// and `Show_2160_WEB` match while `Show2160WEB`, `OPUS720Codec`,
+// `DTS2160kbps`, and `2160x1440` do not.
+const BARE_RESOLUTION_PATTERN = /(?<![A-Za-z0-9])(2160|1440|1080|720)(?![A-Za-z0-9])/;
+const BARE_RESOLUTION_MAP: Record<string, string> = {
+  '2160': '4k',
+  '1440': '1440p',
+  '1080': '1080p',
+  '720':  '720p',
+};
+
 function parseResolution(parsed: any, title: string): string {
   if (!parsed.resolution) {
     if (/\bUHD\b|UHDRip/i.test(title)) return '4k';
+    const bareMatch = title.match(BARE_RESOLUTION_PATTERN);
+    if (bareMatch) return BARE_RESOLUTION_MAP[bareMatch[1]];
     return 'Unknown';
   }
   const res = parsed.resolution.toLowerCase();
@@ -88,13 +103,19 @@ export function resolutionToDisplay(resolution: string): string {
 // from the raw title before falling back to the library's codec field.
 const VVC_PATTERN = /(?:^|[^a-z0-9])(h\.?266|x266|vvc|vvenc)(?:[^a-z0-9]|$)/i;
 
+// VC-1: parse-torrent-title doesn't recognize this Microsoft codec, so detect
+// from the raw title before falling back to the library's codec field.
+const VC1_PATTERN = /(?:^|[^a-z0-9])(vc-?1)(?:[^a-z0-9]|$)/i;
+
 function normalizeCodec(codec: string | undefined, title?: string): string {
   if (title && VVC_PATTERN.test(title)) return 'vvc';
+  if (title && VC1_PATTERN.test(title)) return 'vc1';
   if (!codec) return 'Unknown';
   const c = codec.toLowerCase();
   if (c === 'h265' || c === 'x265') return 'hevc';
   if (c === 'h264' || c === 'x264') return 'avc';
   if (c === 'h266' || c === 'x266' || c === 'vvc' || c === 'vvenc') return 'vvc';
+  if (c === 'vc1' || c === 'vc-1') return 'vc1';
   if (c === 'divx' || c === 'dvix') return 'xvid';
   return c;
 }
@@ -160,6 +181,13 @@ function parseVisualFromLib(parsed: any, title: string): string {
 
 export function parseVisualTag(title: string): string {
   return parseMetadata(title).visualTag;
+}
+
+// Composite visualTags ("DV, HDR10+") have no UI checkbox of their own;
+// fold them into the single 'HDR+DV' bucket so that checkbox can disable
+// and rank combos. parseVisualTag stays comma-form for the SEL tokenizer.
+export function visualTagFilterKey(parsed: string): string {
+  return parsed.includes(',') ? 'HDR+DV' : parsed;
 }
 
 // ── Audio ────────────────────────────────────────────────────────────
