@@ -45,6 +45,7 @@ import { createExternalApiRoutes } from './routes/externalApis.js';
 import { createStatsRoutes } from './routes/stats.js';
 import { createLogRoutes } from './routes/logs.js';
 import { createRulesRoutes } from './routes/rules.js';
+import { createDirectSearchRoutes } from './routes/directSearch.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -187,6 +188,7 @@ app.use('/api/rules', createRulesRoutes());
 
 const easynewsRoutes = createEasynewsProxyRoutes({ config, getLatestVersions });
 const nzbdavRoutes = createNzbdavStreamRoutes(nzbdavDeps);
+const directSearchRoutes = createDirectSearchRoutes();
 const stremioRouter = express.Router({ mergeParams: false });
 // Serve manifest with absolute logo URL (Stremio doesn't resolve relative paths correctly)
 stremioRouter.get('/manifest.json', (req, res) => {
@@ -204,11 +206,13 @@ const contextMiddleware = (pathPrefix: string) => (req: express.Request, _res: e
 // Must be mounted BEFORE root-level routes so /stremio/:manifestKey matches before /:manifestKey captures "stremio"
 app.use('/stremio/:manifestKey/easynews', validateManifestKey, easynewsRoutes);
 app.use('/stremio/:manifestKey/nzbdav', validateManifestKey, nzbdavRoutes);
+app.use('/stremio/:manifestKey/search', validateManifestKey, contextMiddleware('/stremio'), directSearchRoutes);
 app.use('/stremio/:manifestKey', validateManifestKey, contextMiddleware('/stremio'), stremioRouter);
 
 // Root-level routes (legacy, still works for existing installations)
 app.use('/:manifestKey/easynews', validateManifestKey, easynewsRoutes);
 app.use('/:manifestKey/nzbdav', validateManifestKey, nzbdavRoutes);
+app.use('/:manifestKey/search', validateManifestKey, contextMiddleware(''), directSearchRoutes);
 app.use('/:manifestKey', validateManifestKey, contextMiddleware(''), stremioRouter);
 
 // SPA fallback — serve index.html for all non-API, non-asset routes

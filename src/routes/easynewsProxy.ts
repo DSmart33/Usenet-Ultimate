@@ -66,8 +66,8 @@ export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
         }
 
         // No redirect — pipe content directly
-        if (resolveResp.headers['content-type']) res.setHeader('Content-Type', resolveResp.headers['content-type']);
-        if (resolveResp.headers['content-length']) res.setHeader('Content-Length', resolveResp.headers['content-length']);
+        if (resolveResp.headers['content-type']) res.setHeader('Content-Type', String(resolveResp.headers['content-type']));
+        if (resolveResp.headers['content-length']) res.setHeader('Content-Length', String(resolveResp.headers['content-length']));
         if (resolveResp.headers['accept-ranges']) res.setHeader('Accept-Ranges', resolveResp.headers['accept-ranges']);
         resolveResp.data.pipe(res);
       } catch (err: any) {
@@ -90,8 +90,8 @@ export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
           maxRedirects: 5,
           timeout: 30000,
         });
-        if (streamResp.headers['content-type']) res.setHeader('Content-Type', streamResp.headers['content-type']);
-        if (streamResp.headers['content-length']) res.setHeader('Content-Length', streamResp.headers['content-length']);
+        if (streamResp.headers['content-type']) res.setHeader('Content-Type', String(streamResp.headers['content-type']));
+        if (streamResp.headers['content-length']) res.setHeader('Content-Length', String(streamResp.headers['content-length']));
         if (streamResp.headers['accept-ranges']) res.setHeader('Accept-Ranges', streamResp.headers['accept-ranges']);
         streamResp.data.pipe(res);
       }
@@ -144,7 +144,7 @@ export function createEasynewsProxyRoutes(deps: EasynewsProxyDeps): Router {
 
       res.setHeader('Content-Type', 'application/x-nzb');
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}.nzb"`);
-      if (nzbResp.headers['content-length']) res.setHeader('Content-Length', nzbResp.headers['content-length']);
+      if (nzbResp.headers['content-length']) res.setHeader('Content-Length', String(nzbResp.headers['content-length']));
       res.send(Buffer.from(nzbResp.data));
 
       const trackedTitle = filename?.trim() || '(untitled)';

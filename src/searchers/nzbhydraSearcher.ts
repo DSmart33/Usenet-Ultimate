@@ -45,6 +45,21 @@ export class NzbhydraSearcher {
     return `[timeout=${this.timeoutEnabled ? `${this.timeoutSeconds}s` : 'disabled'}]`;
   }
 
+  /** Unrestricted text search for metadata addons without media database IDs. */
+  async searchText(query: string): Promise<(NZBSearchResult & { indexerName: string })[]> {
+    const indexerNames = this.indexers
+      .filter(indexer => indexer.enabledForSearch)
+      .map(indexer => indexer.name);
+    if (indexerNames.length === 0 || !query.trim()) return [];
+    return this.doSearch({
+      apikey: this.apiKey,
+      extended: '1',
+      t: 'search',
+      q: query.trim(),
+      indexers: indexerNames.join(','),
+    });
+  }
+
   async searchMovie(
     imdbId: string,
     title: string,

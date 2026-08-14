@@ -286,6 +286,15 @@ User accounts are protected with bcrypt password hashing and JWT tokens. The JWT
 
 Each user gets a unique manifest key embedded in their Stremio addon URL. This means multiple users can share a single Usenet Ultimate instance, each with their own addon URL. Manifest keys are validated on every streaming request independently of JWT authentication.
 
+**Manifest-Scoped Direct Title Search**
+
+Sports and event metadata addons can search UU without supplying an IMDb,
+TMDB, or TVDB ID. Send a JSON `POST` to
+`/stremio/<manifest-key>/search` with `{"queries":["Event title","Alternate title"]}`.
+UU searches its configured Newznab, Prowlarr, or NZBHydra index manager without
+category restrictions and returns normalized NZB candidates. The manifest key
+protects the route; indexer credentials remain inside UU.
+
 **HTTP Proxy Support**
 
 Route indexer API requests through an HTTP proxy to prevent IP-based rate limiting or bans. Proxy usage is toggleable per-indexer — proxy some indexers while accessing others directly. Exit IP is resolved via the ipify API and logged for verification.

@@ -54,6 +54,63 @@ export interface SearchContext {
 }
 
 /**
+ * Search the configured UU index manager using caller-supplied titles only.
+ * Unlike the normal Stremio handler this path does not resolve a media ID and
+ * does not apply Movie/TV category constraints. It is intended for sports and
+ * other event addons which already own title generation and relevance rules.
+ */
+export async function directTextSearch(queries: string[]): Promise<any[]> {
+  const titles = [...new Set(queries.map(query => query.trim()).filter(Boolean))];
+  if (titles.length === 0) return [];
+
+  let resultSets: any[][] = [];
+  if (config.indexManager === 'prowlarr' && config.prowlarrUrl && config.prowlarrApiKey) {
+    const enabled = (config.syncedIndexers || []).filter(indexer => indexer.enabledForSearch);
+    const searcher = new ProwlarrSearcher(
+      config.prowlarrUrl,
+      config.prowlarrApiKey,
+      enabled,
+      config.searchTimeoutOverride !== undefined ? true : config.prowlarrTimeoutEnabled,
+      config.searchTimeoutOverride ?? config.prowlarrTimeout,
+    );
+    resultSets = await Promise.all(titles.map(title => searcher.searchText(title)));
+  } else if (config.indexManager === 'nzbhydra' && config.nzbhydraUrl && config.nzbhydraApiKey) {
+    const enabled = (config.syncedIndexers || []).filter(indexer => indexer.enabledForSearch);
+    const searcher = new NzbhydraSearcher(
+      config.nzbhydraUrl,
+      config.nzbhydraApiKey,
+      enabled,
+      config.nzbhydraUsername,
+      config.nzbhydraPassword,
+      config.searchTimeoutOverride !== undefined ? true : config.nzbhydraTimeoutEnabled,
+      config.searchTimeoutOverride ?? config.nzbhydraTimeout,
+    );
+    resultSets = await Promise.all(titles.map(title => searcher.searchText(title)));
+  } else {
+    const enabled = config.indexers.filter(indexer => indexer.enabled);
+    resultSets = await Promise.all(titles.map(async title => {
+      const perIndexer = await Promise.all(enabled.map(async indexer => {
+        const searcher = new UsenetSearcher(applySearchTimeoutOverride(indexer));
+        const results = await searcher.search(title);
+        return results.map(result => ({ ...result, indexerName: indexer.name }));
+      }));
+      return perIndexer.flat();
+    }));
+  }
+
+  const seen = new Set<string>();
+  const merged: any[] = [];
+  for (const result of resultSets.flat()) {
+    if (!result?.title || !result?.link) continue;
+    const key = `${result.link}|${String(result.title).toLowerCase()}|${Number(result.size) || 0}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(result);
+  }
+  return merged;
+}
+
+/**
  * Search via the configured index manager (Prowlarr, NZBHydra, or Newznab).
  */
 export async function indexManagerSearch(ctx: SearchContext): Promise<any[]> {
