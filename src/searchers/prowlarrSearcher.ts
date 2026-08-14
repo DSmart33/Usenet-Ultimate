@@ -60,6 +60,21 @@ export class ProwlarrSearcher {
     return `[timeout=${this.timeoutEnabled ? `${this.timeoutSeconds}s` : 'disabled'}]`;
   }
 
+  /**
+   * Run an unrestricted aggregate text search across every enabled synced
+   * indexer. This is used by manifest-scoped integrations (for example sports
+   * metadata addons) whose titles do not have IMDb/TMDB/TVDB identifiers.
+   * Categories are deliberately omitted because sports releases are commonly
+   * filed under TV, Movies, or Other depending on the indexer.
+   */
+  async searchText(query: string): Promise<(NZBSearchResult & { indexerName: string })[]> {
+    const indexerIds = this.indexers
+      .filter(indexer => indexer.enabledForSearch)
+      .map(indexer => indexer.id);
+    if (indexerIds.length === 0 || !query.trim()) return [];
+    return this.doAggregateSearch(indexerIds, 'search', query.trim(), []);
+  }
+
   async searchMovie(
     imdbId: string,
     title: string,
