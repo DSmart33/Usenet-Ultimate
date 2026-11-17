@@ -1,9 +1,8 @@
 /**
- * Integration routes — Prowlarr & NZBHydra sync; Zyclops & EasyNews test
+ * Integration routes — Prowlarr & NZBHydra sync; EasyNews test
  *
  * Prowlarr:  POST /api/prowlarr/sync
  * NZBHydra:  POST /api/nzbhydra/sync
- * Zyclops:   POST /api/zyclops/test
  * EasyNews:  POST /api/easynews/test
  * Synced indexer management (shared by Prowlarr & NZBHydra):
  *   PUT  /api/synced-indexers/:id
@@ -280,35 +279,6 @@ export function createIntegrationRoutes(deps: IntegrationDeps): Router {
       res.json({ indexers: synced, total: indexerList.length });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
-    }
-  });
-
-  // === Zyclops Integration ===
-
-  router.post('/zyclops/test', async (req, res) => {
-    try {
-      const endpoint = req.body.endpoint ?? config.zyclopsEndpoint ?? 'https://zyclops.elfhosted.com';
-      const testUrl = `${endpoint.replace(/\/$/, '')}/api`;
-      console.log(`\u{1F916} Testing Zyclops connection: ${testUrl}`);
-
-      const response = await axios.get(testUrl, {
-        params: { t: 'caps' },
-        timeout: 10000,
-        headers: { 'User-Agent': config.userAgents?.indexerSearch || getLatestVersions().chrome },
-      });
-
-      if (response.status === 200) {
-        console.log(`\u{1F916} Zyclops test success: ${testUrl}`);
-        res.json({ success: true, message: 'Connected to Zyclops successfully!' });
-      } else {
-        res.json({ success: false, message: `Unexpected status: ${response.status}` });
-      }
-    } catch (error: any) {
-      const msg = error.response?.status
-        ? `HTTP ${error.response.status}: ${(error.response.data?.substring?.(0, 100) || 'Unknown error')}`
-        : error.message;
-      console.error(`\u{1F916} Zyclops test failed: ${msg}`);
-      res.status(500).json({ success: false, message: msg });
     }
   });
 

@@ -12,7 +12,7 @@
 import type { Config, SearchConfig, HealthCheckConfig, AutoPlayConfig, StreamDisplayConfig, SyncedIndexer, UltimateFallbackConfig } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 import { getLatestVersions } from '../versionFetcher.js';
-import { configData, ZYCLOPS_DEFAULT_ENDPOINT } from './schema.js';
+import { configData } from './schema.js';
 import { UF_TIMEOUT_DEFAULTS } from '../nzbdav/timeoutDefaults.js';
 
 /** Parse a 'true'/'false' env var string. Returns undefined if not set. */
@@ -386,9 +386,6 @@ export const config: Config = {
   },
   get nzbhydraTimeout() {
     return configData.nzbhydraTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS;
-  },
-  get zyclopsEndpoint() {
-    return configData.zyclopsEndpoint || ZYCLOPS_DEFAULT_ENDPOINT;
   },
   get easynewsEnabled() {
     return envBool('EASYNEWS_ENABLED') ?? configData.easynewsEnabled ?? false;

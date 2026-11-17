@@ -51,7 +51,6 @@ export interface UsenetIndexer {
   maxPages?: number;    // Max extra pages to fetch when pagination enabled (1-10, default 3)
   timeoutEnabled?: boolean; // Enable request timeout (default true)
   timeout?: number;         // Request timeout in seconds, 0.5s steps (1-120, default 8)
-  zyclops?: ZyclopsIndexerConfig;  // Zyclops health-check proxy settings (Newznab mode only)
 }
 
 // Discovered indexer capabilities from Newznab ?t=caps endpoint
@@ -60,32 +59,11 @@ export interface IndexerCaps {
   tvSearchParams: string[];      // e.g. ['q', 'tvdbid', 'imdbid', 'season', 'ep']
 }
 
-// Zyclops health-check proxy configuration (per-indexer, Newznab mode only)
-export interface ZyclopsIndexerConfig {
-  enabled: boolean;                    // Whether to route this indexer through Zyclops
-  backbone?: string[];                 // Usenet backbone identifiers — sent as comma-separated list to Zyclops
-  providerHosts?: string;              // NNTP provider hostnames (comma-separated) — takes priority over backbone
-  showUnknown?: boolean;               // Show results with unknown health status (default false)
-  singleIp?: boolean;                  // Single IP mode — only Zyclops IP touches upstream (default true)
-  preZyclopsState?: {                  // Snapshot of settings before Zyclops was enabled — restored on disable
-    enabled: boolean;
-    proxy: boolean;
-    healthCheck: boolean;
-  };
-}
-
 // Default timeout for indexer search requests (seconds). 15s balances
 // responsiveness on fast networks with headroom for slower indexers;
 // users can raise the per-indexer value (max 45s) or the top-level
 // Prowlarr/NZBHydra/EasyNews override.
 export const DEFAULT_INDEXER_TIMEOUT_SECONDS = 15;
-
-// Valid Zyclops backbone identifiers
-export const ZYCLOPS_BACKBONES = [
-  'abavia', 'base-ip', 'elbracht', 'eweka-internet-services',
-  'giganews', 'its-hosted', 'netnews', 'omicron',
-  'usenetexpress', 'uzo-reto'
-] as const;
 
 // Raw result origin discriminator. Library results bypass NZB-specific code paths
 // (submitNzb, getCacheKey, dead-NZB checks, health checks) — handlers gate on this.
@@ -198,7 +176,6 @@ export interface Config {
   // Accessor applies defaults — always defined at runtime.
   nzbhydraTimeoutEnabled: boolean;
   nzbhydraTimeout: number;
-  zyclopsEndpoint?: string;            // Zyclops API endpoint URL (default: https://zyclops.elfhosted.com)
   nzbdavUrl?: string;
   nzbdavApiKey?: string;
   nzbdavWebdavUrl?: string;
@@ -460,7 +437,6 @@ export interface NZBSearchResult {
     files?: string;     // Number of files
   };
   duration?: number;                   // Duration in seconds (EasyNews, or from Newznab runtime attribute)
-  zyclopsVerified?: boolean;           // True if result came through Zyclops (pre-verified healthy)
   searchExitIp?: string;               // Proxy exit IP at search time. Used by verifyProxyCircuit to detect search/grab IP mismatch. In-memory only, never persisted.
   easynewsMeta?: {      // EasyNews direct download metadata (only present for EasyNews results)
     hash: string;

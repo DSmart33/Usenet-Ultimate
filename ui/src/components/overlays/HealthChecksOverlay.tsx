@@ -4,7 +4,7 @@
 
 import { Heart, X } from 'lucide-react';
 import clsx from 'clsx';
-import type { Config, HealthChecksState, UsenetProvider, Indexer, SyncedIndexer } from '../../types';
+import type { Config, HealthChecksState, UsenetProvider, SyncedIndexer } from '../../types';
 import { ProviderManager } from '../shared/ProviderManager';
 interface HealthChecksOverlayProps {
   onClose: () => void;
@@ -369,16 +369,13 @@ export default function HealthChecksOverlay({
                 <p className="text-xs text-slate-500">Click to toggle. Disable for free-tier indexers to save grabs.</p>
                 <div className="flex flex-wrap gap-3">
                   {(indexManager === 'newznab' ? config.indexers : syncedIndexers).map((indexer) => {
-                    const isZyclopsEnabled = 'zyclops' in indexer && (indexer as Indexer).zyclops?.enabled;
-                    const isEnabled = isZyclopsEnabled ? false : (indexManager === 'newznab'
+                    const isEnabled = (indexManager === 'newznab'
                       ? healthChecks.healthCheckIndexers[indexer.name] !== false
                       : ('enabledForHealthCheck' in indexer ? indexer.enabledForHealthCheck : true));
                     return (
                       <button
                         key={indexer.name}
-                        disabled={!!isZyclopsEnabled}
                         onClick={() => {
-                          if (isZyclopsEnabled) return;
                           if (indexManager === 'newznab') {
                             setHealthChecks({
                               ...healthChecks,
@@ -392,13 +389,11 @@ export default function HealthChecksOverlay({
                         }}
                         className={clsx(
                           'relative flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-all w-16',
-                          isZyclopsEnabled
-                            ? 'border-violet-500/20 bg-violet-500/5 opacity-60 cursor-not-allowed'
-                            : isEnabled
-                              ? 'border-slate-600 bg-slate-700/50 hover:bg-slate-700'
-                              : 'border-slate-700/50 bg-slate-800/80 hover:bg-slate-800 opacity-60'
+                          isEnabled
+                            ? 'border-slate-600 bg-slate-700/50 hover:bg-slate-700'
+                            : 'border-slate-700/50 bg-slate-800/80 hover:bg-slate-800 opacity-60'
                         )}
-                        title={isZyclopsEnabled ? `${indexer.name} — verified by Zyclops 🤖` : `${indexer.name} — health checks ${isEnabled ? 'enabled' : 'disabled'}`}
+                        title={`${indexer.name} — health checks ${isEnabled ? 'enabled' : 'disabled'}`}
                       >
                         <div className="relative w-10 h-10 flex items-center justify-center">
                           {indexer.logo && !failedLogos.has(indexer.logo) ? (
@@ -407,7 +402,7 @@ export default function HealthChecksOverlay({
                               alt={indexer.name}
                               className={clsx(
                                 'w-10 h-10 rounded-lg object-contain bg-slate-700/30 p-1 transition-all',
-                                !isEnabled && !isZyclopsEnabled && 'grayscale'
+                                !isEnabled && 'grayscale'
                               )}
                               onError={(e) => {
                                 e.currentTarget.style.display = 'none';
@@ -417,25 +412,21 @@ export default function HealthChecksOverlay({
                           ) : (
                             <div className={clsx(
                               'w-10 h-10 rounded-lg flex items-center justify-center text-xs font-bold transition-all',
-                              isZyclopsEnabled ? 'bg-violet-700/30 text-violet-300' : isEnabled ? 'bg-slate-600 text-slate-200' : 'bg-slate-700 text-slate-500'
+                              isEnabled ? 'bg-slate-600 text-slate-200' : 'bg-slate-700 text-slate-500'
                             )}>
                               {indexer.name.substring(0, 2).toUpperCase()}
                             </div>
                           )}
-                          {isZyclopsEnabled ? (
-                            <div className="absolute -bottom-0.5 -right-0.5 text-[10px]" title="Verified by Zyclops">🤖</div>
-                          ) : (
-                            <div className={clsx(
-                              'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-800 transition-all',
-                              isEnabled
-                                ? 'bg-green-400 shadow-lg shadow-green-400/50'
-                                : 'bg-red-400 shadow-lg shadow-red-400/50'
-                            )} />
-                          )}
+                          <div className={clsx(
+                            'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-800 transition-all',
+                            isEnabled
+                              ? 'bg-green-400 shadow-lg shadow-green-400/50'
+                              : 'bg-red-400 shadow-lg shadow-red-400/50'
+                          )} />
                         </div>
                         <span className={clsx(
                           'text-[10px] leading-tight text-center truncate w-full',
-                          isZyclopsEnabled ? 'text-violet-400' : isEnabled ? 'text-slate-300' : 'text-slate-500'
+                          isEnabled ? 'text-slate-300' : 'text-slate-500'
                         )}>
                           {indexer.name}
                         </span>

@@ -9,7 +9,7 @@
  *  - Legacy search settings → searchConfig
  *  - Global search methods → per-indexer
  *  - Single-string search methods → arrays
- *  - Single-string zyclops backbone → array
+ *  - Zyclops removal (restore pre-Zyclops indexer state, drop settings)
  *  - One-time filter/sort reset (v1.3.0)
  *  - Stream display age/bitrate injection
  *  - Auto play minimum cache TTL enforcement
@@ -163,15 +163,44 @@ if (configData.syncedIndexers?.some((i: any) => i.movieSearchMethod && !Array.is
   console.log(`✅ Migrated single-string synced indexer search methods to arrays`);
 }
 
-// Migrate single-string zyclops backbone to array
-if (configData.indexers.some(i => i.zyclops?.backbone && !Array.isArray(i.zyclops.backbone))) {
-  for (const indexer of configData.indexers) {
-    if (indexer.zyclops?.backbone && !Array.isArray(indexer.zyclops.backbone)) {
-      (indexer.zyclops as any).backbone = [indexer.zyclops.backbone];
+// Zyclops support was removed. Indexers that were routed through it had
+// enabled/proxy/health-check state forced while Zyclops was on; restore the
+// snapshot taken when it was enabled (same semantics as turning Zyclops off
+// in the UI, including the conservative all-off default when no snapshot
+// exists), then drop the per-indexer and global Zyclops settings.
+{
+  const c = configData as any;
+  let changed = false;
+  for (const indexer of configData.indexers as any[]) {
+    if (!indexer.zyclops) continue;
+    if (indexer.zyclops.enabled) {
+      const snapshot = indexer.zyclops.preZyclopsState;
+      const restoredEnabled = snapshot?.enabled ?? false;
+      const restoredProxy = snapshot?.proxy ?? false;
+      const restoredHealthCheck = snapshot?.healthCheck ?? false;
+      indexer.enabled = restoredEnabled;
+      if (!c.proxyIndexers) c.proxyIndexers = {};
+      c.proxyIndexers[indexer.name] = restoredProxy;
+      if (c.healthChecks?.healthCheckIndexers) {
+        c.healthChecks.healthCheckIndexers[indexer.name] = restoredHealthCheck;
+      }
+      const logFn = snapshot ? console.log : console.warn;
+      logFn(`⚠️  Zyclops support removed: ${indexer.name} now queries the indexer directly (enabled=${restoredEnabled}, proxy=${restoredProxy}, healthCheck=${restoredHealthCheck}${snapshot ? '' : ' [defaults, no snapshot]'})`);
     }
+    delete indexer.zyclops;
+    changed = true;
   }
-  saveConfigFile(configData);
-  console.log(`✅ Migrated single-string zyclops backbone to array for ${configData.indexers.length} indexer(s)`);
+  if (c.zyclopsEndpoint !== undefined) {
+    delete c.zyclopsEndpoint;
+    changed = true;
+  }
+  if (changed) {
+    saveConfigFile(configData);
+    console.log('✅ Removed Zyclops settings from config');
+  }
+  if (process.env.ZYCLOPS_ENDPOINT) {
+    console.warn('⚠️  ZYCLOPS_ENDPOINT is set but ignored: Zyclops support was removed.');
+  }
 }
 
 // One-time filter reset: 540p was added in this release — its absence signals pre-update filters

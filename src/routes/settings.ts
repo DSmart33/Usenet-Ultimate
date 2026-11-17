@@ -46,7 +46,6 @@ function buildConfigResponse(config: Config) {
       maxPages: i.maxPages,
       timeoutEnabled: i.timeoutEnabled,
       timeout: i.timeout,
-      zyclops: i.zyclops,
     })),
     cacheEnabled: config.cacheEnabled,
     cacheTTL: config.cacheTTL,
@@ -105,7 +104,6 @@ function buildConfigResponse(config: Config) {
     streamDisplayConfig: config.streamDisplayConfig,
     syncedIndexers: config.syncedIndexers,
     indexerPriority: config.indexerPriority,
-    zyclopsEndpoint: config.zyclopsEndpoint,
   };
 }
 

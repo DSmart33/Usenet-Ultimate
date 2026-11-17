@@ -14,7 +14,6 @@ import {
   FastForward,
   Monitor,
   ScrollText,
-  Bot,
   Trophy,
   Heart,
   Crown,
@@ -600,57 +599,6 @@ export function DashboardTab({
                     </div>
                     <div className="text-3xl font-bold group-hover:text-emerald-400 group-active:text-emerald-400 transition-colors">Live View</div>
                     <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">Click to view logs &rarr;</div>
-                  </div>
-                ),
-                zyclops: (
-                  <div
-                    key="zyclops"
-                    draggable
-                    onDragStart={() => handleCardDragStart('zyclops')}
-                    onDragOver={(e) => handleCardDragOver(e, 'zyclops')}
-                    onDrop={(e) => handleCardDrop(e, 'zyclops')}
-                    onDragEnd={handleCardDragEnd}
-                    className={clsx(
-                      "card p-4 group transition-all",
-                      indexManager !== 'newznab'
-                        ? "opacity-50 cursor-not-allowed"
-                        : "cursor-move hover:!border-violet-400/50 hover:!shadow-violet-400/30 active:!border-violet-400/50 active:!shadow-violet-400/30",
-                      isDragging && "opacity-50 scale-95",
-                      isOver && "ring-2 ring-violet-400 scale-105"
-                    )}
-                    onClick={() => {
-                      if (!draggedCard && indexManager === 'newznab') setActiveOverlay('zyclops');
-                    }}
-                  >
-                    <div className="flex items-center gap-3 mb-2">
-                      <GripVertical className="w-4 h-4 text-slate-600" />
-                      <div className="w-7 h-7 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center group-hover:scale-110 group-active:scale-110 transition-transform">
-                        <Bot className="w-4 h-4 text-violet-400" />
-                      </div>
-                      <span className="text-slate-400 text-sm">Zyclops</span>
-                    </div>
-                    {indexManager !== 'newznab' ? (
-                      <>
-                        <div className="text-3xl font-bold text-slate-500">Unavailable</div>
-                        <div className="mt-1">
-                          <span className="text-xs text-amber-400/80">Zyclops is only supported with Newznab</span>
-                        </div>
-                      </>
-                    ) : (() => {
-                      const zyclopsCount = config?.indexers.filter(i => i.zyclops?.enabled).length || 0;
-                      return (
-                        <>
-                          <div className="text-3xl font-bold group-hover:text-violet-400 group-active:text-violet-400 transition-colors">
-                            {zyclopsCount > 0 ? `${zyclopsCount} Active` : 'Disabled'}
-                          </div>
-                          <div className="text-xs text-slate-500 mt-1 group-hover:text-slate-400 group-active:text-slate-400 transition-colors">
-                            {zyclopsCount > 0
-                              ? `${zyclopsCount} indexer${zyclopsCount !== 1 ? 's' : ''} via Zyclops proxy`
-                              : 'Click to configure →'}
-                          </div>
-                        </>
-                      );
-                    })()}
                   </div>
                 ),
                 stats: (

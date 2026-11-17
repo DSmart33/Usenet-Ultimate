@@ -178,9 +178,7 @@ export function buildStreams(ctx: StreamBuildContext): StreamBuildOutput {
       const s = healthStatus.status;
       if (s === 'verified' || s === 'verified_stored' || s === 'verified_archive') {
         // Use distinct icons for special verification sources
-        statusBadge = healthStatus.message === 'Zyclops' ? '🤖'
-          : healthStatus.message === 'Library' ? '📚'
-          : '✅';
+        statusBadge = healthStatus.message === 'Library' ? '📚' : '✅';
       } else if (s === 'blocked') {
         statusBadge = '🚫';
       } else {

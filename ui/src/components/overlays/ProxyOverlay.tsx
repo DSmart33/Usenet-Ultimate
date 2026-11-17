@@ -3,7 +3,7 @@
 
 import { Shield, X, Server } from 'lucide-react';
 import clsx from 'clsx';
-import type { Config, Indexer, SyncedIndexer } from '../../types';
+import type { Config, SyncedIndexer } from '../../types';
 
 interface ProxyOverlayProps {
   onClose: () => void;
@@ -153,14 +153,11 @@ export function ProxyOverlay({
               </p>
               <div className="flex flex-wrap gap-3">
                 {(indexManager === 'newznab' ? config.indexers : syncedIndexers).map((indexer) => {
-                  const isZyclopsEnabled = 'zyclops' in indexer && (indexer as Indexer).zyclops?.enabled;
-                  const isEnabled = isZyclopsEnabled ? false : proxyIndexers[indexer.name] !== false;
+                  const isEnabled = proxyIndexers[indexer.name] !== false;
                   return (
                     <button
                       key={indexer.name}
-                      disabled={!!isZyclopsEnabled}
                       onClick={() => {
-                        if (isZyclopsEnabled) return;
                         setProxyIndexers({
                           ...proxyIndexers,
                           [indexer.name]: !isEnabled
@@ -168,13 +165,11 @@ export function ProxyOverlay({
                       }}
                       className={clsx(
                         'relative flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-all w-16',
-                        isZyclopsEnabled
-                          ? 'border-violet-500/20 bg-violet-500/5 opacity-60 cursor-not-allowed'
-                          : isEnabled
-                            ? 'border-slate-600 bg-slate-700/50 hover:bg-slate-700'
-                            : 'border-slate-700/50 bg-slate-800/80 hover:bg-slate-800 opacity-60'
+                        isEnabled
+                          ? 'border-slate-600 bg-slate-700/50 hover:bg-slate-700'
+                          : 'border-slate-700/50 bg-slate-800/80 hover:bg-slate-800 opacity-60'
                       )}
-                      title={isZyclopsEnabled ? `${indexer.name} — managed by Zyclops 🤖` : `${indexer.name} — proxy ${isEnabled ? 'enabled' : 'disabled'}`}
+                      title={`${indexer.name} — proxy ${isEnabled ? 'enabled' : 'disabled'}`}
                     >
                       <div className="relative w-10 h-10 flex items-center justify-center">
                         {indexer.logo && !failedLogos.has(indexer.logo) ? (
@@ -198,20 +193,16 @@ export function ProxyOverlay({
                             {indexer.name.substring(0, 2).toUpperCase()}
                           </div>
                         )}
-                        {isZyclopsEnabled ? (
-                          <div className="absolute -bottom-0.5 -right-0.5 text-[10px]" title="Managed by Zyclops">🤖</div>
-                        ) : (
-                          <div className={clsx(
-                            'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-800 transition-all',
-                            isEnabled
-                              ? 'bg-green-400 shadow-lg shadow-green-400/50'
-                              : 'bg-red-400 shadow-lg shadow-red-400/50'
-                          )} />
-                        )}
+                        <div className={clsx(
+                          'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-800 transition-all',
+                          isEnabled
+                            ? 'bg-green-400 shadow-lg shadow-green-400/50'
+                            : 'bg-red-400 shadow-lg shadow-red-400/50'
+                        )} />
                       </div>
                       <span className={clsx(
                         'text-[10px] leading-tight text-center truncate w-full',
-                        isZyclopsEnabled ? 'text-violet-400' : isEnabled ? 'text-slate-300' : 'text-slate-500'
+                        isEnabled ? 'text-slate-300' : 'text-slate-500'
                       )}>
                         {indexer.name}
                       </span>

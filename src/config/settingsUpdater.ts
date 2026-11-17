@@ -8,7 +8,6 @@
 import type { UsenetProvider, SearchConfig, AutoPlayConfig, SyncedIndexer, StreamDisplayConfig } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS, SERIES_PACK_KEYWORDS } from '../types.js';
 import { configData, saveConfigFile } from './schema.js';
-import { enforceZyclopsEnabled } from './indexerCrud.js';
 import { validateRulesBlock } from '../rules/importers.js';
 
 // Clamp a timeout value to the integer-seconds domain. Rejects non-finite/non-number input.
@@ -54,7 +53,6 @@ export function updateSettings(settings: {
   nzbhydraPassword?: string;
   nzbhydraTimeoutEnabled?: boolean;
   nzbhydraTimeout?: number;
-  zyclopsEndpoint?: string;
   nzbdavUrl?: string;
   nzbdavApiKey?: string;
   nzbdavWebdavUrl?: string;
@@ -196,9 +194,6 @@ export function updateSettings(settings: {
       if (nextSeconds !== undefined) configData.nzbhydraTimeout = nextSeconds;
     }
     logTimeoutChange('NZBHydra', prevEnabled, prevSeconds, configData.nzbhydraTimeoutEnabled, configData.nzbhydraTimeout);
-  }
-  if (settings.zyclopsEndpoint !== undefined) {
-    configData.zyclopsEndpoint = settings.zyclopsEndpoint;
   }
   if (settings.nzbdavUrl !== undefined) {
     configData.nzbdavUrl = settings.nzbdavUrl;
@@ -452,11 +447,6 @@ export function updateSettings(settings: {
   }
   if (ufEnableTransitioned || ufIndexersChanged) {
     import('../addon/index.js').then(m => m.clearSearchCache()).catch(() => {});
-  }
-
-  // Mutual exclusion: force enabled + disable proxy/health checks for Zyclops-enabled indexers
-  for (const indexer of configData.indexers) {
-    enforceZyclopsEnabled(indexer, 'settings save');
   }
 
   saveConfigFile(configData);

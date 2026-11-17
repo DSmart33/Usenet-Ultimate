@@ -10,7 +10,7 @@
  */
 
 // 1. Schema first — loads config from disk and initialises configData
-export { configData, saveConfigFile, CONFIG_FILE, ZYCLOPS_DEFAULT_ENDPOINT } from './schema.js';
+export { configData, saveConfigFile, CONFIG_FILE } from './schema.js';
 export type { ConfigData } from './schema.js';
 
 // 2. Migrations — runs all one-time data migrations (side-effect import)
