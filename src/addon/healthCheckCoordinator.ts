@@ -5,7 +5,7 @@
  *   - Smart: batch-based, stops when a healthy result is found
  *   - Fixed: checks a fixed number of top results
  *
- * Also handles auto-marking EasyNews/Zyclops results as verified,
+ * Also handles auto-marking EasyNews results as verified,
  * filtering blocked results, and auto-queuing to NZBDav.
  */
 
@@ -46,7 +46,7 @@ export async function markLibraryHits(
   // may have been deleted from WebDAV since the cached search ran, so trusting
   // the prior `Library` verdict on cache hit leaves a stale 📚 icon on tiles
   // pointing at files that no longer exist. Non-library health results
-  // (NNTP/Zyclops verdicts) are stable; skip those.
+  // (NNTP verdicts) are stable; skip those.
   const unchecked = candidates.filter(r => {
     const h = healthResults.get(r.link);
     return !h || h.message === 'Library';
@@ -112,7 +112,7 @@ export async function coordinateHealthChecks(
   ctx: HealthCheckContext
 ): Promise<{ healthResults: Map<string, HealthCheckResult>; filteredResults: any[] }> {
   let { allResults } = ctx;
-  // Library-origin results are pre-extracted files on disk; skip NNTP/Zyclops/dead-NZB
+  // Library-origin results are pre-extracted files on disk; skip NNTP/dead-NZB
   // checks (they'd crash on `library:`-prefixed URLs and are semantically meaningless
   // for already-resolved files). Library results pass through with no health status,
   // treated as inherently healthy by downstream stages.
@@ -127,7 +127,7 @@ export async function coordinateHealthChecks(
 
   const enabledProviders = config.healthChecks?.providers?.filter(p => p.enabled) || [];
   if (!config.healthChecks?.enabled || enabledProviders.length === 0) {
-    // No NNTP health checks — still auto-mark EasyNews/Zyclops
+    // No NNTP health checks — still auto-mark EasyNews
     autoMarkRemainingResults(allResults, healthResults);
     return { healthResults, filteredResults: [...libraryResults, ...allResults] };
   }
@@ -171,7 +171,7 @@ export async function coordinateHealthChecks(
     }
   }
 
-  // Helper: auto-mark EasyNews/Zyclops results as healthy and filter eligible results for NNTP check
+  // Helper: auto-mark EasyNews results as healthy and filter eligible results for NNTP check
   const processCandidate = (candidate: typeof allResults[0]) => {
     if (candidate.easynewsMeta) {
       if (shouldHealthCheckEasynews) {
@@ -181,12 +181,6 @@ export async function coordinateHealthChecks(
         healthResults.set(candidate.link, { status: 'verified', message: 'EasyNews', playable: true });
       }
       return false; // Not eligible for NNTP check
-    }
-    if (candidate.zyclopsVerified) {
-      if (!healthResults.has(candidate.link)) {
-        healthResults.set(candidate.link, { status: 'verified', message: 'Zyclops', playable: true });
-      }
-      return false; // Already verified by Zyclops — not eligible for NNTP check
     }
     // Skip results that already have health data (from cached pre-existing results)
     if (healthResults.has(candidate.link)) return false;
@@ -263,14 +257,10 @@ export async function coordinateHealthChecks(
       const toCheck = batchCandidates.filter(processCandidate);
 
       const easynewsCount = batchCandidates.filter(r => r.easynewsMeta).length;
-      const zyclopsCount = batchCandidates.filter(r => r.zyclopsVerified).length;
       if (easynewsCount > 0 && !shouldHealthCheckEasynews) {
         console.log(`✅ Auto-verified ${easynewsCount} EasyNews result(s) in batch ${batch + 1}`);
       } else if (easynewsCount > 0) {
         console.log(`🔍 Including ${easynewsCount} EasyNews result(s) in health check batch ${batch + 1}`);
-      }
-      if (zyclopsCount > 0) {
-        console.log(`🤖 Auto-verified ${zyclopsCount} Zyclops result(s) in batch ${batch + 1}`);
       }
       // Library pre-check: skip NNTP for candidates already in NZBDav
       if (nzbdavConfig && toCheck.length > 0) {
@@ -374,14 +364,10 @@ export async function coordinateHealthChecks(
     const nonEasynewsToCheck = topN.filter(processCandidate);
 
     const easynewsCount = topN.filter(r => r.easynewsMeta).length;
-    const zyclopsCount = topN.filter(r => r.zyclopsVerified).length;
     if (easynewsCount > 0 && !shouldHealthCheckEasynews) {
       console.log(`✅ Auto-verified ${easynewsCount} EasyNews result(s) in top ${topN.length}`);
     } else if (easynewsCount > 0) {
       console.log(`🔍 Including ${easynewsCount} EasyNews result(s) in health check`);
-    }
-    if (zyclopsCount > 0) {
-      console.log(`🤖 Auto-verified ${zyclopsCount} Zyclops result(s) in top ${topN.length}`);
     }
     // Library pre-check: skip NNTP for candidates already in NZBDav
     if (nzbdavConfig && nonEasynewsToCheck.length > 0) {
@@ -451,10 +437,9 @@ export async function coordinateHealthChecks(
     }
   }
 
-  // Also auto-mark any remaining EasyNews/Zyclops results (beyond top N) as healthy
+  // Also auto-mark any remaining EasyNews results (beyond top N) as healthy
   // Skip auto-marking EasyNews if health checks are enabled for them
   let remainingEasynews = 0;
-  let remainingZyclops = 0;
   for (const r of allResults) {
     if (r.easynewsMeta && !shouldHealthCheckEasynews && !healthResults.has(r.link)) {
       healthResults.set(r.link, {
@@ -464,20 +449,9 @@ export async function coordinateHealthChecks(
       });
       remainingEasynews++;
     }
-    if (r.zyclopsVerified && !healthResults.has(r.link)) {
-      healthResults.set(r.link, {
-        status: 'verified',
-        message: 'Zyclops',
-        playable: true,
-      });
-      remainingZyclops++;
-    }
   }
   if (remainingEasynews > 0) {
     console.log(`✅ Auto-verified ${remainingEasynews} remaining EasyNews result(s) beyond inspection window`);
-  }
-  if (remainingZyclops > 0) {
-    console.log(`🤖 Auto-verified ${remainingZyclops} remaining Zyclops result(s) beyond inspection window`);
   }
 
   // Write blocked NNTP results to dead NZB cache
@@ -510,7 +484,7 @@ export async function coordinateHealthChecks(
 }
 
 /**
- * Auto-mark EasyNews and Zyclops results as verified (even without NNTP health checks).
+ * Auto-mark EasyNews results as verified (even without NNTP health checks).
  * Called both when health checks are disabled and as a final pass after health checks.
  */
 export function autoMarkRemainingResults(
@@ -521,9 +495,6 @@ export function autoMarkRemainingResults(
   for (const r of allResults) {
     if (r.easynewsMeta && !skipEasynewsAutoMark && !healthResults.has(r.link)) {
       healthResults.set(r.link, { status: 'verified', message: 'EasyNews', playable: true });
-    }
-    if (r.zyclopsVerified && !healthResults.has(r.link)) {
-      healthResults.set(r.link, { status: 'verified', message: 'Zyclops', playable: true });
     }
   }
 }

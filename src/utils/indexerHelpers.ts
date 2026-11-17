@@ -1,11 +1,8 @@
 /**
  * Indexer helper utilities
  *
- * Shared logic for normalizing indexer URLs, detecting Zyclops conflicts,
- * and matching indexer names to known logo presets.
+ * Shared logic for matching indexer names to known logo presets.
  */
-
-import type { UsenetIndexer } from '../types.js';
 
 // Known indexer presets for logo matching (name -> logo URL)
 export const INDEXER_LOGO_MAP: Record<string, string> = {
@@ -23,34 +20,6 @@ export const INDEXER_LOGO_MAP: Record<string, string> = {
   'tabularasa': '/api/favicon?url=https://www.tabula-rasa.pw/favicon.ico',
   'usenetcrawler': '/api/favicon?url=https://www.usenet-crawler.com/templates/dark/images/favicon.ico',
 };
-
-/** Normalize indexer URL for duplicate comparison (strip protocol, trailing slashes, /api suffix) */
-export function normalizeIndexerUrl(url: string): string {
-  return url.replace(/^https?:\/\//, '').replace(/\/+$/, '').replace(/\/api$/, '').toLowerCase();
-}
-
-/**
- * Check for duplicate indexer URLs when Zyclops is involved (SAFETY: prevents multi-IP bans).
- * Returns an error message string if a conflict is found, or null if safe.
- */
-export function checkZyclopsUrlConflict(
-  url: string,
-  zyclopsEnabled: boolean,
-  existingIndexers: UsenetIndexer[],
-  excludeName?: string,
-): string | null {
-  const normalized = normalizeIndexerUrl(url);
-  const existing = existingIndexers.filter(i => i.name !== excludeName);
-  const match = existing.find(i => normalizeIndexerUrl(i.url) === normalized);
-  if (!match) return null;
-  if (zyclopsEnabled && !match.zyclops?.enabled) {
-    return `Another instance of this indexer (${match.name}) exists without Zyclops. Having two instances — one with and one without Zyclops — would expose multiple IPs and risk a ban. Enable Zyclops on both or remove the duplicate.`;
-  }
-  if (!zyclopsEnabled && match.zyclops?.enabled) {
-    return `This indexer URL is already configured with Zyclops (${match.name}). Adding a non-Zyclops instance would expose multiple IPs and risk a ban.`;
-  }
-  return null;
-}
 
 export function matchIndexerLogo(name: string, baseUrl?: string): string | undefined {
   // Normalize: lowercase, strip spaces/hyphens/dots

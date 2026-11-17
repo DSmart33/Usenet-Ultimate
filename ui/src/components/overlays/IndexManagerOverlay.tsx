@@ -2106,9 +2106,7 @@ export function IndexManagerOverlay({
                               <div className={clsx(
                                 'rounded-full transition-all',
                                 indexer.logo && !failedLogos.has(indexer.logo) ? 'absolute w-2 h-2 bottom-0 right-0' : 'w-3 h-3',
-                                indexer.zyclops?.enabled
-                                  ? 'bg-violet-400 shadow-lg shadow-violet-400/50 animate-pulse'
-                                  : indexer.enabled ? 'bg-green-400 shadow-lg shadow-green-400/50 animate-pulse' : 'bg-slate-600'
+                                indexer.enabled ? 'bg-green-400 shadow-lg shadow-green-400/50 animate-pulse' : 'bg-slate-600'
                               )} />
                             </div>
                             <div className="min-w-0 flex-1">
@@ -2118,7 +2116,6 @@ export function IndexManagerOverlay({
                           </div>
                           <div className="flex items-center gap-2">
                             <button
-                              disabled={!!indexer.zyclops?.enabled}
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 try {
@@ -2134,16 +2131,13 @@ export function IndexManagerOverlay({
                               }}
                               className={clsx(
                                 'px-3 py-1 rounded-full text-xs font-medium flex-shrink-0 transition-colors',
-                                indexer.zyclops?.enabled
-                                  ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30 cursor-not-allowed opacity-60'
-                                  : indexer.enabled
-                                    ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30 cursor-pointer'
-                                    : 'bg-slate-600/20 text-slate-400 border border-slate-600/30 hover:bg-slate-600/30 cursor-pointer'
+                                indexer.enabled
+                                  ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30 cursor-pointer'
+                                  : 'bg-slate-600/20 text-slate-400 border border-slate-600/30 hover:bg-slate-600/30 cursor-pointer'
                               )}
-                              title={indexer.zyclops?.enabled ? `${indexer.name} — managed by Zyclops 🤖` : undefined}
-                              aria-label={indexer.zyclops?.enabled ? `${indexer.name} is managed by Zyclops` : `Toggle ${indexer.name} ${indexer.enabled ? 'off' : 'on'}`}
+                              aria-label={`Toggle ${indexer.name} ${indexer.enabled ? 'off' : 'on'}`}
                             >
-                              {indexer.zyclops?.enabled ? 'Zyclops 🤖' : indexer.enabled ? 'Active' : 'Inactive'}
+                              {indexer.enabled ? 'Active' : 'Inactive'}
                             </button>
                             <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
                               <button

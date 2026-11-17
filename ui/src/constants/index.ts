@@ -6,12 +6,6 @@ import type { StreamDisplayConfig, MockStreamData } from '../types';
 // Mirrors DEFAULT_INDEXER_TIMEOUT_SECONDS in src/types.ts. Keep in sync.
 export const DEFAULT_INDEXER_TIMEOUT_SECONDS = 15;
 
-export const ZYCLOPS_BACKBONES = [
-  'abavia', 'base-ip', 'elbracht', 'eweka-internet-services',
-  'giganews', 'its-hosted', 'netnews', 'omicron',
-  'usenetexpress', 'uzo-reto'
-] as const;
-
 export const MAX_TITLE_ROWS = 8;
 
 export const DEFAULT_STREAM_DISPLAY: StreamDisplayConfig = {
@@ -179,7 +173,7 @@ export const DEFAULT_FILTERS = {
   allowMultiEpisodeFiles: true,
 };
 
-export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'zyclops', 'ultimateFallback', 'healthChecks', 'nzbDatabase', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
+export const DEFAULT_CARD_ORDER = ['streaming', 'indexManager', 'proxy', 'ultimateFallback', 'healthChecks', 'nzbDatabase', 'autoPlay', 'streamDisplay', 'cache', 'filters', 'userAgent', 'status', 'stats', 'power'];
 
 export const DEFAULT_ULTIMATE_FALLBACK = {
   enabled: false,

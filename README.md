@@ -171,10 +171,6 @@ Two health check modes are available:
 - **Fixed mode**: Check the top N NZBs in parallel. Simple and predictable.
 - **Smart mode**: Check small batches of 1–3 NZBs. If a healthy result is found, stop immediately. If not, run additional batches. This minimizes NNTP connections while still finding good content quickly.
 
-**Zyclops Integration**
-
-Per-indexer Zyclops proxy support for backbone-level pre-verification. When enabled, search requests are routed through the Zyclops API, which pre-checks article availability across major Usenet backbones (usenetexpress, eweka, etc.). Results come back pre-marked as verified, reducing the need for your own NNTP health checks.
-
 **NZB Database Pre-Check**
 
 Before running NNTP checks, health checks consult the NZB Database (the same caches used by the streaming pipeline). NZBs previously streamed successfully are instantly marked as verified, and NZBs that previously failed are instantly blocked — skipping expensive NNTP connections entirely. Blocked results from health checks are also written back to the dead NZB database so future searches skip them instantly.
@@ -514,7 +510,6 @@ These are migrated into `config/config.json` on first startup. After that, manag
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ZYCLOPS_ENDPOINT` | `https://zyclops.elfhosted.com` | Zyclops verification endpoint. Override for self-hosted |
 | `HEALTH_CHECK_ENABLED` | `false` | Enable NNTP health checks |
 | `HEALTH_CHECK_NNTP_HOST` | — | NNTP server hostname (auto-enables health checks when set) |
 | `HEALTH_CHECK_NNTP_PORT` | `563` | NNTP server port |

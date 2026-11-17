@@ -93,30 +93,15 @@ export async function parseNewznabXml(xmlData: string): Promise<NZBSearchResult[
 export async function fetchIndexerCaps(
   url: string,
   apiKey: string,
-  indexerName?: string,
-  zyclops?: import('../types.js').ZyclopsIndexerConfig
+  indexerName?: string
 ): Promise<IndexerCaps> {
   const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
 
-  // Determine effective URL: use Zyclops proxy if enabled
-  let effectiveUrl = url;
-  let extraParams: Record<string, string> = {};
-  const isZyclops = zyclops?.enabled === true;
-
-  if (isZyclops) {
-    const zyclopsEndpoint = config.zyclopsEndpoint || 'https://zyclops.elfhosted.com';
-    effectiveUrl = `${zyclopsEndpoint.replace(/\/$/, '')}/api`;
-    extraParams = { target: url };
-    if (zyclops.backbone?.length) extraParams.backbone = zyclops.backbone.join(',');
-    if (zyclops.providerHosts) extraParams.provider_host = zyclops.providerHosts;
-    console.log(`🤖 Fetching caps via Zyclops for ${indexerName || 'unknown'}: ${url} → ${effectiveUrl}`);
-  }
-
-  const response = await axios.get(effectiveUrl, {
-    params: { t: 'caps', apikey: apiKey, ...extraParams },
-    timeout: isZyclops ? 30000 : 10000,
+  const response = await axios.get(url, {
+    params: { t: 'caps', apikey: apiKey },
+    timeout: 10000,
     headers: { 'User-Agent': userAgent },
-    ...(isZyclops ? {} : getAxiosProxyConfig(url, indexerName)),
+    ...getAxiosProxyConfig(url, indexerName),
   });
 
   const parsed = await parseStringPromise(response.data);

@@ -2,8 +2,8 @@
  * UsenetSearcher class — wraps a single Newznab indexer.
  *
  * Provides generic search, movie search (IMDB/TMDB/TVDB/text), and
- * TV show search (IMDB/TVDB/TVmaze/text) with pagination, Zyclops
- * routing, season-pack detection, and text-match filtering.
+ * TV show search (IMDB/TVDB/TVmaze/text) with pagination,
+ * season-pack detection, and text-match filtering.
  */
 
 import axios from 'axios';
@@ -51,82 +51,38 @@ export class UsenetSearcher {
     return `[timeout=${s === undefined ? 'disabled' : `${s}s`}]`;
   }
 
-  /**
-   * Compute the effective URL and extra params for this indexer.
-   * When Zyclops is enabled, ALL requests go through the Zyclops endpoint.
-   * The original indexer URL becomes the `target` parameter.
-   * SAFETY: The indexer URL must NEVER be used directly when Zyclops is enabled.
-   */
-  private getEffectiveEndpoint(): {
-    url: string;
-    extraParams: Record<string, string>;
-    isZyclops: boolean;
-  } {
-    const zyclops = this.indexer.zyclops;
-    if (!zyclops?.enabled) {
-      return { url: this.indexer.url, extraParams: {}, isZyclops: false };
-    }
-
-    const zyclopsEndpoint = config.zyclopsEndpoint || 'https://zyclops.elfhosted.com';
-    const zyclopsUrl = `${zyclopsEndpoint.replace(/\/$/, '')}/api`;
-
-    const extraParams: Record<string, string> = {
-      target: this.indexer.url,
-    };
-
-    if (zyclops.backbone?.length) {
-      extraParams.backbone = zyclops.backbone.join(',');
-    }
-    if (zyclops.providerHosts) {
-      extraParams.provider_host = zyclops.providerHosts;
-    }
-
-    if (zyclops.showUnknown === true) {
-      extraParams.show_unknown = 'true';
-    }
-    if (zyclops.singleIp === false) {
-      extraParams.single_ip = 'false';
-    }
-
-    slog(`🤖 Zyclops routing ${this.indexer.name}: ${this.indexer.url} → ${zyclopsUrl} ${JSON.stringify(extraParams)}`);
-
-    return { url: zyclopsUrl, extraParams, isZyclops: true };
-  }
-
   async search(query: string, category?: string, paginationOverride?: { enabled: boolean; maxPages: number }): Promise<NZBSearchResult[]> {
     try {
-      const { url: effectiveUrl, extraParams, isZyclops } = this.getEffectiveEndpoint();
+      const effectiveUrl = this.indexer.url;
 
       const params: any = {
         t: 'search',
         apikey: this.indexer.apiKey,
         q: query,
         extended: 1,
-        ...extraParams,
       };
 
       if (category) {
         params.cat = category;
       }
 
-      slog(`🔍 Searching ${this.indexer.name}: ${effectiveUrl}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
+      slog(`🔍 Searching ${this.indexer.name}: ${effectiveUrl} ${this.timeoutLabel()}`);
       slog(`   Query: "${query}", Category: ${category || 'all'}`);
 
       const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
 
-      // SAFETY: Skip proxy when Zyclops is enabled, Zyclops IS the proxy.
       // Double-probe (pre/post) and stamp only on agreement; if the VPN
       // rotated during the axios call, neither IP is trustworthy and we
       // leave searchExitIp undefined so the grab fails closed instead of
       // racing the verifier into a false match. See consensusSearchIp.
-      const preIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'search', this.indexer.name, true);
+      const preIp = await probeSearchExitIp(this.indexer.url, 'search', this.indexer.name, true);
       const response = await axios.get(effectiveUrl, {
         params,
         timeout: this.getTimeoutMs(),
         headers: { 'User-Agent': userAgent },
-        ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
+        ...getAxiosProxyConfig(this.indexer.url, this.indexer.name),
       });
-      const postIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'search', this.indexer.name);
+      const postIp = await probeSearchExitIp(this.indexer.url, 'search', this.indexer.name);
       const searchExitIp = consensusSearchIp(preIp, postIp, this.indexer.name, 'search');
 
       slog(`✅ Response received (${response.status}), parsing...`);
@@ -134,13 +90,6 @@ export class UsenetSearcher {
       const { results, total } = await parseNewznabXmlWithMeta(response.data);
       slog(`   📦 Found ${results.length} results${total ? ` (total: ${total})` : ''}`);
 
-      // Tag results from Zyclops as pre-verified healthy
-      if (isZyclops) {
-        for (const result of results) {
-          result.zyclopsVerified = true;
-        }
-        slog(`🤖 Tagged ${results.length} result(s) as Zyclops-verified for ${this.indexer.name}`);
-      }
       if (searchExitIp) {
         for (const result of results) result.searchExitIp = searchExitIp;
       }
@@ -156,25 +105,19 @@ export class UsenetSearcher {
           try {
             // Double-probe per page so a rotation during this page's axios
             // call can't stamp the wrong IP. See consensusSearchIp.
-            const pagePreIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'search', this.indexer.name, true);
+            const pagePreIp = await probeSearchExitIp(this.indexer.url, 'search', this.indexer.name, true);
             const pageResponse = await axios.get(effectiveUrl, {
               params: { ...params, offset: currentOffset },
               timeout: this.getTimeoutMs(),
               headers: { 'User-Agent': userAgent },
-              ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
+              ...getAxiosProxyConfig(this.indexer.url, this.indexer.name),
             });
-            const pagePostIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'search', this.indexer.name);
+            const pagePostIp = await probeSearchExitIp(this.indexer.url, 'search', this.indexer.name);
             const pageExitIp = consensusSearchIp(pagePreIp, pagePostIp, this.indexer.name, 'search');
 
             const pageData = await parseNewznabXmlWithMeta(pageResponse.data);
             if (pageData.results.length === 0) break;
 
-            // Tag paginated results from Zyclops
-            if (isZyclops) {
-              for (const result of pageData.results) {
-                result.zyclopsVerified = true;
-              }
-            }
             if (pageExitIp) {
               for (const result of pageData.results) result.searchExitIp = pageExitIp;
             }
@@ -237,21 +180,20 @@ export class UsenetSearcher {
       }
 
       // ID-based search (IMDB, TMDB, TVDB)
-      const { url: effectiveUrl, extraParams, isZyclops } = this.getEffectiveEndpoint();
+      const effectiveUrl = this.indexer.url;
 
       const params: any = {
         t: 'movie',  // movie-search function
         apikey: this.indexer.apiKey,
         extended: 1,
-        ...extraParams,
       };
 
       if (externalId) {
         params[externalId.idParam] = externalId.idValue;
-        slog(`🔍 Movie search for ${externalId.idParam}: ${externalId.idValue}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
+        slog(`🔍 Movie search for ${externalId.idParam}: ${externalId.idValue} ${this.timeoutLabel()}`);
       } else if (imdbId.startsWith('tt')) {
         params.imdbid = imdbId.replace('tt', '');  // Remove 'tt' prefix
-        slog(`🔍 Movie search for IMDB: ${imdbId}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
+        slog(`🔍 Movie search for IMDB: ${imdbId} ${this.timeoutLabel()}`);
       } else {
         slog(`⚠️  Movie imdb-method search skipped: no externalId and imdbId "${imdbId}" is not a tt-prefixed IMDB id`);
         return [];
@@ -260,16 +202,15 @@ export class UsenetSearcher {
 
       const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
 
-      // SAFETY: Skip proxy when Zyclops is enabled, Zyclops IS the proxy.
       // Double-probe (pre/post) and stamp only on agreement. See consensusSearchIp.
-      const preIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'movie-search', this.indexer.name, true);
+      const preIp = await probeSearchExitIp(this.indexer.url, 'movie-search', this.indexer.name, true);
       const response = await axios.get(effectiveUrl, {
         params,
         timeout: this.getTimeoutMs(),
         headers: { 'User-Agent': userAgent },
-        ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
+        ...getAxiosProxyConfig(this.indexer.url, this.indexer.name),
       });
-      const postIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'movie-search', this.indexer.name);
+      const postIp = await probeSearchExitIp(this.indexer.url, 'movie-search', this.indexer.name);
       const searchExitIp = consensusSearchIp(preIp, postIp, this.indexer.name, 'movie-search');
 
       slog(`✅ Response received (${response.status}), parsing...`);
@@ -277,13 +218,6 @@ export class UsenetSearcher {
       const { results, total } = await parseNewznabXmlWithMeta(response.data);
       slog(`   📦 Found ${results.length} results${total ? ` (total: ${total})` : ''}`);
 
-      // Tag results from Zyclops as pre-verified healthy
-      if (isZyclops) {
-        for (const result of results) {
-          result.zyclopsVerified = true;
-        }
-        slog(`🤖 Tagged ${results.length} result(s) as Zyclops-verified for ${this.indexer.name}`);
-      }
       if (searchExitIp) {
         for (const result of results) result.searchExitIp = searchExitIp;
       }
@@ -299,24 +233,19 @@ export class UsenetSearcher {
           try {
             // Double-probe per page so a rotation during this page's axios
             // call can't stamp the wrong IP. See consensusSearchIp.
-            const pagePreIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'movie-search', this.indexer.name, true);
+            const pagePreIp = await probeSearchExitIp(this.indexer.url, 'movie-search', this.indexer.name, true);
             const pageResponse = await axios.get(effectiveUrl, {
               params: { ...params, offset: currentOffset },
               timeout: this.getTimeoutMs(),
               headers: { 'User-Agent': userAgent },
-              ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
+              ...getAxiosProxyConfig(this.indexer.url, this.indexer.name),
             });
-            const pagePostIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'movie-search', this.indexer.name);
+            const pagePostIp = await probeSearchExitIp(this.indexer.url, 'movie-search', this.indexer.name);
             const pageExitIp = consensusSearchIp(pagePreIp, pagePostIp, this.indexer.name, 'movie-search');
 
             const pageData = await parseNewznabXmlWithMeta(pageResponse.data);
             if (pageData.results.length === 0) break;
 
-            if (isZyclops) {
-              for (const result of pageData.results) {
-                result.zyclopsVerified = true;
-              }
-            }
             if (pageExitIp) {
               for (const result of pageData.results) result.searchExitIp = pageExitIp;
             }
@@ -536,7 +465,7 @@ export class UsenetSearcher {
       }
 
       // ID-based search (IMDB, TVDB, TVmaze)
-      const { url: effectiveUrl, extraParams, isZyclops } = this.getEffectiveEndpoint();
+      const effectiveUrl = this.indexer.url;
 
       const params: any = {
         t: 'tvsearch',  // TV search function
@@ -544,15 +473,14 @@ export class UsenetSearcher {
         season: season,
         ep: episode,
         extended: 1,
-        ...extraParams,
       };
 
       if (externalId) {
         params[externalId.idParam] = externalId.idValue;
-        slog(`🔍 TV search for ${externalId.idParam}: ${externalId.idValue} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
+        slog(`🔍 TV search for ${externalId.idParam}: ${externalId.idValue} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')} ${this.timeoutLabel()}`);
       } else if (imdbId.startsWith('tt')) {
         params.imdbid = imdbId.replace('tt', '');  // Remove 'tt' prefix
-        slog(`🔍 TV search for IMDB: ${imdbId} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}${isZyclops ? ' (via Zyclops, ' : ' '}${this.timeoutLabel()}${isZyclops ? ')' : ''}`);
+        slog(`🔍 TV search for IMDB: ${imdbId} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')} ${this.timeoutLabel()}`);
       } else {
         slog(`⚠️  TV imdb-method search skipped: no externalId and imdbId "${imdbId}" is not a tt-prefixed IMDB id`);
         return [];
@@ -570,16 +498,15 @@ export class UsenetSearcher {
       let total: number | undefined;
       let searchExitIp: string | undefined;
       try {
-        // SAFETY: Skip proxy when Zyclops is enabled, Zyclops IS the proxy.
         // Double-probe (pre/post) and stamp only on agreement. See consensusSearchIp.
-        const preIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'tv-search', this.indexer.name, true);
+        const preIp = await probeSearchExitIp(this.indexer.url, 'tv-search', this.indexer.name, true);
         const response = await axios.get(effectiveUrl, {
           params,
           timeout: this.getTimeoutMs(),
           headers: { 'User-Agent': userAgent },
-          ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
+          ...getAxiosProxyConfig(this.indexer.url, this.indexer.name),
         });
-        const postIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'tv-search', this.indexer.name);
+        const postIp = await probeSearchExitIp(this.indexer.url, 'tv-search', this.indexer.name);
         searchExitIp = consensusSearchIp(preIp, postIp, this.indexer.name, 'tv-search');
 
         slog(`✅ Response received (${response.status}), parsing...`);
@@ -589,13 +516,6 @@ export class UsenetSearcher {
         total = parsed.total;
         slog(`   📦 Found ${results.length} results${total ? ` (total: ${total})` : ''}`);
 
-        // Tag results from Zyclops as pre-verified healthy
-        if (isZyclops) {
-          for (const result of results) {
-            result.zyclopsVerified = true;
-          }
-          slog(`🤖 Tagged ${results.length} result(s) as Zyclops-verified for ${this.indexer.name}`);
-        }
         if (searchExitIp) {
           for (const result of results) result.searchExitIp = searchExitIp;
         }
@@ -620,24 +540,19 @@ export class UsenetSearcher {
           try {
             // Double-probe per page so a rotation during this page's axios
             // call can't stamp the wrong IP. See consensusSearchIp.
-            const pagePreIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'tv-search', this.indexer.name, true);
+            const pagePreIp = await probeSearchExitIp(this.indexer.url, 'tv-search', this.indexer.name, true);
             const pageResponse = await axios.get(effectiveUrl, {
               params: { ...params, offset: currentOffset },
               timeout: this.getTimeoutMs(),
               headers: { 'User-Agent': userAgent },
-              ...(isZyclops ? {} : getAxiosProxyConfig(this.indexer.url, this.indexer.name)),
+              ...getAxiosProxyConfig(this.indexer.url, this.indexer.name),
             });
-            const pagePostIp = isZyclops ? undefined : await probeSearchExitIp(this.indexer.url, 'tv-search', this.indexer.name);
+            const pagePostIp = await probeSearchExitIp(this.indexer.url, 'tv-search', this.indexer.name);
             const pageExitIp = consensusSearchIp(pagePreIp, pagePostIp, this.indexer.name, 'tv-search');
 
             const pageData = await parseNewznabXmlWithMeta(pageResponse.data);
             if (pageData.results.length === 0) break;
 
-            if (isZyclops) {
-              for (const result of pageData.results) {
-                result.zyclopsVerified = true;
-              }
-            }
             if (pageExitIp) {
               for (const result of pageData.results) result.searchExitIp = pageExitIp;
             }

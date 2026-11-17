@@ -13,19 +13,6 @@ export interface IndexerCaps {
   tvSearchParams: string[];
 }
 
-export interface ZyclopsIndexerConfig {
-  enabled: boolean;
-  backbone?: string[];
-  providerHosts?: string;
-  showUnknown?: boolean;
-  singleIp?: boolean;
-  preZyclopsState?: {
-    enabled: boolean;
-    proxy: boolean;
-    healthCheck: boolean;
-  };
-}
-
 export interface Indexer {
   name: string;
   url: string;
@@ -42,7 +29,6 @@ export interface Indexer {
   maxPages?: number;
   timeoutEnabled?: boolean;
   timeout?: number;
-  zyclops?: ZyclopsIndexerConfig;
 }
 
 export interface SyncedIndexer {
@@ -189,7 +175,6 @@ export interface Config {
   easynewsHealthCheck?: boolean;
   indexerPriority?: string[];
   streamDisplayConfig?: StreamDisplayConfig;
-  zyclopsEndpoint?: string;
 }
 
 export interface IndexerPreset {
@@ -202,7 +187,7 @@ export interface IndexerPreset {
 export type Tab = 'dashboard' | 'install';
 
 
-export type OverlayType = 'indexManager' | 'streaming' | 'nzbDatabase' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'ultimateFallback' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | 'zyclops' | null;
+export type OverlayType = 'indexManager' | 'streaming' | 'nzbDatabase' | 'cache' | 'stats' | 'userAgent' | 'filters' | 'healthChecks' | 'ultimateFallback' | 'proxy' | 'logs' | 'autoPlay' | 'streamDisplay' | null;
 
 export interface LogEntry {
   timestamp: string;

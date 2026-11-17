@@ -390,7 +390,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
       for (const [key, val] of newHealth) healthMap.set(key, val);
       allResults = filteredResults;
 
-      // Auto-mark EasyNews and Zyclops results as verified
+      // Auto-mark EasyNews results as verified
       autoMarkRemainingResults(allResults, healthMap);
 
       // Display library in results: mark search results that already exist in

@@ -7,7 +7,6 @@
 import { Router } from 'express';
 import type { Config, UsenetIndexer } from '../types.js';
 import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
-import { checkZyclopsUrlConflict } from '../utils/indexerHelpers.js';
 
 /**
  * Validate timeoutEnabled/timeout fields on an indexer payload.
@@ -53,7 +52,7 @@ interface IndexerDeps {
   updateIndexer: (name: string, updates: Partial<UsenetIndexer>) => UsenetIndexer;
   deleteIndexer: (name: string) => void;
   reorderIndexers: (indexers: UsenetIndexer[]) => void;
-  fetchIndexerCaps: (url: string, apiKey: string, indexerName?: string, zyclops?: any) => Promise<any>;
+  fetchIndexerCaps: (url: string, apiKey: string, indexerName?: string) => Promise<any>;
   proxyFetch: (url: string, options?: { headers?: Record<string, string>; method?: string; signal?: AbortSignal; body?: any }, indexerName?: string) => Promise<{ ok: boolean; status: number; statusText: string; text: () => Promise<string>; json: () => Promise<any>; headers: Map<string, string> }>;
   getLatestVersions: () => { chrome: string; prowlarr: string };
 }
@@ -68,7 +67,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
 
   router.post('/', (req, res) => {
     try {
-      const { name, url: rawUrl, apiKey, website, logo, movieSearchMethod, tvSearchMethod, animeMovieSearchMethod, animeTvSearchMethod, caps, zyclops, pagination, maxPages, timeoutEnabled, timeout } = req.body;
+      const { name, url: rawUrl, apiKey, website, logo, movieSearchMethod, tvSearchMethod, animeMovieSearchMethod, animeTvSearchMethod, caps, pagination, maxPages, timeoutEnabled, timeout } = req.body;
 
       if (!name || !rawUrl || !apiKey) {
         return res.status(400).json({ error: 'Name, URL, and API key are required' });
@@ -81,17 +80,7 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
 
       const url = normalizeNewznabUrl(rawUrl);
 
-      // SAFETY: Check for duplicate indexer URLs when Zyclops is involved
-      const conflict = checkZyclopsUrlConflict(url, !!zyclops?.enabled, getIndexers());
-      if (conflict) {
-        console.warn(`\u{1F916} Zyclops URL conflict blocked: ${name} (${url}) \u2014 ${conflict}`);
-        return res.status(400).json({ error: conflict });
-      }
-
-      if (zyclops?.enabled) {
-        console.log(`\u{1F916} Adding indexer ${name} with Zyclops enabled (backbone: ${zyclops.backbone?.join(',') || 'none'}, provider_host: ${zyclops.providerHosts || 'none'})`);
-      }
-      const indexer = addIndexer({ name, url, apiKey, website, logo, movieSearchMethod, tvSearchMethod, animeMovieSearchMethod, animeTvSearchMethod, caps, zyclops, pagination, maxPages, timeoutEnabled, timeout });
+      const indexer = addIndexer({ name, url, apiKey, website, logo, movieSearchMethod, tvSearchMethod, animeMovieSearchMethod, animeTvSearchMethod, caps, pagination, maxPages, timeoutEnabled, timeout });
       res.status(201).json(indexer);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -117,41 +106,8 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
         return res.status(400).json({ error: timeoutErr });
       }
 
-      // SAFETY: Check for duplicate indexer URLs when Zyclops is toggled
-      if (updates.zyclops !== undefined || updates.url !== undefined) {
-        const currentIndexer = getIndexers().find(i => i.name === name);
-        if (currentIndexer) {
-          const effectiveUrl = updates.url || currentIndexer.url;
-          const effectiveZyclops = updates.zyclops !== undefined ? updates.zyclops?.enabled : currentIndexer.zyclops?.enabled;
-          const conflict = checkZyclopsUrlConflict(effectiveUrl, !!effectiveZyclops, getIndexers(), name);
-          if (conflict) {
-            console.warn(`\u{1F916} Zyclops URL conflict blocked on update: ${name} \u2014 ${conflict}`);
-            return res.status(400).json({ error: conflict });
-          }
-        }
-      }
-
-      // Validate and strip preZyclopsState to known fields only
-      if (updates.zyclops?.preZyclopsState != null) {
-        const pzs = updates.zyclops.preZyclopsState;
-        if (typeof pzs.enabled !== 'boolean' || typeof pzs.proxy !== 'boolean' || typeof pzs.healthCheck !== 'boolean') {
-          return res.status(400).json({ error: 'Invalid preZyclopsState: expected { enabled: boolean, proxy: boolean, healthCheck: boolean }' });
-        }
-        updates.zyclops.preZyclopsState = { enabled: pzs.enabled, proxy: pzs.proxy, healthCheck: pzs.healthCheck };
-      }
-
-      // Log Zyclops state changes
-      if (updates.zyclops !== undefined) {
-        const wasEnabled = getIndexers().find(i => i.name === name)?.zyclops?.enabled;
-        const willBeEnabled = updates.zyclops?.enabled;
-        if (willBeEnabled && !wasEnabled) {
-          console.log(`\u{1F916} Zyclops enabled for ${name} (backbone: ${updates.zyclops.backbone?.join(',') || 'none'}, provider_host: ${updates.zyclops.providerHosts || 'none'})`);
-        } else if (!willBeEnabled && wasEnabled) {
-          console.log(`\u{1F916} Zyclops disabled for ${name}`);
-        } else if (willBeEnabled) {
-          console.log(`\u{1F916} Zyclops config updated for ${name}: backbone=${updates.zyclops.backbone?.join(',') || 'none'}, provider_host=${updates.zyclops.providerHosts || 'none'}, show_unknown=${updates.zyclops.showUnknown ?? 'default'}, single_ip=${updates.zyclops.singleIp ?? 'default'}`);
-        }
-      }
+      // Zyclops support was removed; ignore the field if an older UI still sends it
+      delete updates.zyclops;
 
       // Log timeout state changes (audit trail for "why did searches start timing out?")
       // Compare effective values so PUTs that resend default-equal values don't spam.
@@ -203,34 +159,12 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
         return res.status(404).json({ error: 'Indexer not found' });
       }
 
-      // Build test URL — route through Zyclops if enabled (SAFETY: never query indexer directly when Zyclops is on)
-      let searchUrl: string;
-      if (indexer.zyclops?.enabled) {
-        const zyclopsBase = (config.zyclopsEndpoint || 'https://zyclops.elfhosted.com').replace(/\/$/, '');
-        const zyclopsParams = new URLSearchParams({
-          t: 'search',
-          apikey: indexer.apiKey,
-          q: query,
-          limit: '50',
-          target: indexer.url,
-        });
-        if (indexer.zyclops.backbone?.length) zyclopsParams.set('backbone', indexer.zyclops.backbone.join(','));
-        if (indexer.zyclops.providerHosts) zyclopsParams.set('provider_host', indexer.zyclops.providerHosts);
-        if (indexer.zyclops.showUnknown === true) zyclopsParams.set('show_unknown', 'true');
-        if (indexer.zyclops.singleIp === false) zyclopsParams.set('single_ip', 'false');
-        // Replace %2C back to commas — URLSearchParams encodes them but Zyclops expects raw commas
-        searchUrl = `${zyclopsBase}/api?${zyclopsParams.toString().replace(/%2C/gi, ',')}`;
-      } else {
-        searchUrl = `${indexer.url}?t=search&apikey=${indexer.apiKey}&q=${encodeURIComponent(query)}&limit=50`;
-      }
+      const searchUrl = `${indexer.url}?t=search&apikey=${indexer.apiKey}&q=${encodeURIComponent(query)}&limit=50`;
 
       const userAgent = config.userAgents?.indexerSearch || getLatestVersions().chrome;
       const headers = { 'User-Agent': userAgent };
-      console.log('\u{1F4E4} Request to test indexer:', { url: indexer.zyclops?.enabled ? '(via Zyclops)' : searchUrl, headers });
-      // SAFETY: Skip proxy when going through Zyclops
-      const response = indexer.zyclops?.enabled
-        ? await fetch(searchUrl, { headers })
-        : await proxyFetch(searchUrl, { headers }, indexer.name);
+      console.log('\u{1F4E4} Request to test indexer:', { url: searchUrl, headers });
+      const response = await proxyFetch(searchUrl, { headers }, indexer.name);
 
       if (!response.ok) {
         return res.status(400).json({
@@ -341,14 +275,14 @@ export function createIndexerRoutes(deps: IndexerDeps): Router {
 
   router.post('/caps', async (req, res) => {
     try {
-      const { url: rawUrl, apiKey, indexerName, zyclops } = req.body;
+      const { url: rawUrl, apiKey, indexerName } = req.body;
 
       if (!rawUrl || !apiKey) {
         return res.status(400).json({ error: 'URL and API key are required' });
       }
 
       const url = normalizeNewznabUrl(rawUrl);
-      const caps = await fetchIndexerCaps(url, apiKey, indexerName, zyclops);
+      const caps = await fetchIndexerCaps(url, apiKey, indexerName);
       res.json(caps);
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to fetch capabilities' });

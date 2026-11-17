@@ -32,7 +32,6 @@ import FiltersOverlay from './components/overlays/FiltersOverlay';
 import HealthChecksOverlay from './components/overlays/HealthChecksOverlay';
 import { UltimateFallbackOverlay } from './components/overlays/UltimateFallbackOverlay';
 import { StreamDisplayOverlay } from './components/overlays/StreamDisplayOverlay';
-import { ZyclopsOverlay } from './components/overlays/ZyclopsOverlay';
 import { LogsOverlay } from './components/overlays/LogsOverlay';
 
 // Modals
@@ -92,8 +91,6 @@ function App() {
   const pwaStateRef = useRef({
     deleteConfirmation: ac.deleteConfirmation,
     directModeWarning: ac.directModeWarning,
-    zyclopsConfirmDialog: ac.zyclopsConfirmDialog,
-    singleIpConfirmDialog: ac.singleIpConfirmDialog,
     showAddIndexer: ac.showAddIndexer,
     expandedIndexer: ac.expandedIndexer,
     selectedSyncedIndexer: ac.selectedSyncedIndexer,
@@ -103,8 +100,6 @@ function App() {
   pwaStateRef.current = {
     deleteConfirmation: ac.deleteConfirmation,
     directModeWarning: ac.directModeWarning,
-    zyclopsConfirmDialog: ac.zyclopsConfirmDialog,
-    singleIpConfirmDialog: ac.singleIpConfirmDialog,
     showAddIndexer: ac.showAddIndexer,
     expandedIndexer: ac.expandedIndexer,
     selectedSyncedIndexer: ac.selectedSyncedIndexer,
@@ -125,10 +120,6 @@ function App() {
         ac.setDirectModeWarning({ show: false });
       } else if (s.deleteConfirmation.show) {
         ac.setDeleteConfirmation({ show: false, indexerName: '' });
-      } else if (s.zyclopsConfirmDialog.show) {
-        ac.setZyclopsConfirmDialog({ show: false, indexerName: '' });
-      } else if (s.singleIpConfirmDialog.show) {
-        ac.setSingleIpConfirmDialog({ show: false, indexerName: '' });
       } else if (s.showAddIndexer) {
         ac.setShowAddIndexer(false);
       } else if (s.expandedIndexer) {
@@ -950,33 +941,6 @@ function App() {
         />
       )}
 
-      {/* Zyclops Overlay */}
-      {ac.activeOverlay === 'zyclops' && (
-        <ZyclopsOverlay
-          onClose={() => ac.setActiveOverlay(null)}
-          apiFetch={apiFetch}
-          config={ac.config}
-          setConfig={ac.setConfig}
-          failedLogos={ac.failedLogos}
-          setFailedLogos={ac.setFailedLogos}
-          zyclopsEndpoint={ac.zyclopsEndpoint}
-          setZyclopsEndpoint={ac.setZyclopsEndpoint}
-          zyclopsTestStatus={ac.zyclopsTestStatus}
-          setZyclopsTestStatus={ac.setZyclopsTestStatus}
-          zyclopsTestMessage={ac.zyclopsTestMessage}
-          setZyclopsTestMessage={ac.setZyclopsTestMessage}
-          zyclopsConfirmDialog={ac.zyclopsConfirmDialog}
-          setZyclopsConfirmDialog={ac.setZyclopsConfirmDialog}
-          singleIpConfirmDialog={ac.singleIpConfirmDialog}
-          setSingleIpConfirmDialog={ac.setSingleIpConfirmDialog}
-          inflightToggle={ac.zyclopsInflightToggle}
-          setInflightToggle={ac.setZyclopsInflightToggle}
-          proxyIndexers={ac.proxyIndexers}
-          setProxyIndexers={ac.setProxyIndexers}
-          healthChecks={ac.healthChecks}
-          setHealthChecks={ac.setHealthChecks}
-        />
-      )}
 
       {/* Logs Overlay */}
       {ac.activeOverlay === 'logs' && (

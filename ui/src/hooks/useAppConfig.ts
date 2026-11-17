@@ -214,14 +214,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const [easynewsTestStatus, setEasynewsTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [easynewsTestMessage, setEasynewsTestMessage] = useState('');
 
-  // ─── Zyclops ────────────────────────────────────────────────────────
-  const [zyclopsEndpoint, setZyclopsEndpoint] = useState('https://zyclops.elfhosted.com');
-  const [zyclopsTestStatus, setZyclopsTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [zyclopsTestMessage, setZyclopsTestMessage] = useState('');
-  const [zyclopsConfirmDialog, setZyclopsConfirmDialog] = useState<{ show: boolean; indexerName: string }>({ show: false, indexerName: '' });
-  const [singleIpConfirmDialog, setSingleIpConfirmDialog] = useState<{ show: boolean; indexerName: string }>({ show: false, indexerName: '' });
-  const [zyclopsInflightToggle, setZyclopsInflightToggle] = useState<Set<string>>(new Set());
-
   // ─── User-Agent ─────────────────────────────────────────────────────
   const defaultChromeUA = DEFAULT_CHROME_UA;
   const [userAgents, setUserAgents] = useState({
@@ -392,13 +384,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     const timer = setTimeout(() => saveSettings({ easynewsEnabled, easynewsUsername, easynewsPassword, easynewsPagination, easynewsMaxPages: easynewsPagination ? easynewsMaxPages : undefined, easynewsTimeoutEnabled, easynewsTimeout, easynewsMode, easynewsHealthCheck }), 500);
     return () => clearTimeout(timer);
   }, [easynewsEnabled, easynewsUsername, easynewsPassword, easynewsPagination, easynewsMaxPages, easynewsTimeoutEnabled, easynewsTimeout, easynewsMode, easynewsHealthCheck, saveSettings]);
-
-  // Auto-save: zyclops endpoint
-  useEffect(() => {
-    if (!initialLoadDone.current) return;
-    const timer = setTimeout(() => saveSettings({ zyclopsEndpoint }), 500);
-    return () => clearTimeout(timer);
-  }, [zyclopsEndpoint, saveSettings]);
 
   // Auto-save: search config (API keys, season packs - methods are now per-indexer)
   useEffect(() => {
@@ -627,7 +612,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
       setEasynewsTimeout(data.easynewsTimeout ?? DEFAULT_INDEXER_TIMEOUT_SECONDS);
       setEasynewsMode(data.easynewsMode || 'nzb');
       setEasynewsHealthCheck(data.easynewsHealthCheck ?? true);
-      setZyclopsEndpoint(data.zyclopsEndpoint || 'https://zyclops.elfhosted.com');
 
       // Ensure all cards are in cardOrder (backward compat)
       let order = data.cardOrder || [...DEFAULT_CARD_ORDER];
@@ -684,14 +668,8 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
           order = [...order, 'streamDisplay'];
         }
       }
-      if (!order.includes('zyclops')) {
-        const proxyIndex = order.indexOf('proxy');
-        if (proxyIndex !== -1) {
-          order = [...order.slice(0, proxyIndex + 1), 'zyclops', ...order.slice(proxyIndex + 1)];
-        } else {
-          order = [...order, 'zyclops'];
-        }
-      }
+      // Zyclops support was removed: drop its card from saved layouts
+      order = order.filter((k: string) => k !== 'zyclops');
       if (!order.includes('nzbDatabase')) {
         const healthIdx = order.indexOf('healthChecks');
         order = healthIdx !== -1
@@ -699,9 +677,9 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
           : [...order, 'nzbDatabase'];
       }
       if (!order.includes('ultimateFallback')) {
-        const zyclopsIdx = order.indexOf('zyclops');
-        order = zyclopsIdx !== -1
-          ? [...order.slice(0, zyclopsIdx + 1), 'ultimateFallback', ...order.slice(zyclopsIdx + 1)]
+        const proxyIdx = order.indexOf('proxy');
+        order = proxyIdx !== -1
+          ? [...order.slice(0, proxyIdx + 1), 'ultimateFallback', ...order.slice(proxyIdx + 1)]
           : [...order, 'ultimateFallback'];
       }
       setCardOrder(order);
@@ -1271,8 +1249,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
   const setExpandedIndexerWithSentinel = useSentinelSetter(expandedIndexer, setExpandedIndexer, v => v !== null);
   const setSelectedSyncedIndexerWithSentinel = useSentinelSetter(selectedSyncedIndexer, setSelectedSyncedIndexer, v => v !== null);
   const setDeleteConfirmationWithSentinel = useSentinelSetter(deleteConfirmation, setDeleteConfirmation, v => v.show);
-  const setZyclopsConfirmDialogWithSentinel = useSentinelSetter(zyclopsConfirmDialog, setZyclopsConfirmDialog, v => v.show);
-  const setSingleIpConfirmDialogWithSentinel = useSentinelSetter(singleIpConfirmDialog, setSingleIpConfirmDialog, v => v.show);
   const setDirectModeWarningWithSentinel = useSentinelSetter(directModeWarning, setDirectModeWarning, v => v.show);
   const setLibraryDeleteWarningWithSentinel = useSentinelSetter(libraryDeleteWarning, setLibraryDeleteWarning, v => v.show);
   const setActiveTabWithSentinel = useSentinelSetter(activeTab, setActiveTab, v => v !== 'dashboard');
@@ -1410,13 +1386,6 @@ export function useAppConfig(apiFetch: ApiFetch, _authStatus: string) {
     easynewsTestStatus, setEasynewsTestStatus,
     easynewsTestMessage, setEasynewsTestMessage,
 
-    // Zyclops
-    zyclopsEndpoint, setZyclopsEndpoint,
-    zyclopsTestStatus, setZyclopsTestStatus,
-    zyclopsTestMessage, setZyclopsTestMessage,
-    zyclopsConfirmDialog, setZyclopsConfirmDialog: setZyclopsConfirmDialogWithSentinel,
-    singleIpConfirmDialog, setSingleIpConfirmDialog: setSingleIpConfirmDialogWithSentinel,
-    zyclopsInflightToggle, setZyclopsInflightToggle,
 
     // User agents
     defaultChromeUA,

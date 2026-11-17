@@ -76,12 +76,8 @@ function isProxyEnabled(): boolean {
 
 /**
  * Check whether proxy is enabled for a specific indexer.
- * Two cases force-bypass the HTTP proxy at every layer (search, grab,
- * prefetch, health-check):
- *  - Zyclops-routed indexers: Zyclops IS the proxy for that indexer, so an
- *    HTTP proxy on top would create a double-tunnel and a search/grab IP
- *    mismatch the verifier can't reason about.
- *  - The built-in EasyNews indexer: its searcher, /nzb route, and /resolve
+ * The built-in EasyNews indexer force-bypasses the HTTP proxy at every layer
+ * (search, grab, prefetch, health-check): its searcher, /nzb route, and /resolve
  *    route all call easynews.com directly with no proxy agent attached. The
  *    HTTP proxy is never on the wire for EasyNews traffic, so verifyProxyCircuit
  *    must take the bypass branch instead of firing the "missing baseline"
@@ -91,7 +87,6 @@ function isProxyEnabled(): boolean {
 function isProxyEnabledForIndexer(indexerName: string): boolean {
   if (config.proxyMode === 'disabled' || !config.proxyMode) return false;
   const indexer = config.indexers?.find(i => i.name === indexerName);
-  if (indexer?.zyclops?.enabled) return false;
   if (!indexer && indexerName.toLowerCase() === 'easynews') return false;
   const indexerMap = config.proxyIndexers;
   if (!indexerMap) return true; // default: all indexers proxied

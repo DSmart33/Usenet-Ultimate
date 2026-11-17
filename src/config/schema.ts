@@ -14,7 +14,6 @@ import { DEFAULT_INDEXER_TIMEOUT_SECONDS } from '../types.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 export const CONFIG_FILE = path.join(__dirname, '..', '..', 'config', 'config.json');
-export const ZYCLOPS_DEFAULT_ENDPOINT = process.env.ZYCLOPS_ENDPOINT || 'https://zyclops.elfhosted.com';
 
 export interface ConfigData {
   addonEnabled?: boolean;
@@ -62,7 +61,6 @@ export interface ConfigData {
   easynewsMode?: 'ddl' | 'nzb';
   easynewsHealthCheck?: boolean;
   indexerPriority?: string[];
-  zyclopsEndpoint?: string;
   proxyMode?: 'disabled' | 'http';
   proxyUrl?: string;
   proxyIndexers?: Record<string, boolean>;
@@ -209,7 +207,6 @@ const ENV_OVERRIDES: readonly string[] = [
   'ENABLE_REMAKE_DETECTION', 'ALLOW_MULTI_EPISODE_FILES', 'URL_DEDUP', 'DISPLAY_LIBRARY_IN_RESULTS', 'ABSOLUTE_EPISODE_FALLBACK', 'PARALLEL_ALTERNATE_TITLE_SEARCH', 'LIBRARY_SEARCH_THRESHOLD',
   'HEALTH_CHECK_ENABLED', 'HEALTH_CHECK_NNTP_HOST', 'HEALTH_CHECK_NNTP_PORT',
   'HEALTH_CHECK_NNTP_TLS', 'HEALTH_CHECK_NNTP_USER', 'HEALTH_CHECK_NNTP_PASS',
-  'ZYCLOPS_ENDPOINT',
   'ULTIMATE_FALLBACK_ENABLED', 'ULTIMATE_FALLBACK_CANDIDATE_COUNT', 'ULTIMATE_FALLBACK_PREFERENCE_MODE',
   'ULTIMATE_FALLBACK_SAMPLE_COUNT', 'ULTIMATE_FALLBACK_HEALTH_CHECK_ENABLED',
   'ULTIMATE_FALLBACK_WHEN_TO_RESOLVE', 'ULTIMATE_FALLBACK_USER_PICK_FALLBACK',
